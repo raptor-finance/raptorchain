@@ -1,0 +1,58 @@
+## Chain info (under `/chain/`)
+### Get a block by number
+`/chain/block/<blockNumber>`
+
+Example request : `https://siricoin-node-1.dynamic-dns.net:5005/chain/block/1`
+
+
+### Get a block by hash
+`/chain/blockByHash/<blockHash>`
+
+Example request : `https://siricoin-node-1.dynamic-dns.net:5005/chain/blockByHash/0x3852a35b7fe676c8e5719acf90e3b6037e817d6c9b07c5bf2eb16e52f9fe185c`
+
+
+
+## Transaction getters (under `/get/`)
+### Get all transactions in node
+
+`/get/transactions`
+
+Example request : `https://siricoin-node-1.dynamic-dns.net:5005/get/transactions`
+
+
+
+### Get a transaction by hash
+`/get/transaction/<txid>`
+
+Example request : `https://siricoin-node-1.dynamic-dns.net:5005/get/transaction/0x2b006c3ae0fdf48bd9be2fefe0b73101b121a27f74d47b819c1b658ec79fdfbb`
+
+
+
+### Get set of transactions by hashes (comma-separated)
+`/get/transactions/<txids>`
+
+Example request : `https://siricoin-node-1.dynamic-dns.net:5005/get/transactions/0x2b006c3ae0fdf48bd9be2fefe0b73101b121a27f74d47b819c1b658ec79fdfbb,0x61b9cd541a750f5ad6f9dd956dc50193771a7540f1eff2da2366787dcfa37589`
+
+
+
+## Account getters (under `/accounts/`)
+### Get info about an account
+`/accounts/accountInfo/<address>`
+
+Example request : `https://siricoin-node-1.dynamic-dns.net:5005/accounts/accountInfo/0x3f119Cef08480751c47a6f59Af1AD2f90b319d44`
+
+
+
+## Send a transaction (under `/send/`)
+### Send a raw transaction
+`/send/rawtransaction/?tx=<tx>`
+
+Example request : `https://siricoin-node-1.dynamic-dns.net:5005/send/rawtransaction/?tx=7b2264617461223a7b2266726f6d223a22307833663131394365663038343830373531633437613666353941663141443266393062333139643434222c22746f223a22307833663131394365663038343830373531633437613666353941663141443266393062333139643434222c22746f6b656e73223a223130222c22706172656e74223a22307835323066303933316162343939363738633263333532626234383733656265616133396333663965653763666266363533396539623437643062393431646232222c2265706f6368223a22307830303030303030306164303966613137363236396630326636636337663632343462613335343537303537383634656463653465346265356563313664336232222c2274797065223a307d2c22736967223a22307834323864363735396133653966383934356436356237343366396361616233316661333233373436646664376134346638636131306663363135636435653536313130323137306435343465626666643532353234356535626437643564396134306630616335376230323564316264666562646138363361353139663462343163222c2268617368223a22307864386263373561663430623465376466393135623861326137643536643363633034346236313434353566636162353633303561623361306539373430363937222c226e6f646553696773223a7b7d7d`
+
+
+
+# Miscellaneous
+### Get network stats (such as coin supply or mining difficulty)
+`/stats`
+
+Example request : `https://siricoin-node-1.dynamic-dns.net:5005/stats`

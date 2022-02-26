@@ -1,0 +1,59 @@
+<!doctype html>
+<html>
+	<head>
+		<title>Page showing balance lol</title>
+		<script src="https://cdn.jsdelivr.net/npm/web3@latest/dist/web3.min.js"></script>
+	</head>
+	<body>
+		<h1>A wallet for my crypto lol</h1>
+		<button onclick="init()">Connect wallet</button>
+		<p>
+			<div>Address : <span id="addresslabel">Connecting wallet</span></div>
+			<div>Balance : <span id="balancelabel">0</span></div>
+		</p>
+		<p>
+			<div>
+				<input type="number" id="amounttosendinput" placeholder="Amount to send"></input>
+				<input type="text" id="recipientinput" placeholder="Address of recipient"></input>
+			</div>
+			<button onclick="transfer()">Send funds</button>
+		</p>
+		
+		
+	</body>
+	<script src="browserTransactionBuilder.js"></script>
+	<script>
+		async function refreshStatus(web3Instance) {
+				let _account = (await web3Instance.eth.getAccounts())[0];
+				let accountInfo = await getAccountInfo(_account);
+				let balance = accountInfo.balance;
+				document.getElementById("addresslabel").innerHTML = _account;
+				document.getElementById("balancelabel").innerHTML = balance;
+		}
+		
+		async function init() {
+			web3 = new Web3(window.ethereum);
+			await window.ethereum.request({ method: 'eth_requestAccounts' })
+			await refreshStatus(web3);
+		}
+		// init();
+		
+		
+		async function transfer() {
+			_to = document.getElementById("recipientinput").value;
+			_tokens = document.getElementById("amounttosendinput").value;
+			let _account = (await web3.eth.getAccounts())[0];
+			if (!web3.utils.isAddress(_to)) {
+				return (false, "INVALID_RECIPIENT");
+			}
+			if ((await getAccountInfo(_account)).balance < _tokens) {
+				return (false, "INSUFFICIENT_BALANCE");
+			}
+			let signedTx = await buildTransaction(web3, _to, _tokens);
+			console.log(signedTx);
+			let result = await sendTransaction(signedTx);
+			refreshStatus(web3);
+			return (true, result[0]);
+		}
+	</script>
+</html>
