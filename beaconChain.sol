@@ -299,6 +299,7 @@ contract BeaconChainHandler {
 		bytes32 proof;
 		uint256 height;
 		bytes32 son;
+		bytes32 parentTxRoot;
 		uint8 v;
 		bytes32 r;
 		bytes32 s;
@@ -360,7 +361,7 @@ contract BeaconChainHandler {
 	
 	function beaconHash(Beacon memory _beacon) public pure returns (bytes32 beaconRoot) {
 		bytes32 messagesRoot = keccak256(abi.encode(_beacon.messages));
-		bytes32 bRoot = keccak256(abi.encodePacked(_beacon.parent, _beacon.timestamp,  messagesRoot, _beacon.miner));
+		bytes32 bRoot = keccak256(abi.encodePacked(_beacon.parent, _beacon.timestamp,  messagesRoot, _beacon.parentTxRoot, _beacon.miner));
 		beaconRoot = keccak256(abi.encodePacked(bRoot, _beacon.nonce));
 	}
 	
