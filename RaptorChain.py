@@ -188,8 +188,11 @@ class GenesisBeacon(object):
     # def exportJson(self):
         # return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
 
+    def txsRoot(self):
+        return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
+
     def exportJson(self):
-        return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
+        return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
 
 class Beacon(object):
     # def __init__(self, parent, difficulty, timestamp, miner, logsBloom):
@@ -249,6 +252,10 @@ class Beacon(object):
             _msgs.append(f"0x{_msg_.hex()}")
         return _msgs
 
+    def txsRoot(self):
+        return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
+
+
     # def ABIEncodableTuple(self):
         # return (self.miner,int(self.nonce),self.messages,int(self.difficulty),self.miningTarget,self.timestamp,self.parent,self.proof,int(self.number),bytes.fromhex("0000000000000000000000000000000000000000000000000000000000000000"), int(self.v),  int(self.r), int(self.s))
 
@@ -267,6 +274,7 @@ class BeaconChain(object):
         self.blockTime = 600 # in seconds
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x62bba42220be7acf52bb923a0bdc098ff4db4a36", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.STIUpgradeBlock = 1
 
     def checkBeaconMessages(self, beacon):
         _messages = beacon.decodedMessages.copy()
@@ -292,6 +300,8 @@ class BeaconChain(object):
             # return (False, "ALREADY_PRODUCED_LAST_BEACON")
         if ((int(beacon.timestamp) < (int(_lastBeacon.timestamp)+int(self.blockTime))) or (beacon.timestamp > time.time())):
             return (False, "INVALID_TIMESTAMP")
+        if ((len(self.beacons) < self.STIUpgradeBlock) or (beacon.parentTxRoot == self.beacons[len(self.beacons)-1].txsRoot())):
+            return (False, "STI_UPGRADE_UNMATCHED")
         return (True, "GOOD")
     
     
