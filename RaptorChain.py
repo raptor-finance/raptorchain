@@ -12,11 +12,11 @@ from rlp.sedes import Binary, big_endian_int, binary
 
 transactions = {}
 try:
-    configFile = open("myCryptoConfig.json", "r")
+    configFile = open("raptorchainconfig.json", "r")
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "raptorchain-workingonstiupgrade.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET"}
+    config = {"dataBaseFile": "raptorchain-testnet.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET"}
 
 try:
     ssl_context = tuple(config["ssl"])
@@ -1006,7 +1006,7 @@ CORS(app)
 
 @app.route("/")
 def basicInfoHttp():
-    return "Trying to setup RaptorChain testnet"
+    return "RaptorChain testnet node running on port 2022"
 
 @app.route("/ping")
 def getping():
@@ -1199,11 +1199,11 @@ def handleWeb3Request():
     # print(data)
     method = data.get("method")
     params = data.get("params")
-    result = hex(2022)
+    result = hex(69420)
     if method == "eth_getBalance":
         result = hex(int((node.state.accounts.get(w3.toChecksumAddress(params[0]), Account(w3.toChecksumAddress(params[0]), node.state.initTxID)).balance)))
     if method == "net_version":
-        result = str(2022)
+        result = str(69420)
     if method == "eth_coinbase":
         result = node.state.beaconChain.getLastBeacon().miner
     if method == "eth_mining":
