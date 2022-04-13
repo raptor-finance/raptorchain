@@ -474,6 +474,8 @@ class State(object):
 
     def checkParent(self, tx):
         lastTx = self.getLastUserTx(tx.sender)
+        if tx.epoch != self.beaconChain.blocks[len(self.beaconChain.blocks)-1].proof:
+            return False
         if tx.txtype == 2:
             try:
                 tx.parent = self.accounts.get(tx.sender, Account(tx.sender, self.initTxID)).sent[tx.nonce - 1]
@@ -619,11 +621,11 @@ class State(object):
             self.accounts[miner].mined.append(tx.txid)
             self.accounts[miner].transactions.append(tx.txid)
         
-        _txepoch = tx.epoch or self.getGenesisEpoch()
+        _txepoch = tx.epoch
         if self.beaconChain.blocksByHash.get(_txepoch):
             self.beaconChain.blocksByHash[_txepoch].transactions.append(tx.txid)
         else:
-            self.beaconChain.blocksByHash[self.getGenesisEpoch()].transactions.append(tx.txid)
+            return False
         
         self.accounts[tx.sender].sent.append(tx.txid)
         self.accounts[tx.recipient].received.append(tx.txid)
