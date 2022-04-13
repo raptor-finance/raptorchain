@@ -58,8 +58,9 @@ class RaptorBlockProducer(object):
     
     def buildBlock(self):
         blockHeight = requests.get(f"{self.node}/chain/length").json().get("result")
-        lastBlock = requests.get(f"{self.node}/chain/miningInfo").json().get("result")
-        lastBlockHash = lastBlock.get("lastBlockHash")
+        lastBlock = requests.get(f"{self.node}/chain/getlastblock").json().get("result")
+        print(lastBlock)
+        lastBlockHash = lastBlock.get("miningData").get("proof")
         parentTxRoot = lastBlock.get("txsRoot")
         pulledMessages = self.pullAvailableMessages()
         if (len(pulledMessages) == 0):

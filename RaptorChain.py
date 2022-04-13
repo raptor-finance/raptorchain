@@ -278,8 +278,8 @@ class Beacon(object):
 
 class Masternode(object):
     def __init__(self, owner, operator):
-        self.owner = owner
-        self.operator = operator
+        self.owner = w3.toChecksumAddress(owner)
+        self.operator = w3.toChecksumAddress(operator)
         self.collateral = 1000000000000000000000000
         
 
@@ -292,7 +292,7 @@ class BeaconChain(object):
         self.pendingMessages = []
         self.blockReward = 0
         self.blockTime = 600 # in seconds
-        self.validators = {}
+        self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x73fb40714a25783eF5Eb88B3B8d096C2b487f4F0", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.STIUpgradeBlock = 1
