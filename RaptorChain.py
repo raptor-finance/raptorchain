@@ -16,7 +16,7 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "raptorchain-IHopeItWorksThisTime.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET"}
+    config = {"dataBaseFile": "raptorchain-workingonstiupgrade.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET"}
 
 try:
     ssl_context = tuple(config["ssl"])
@@ -164,6 +164,7 @@ class GenesisBeacon(object):
         self.nonce = 0
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.proof = self.proofOfWork()
+        self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
         self.transactions = []
         self.number = 0
         self.son = ""
@@ -201,7 +202,7 @@ class GenesisBeacon(object):
         return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
 
     def exportJson(self):
-        return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
+        return {"transactions": self.transactions, "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
 
 class Beacon(object):
     # def __init__(self, parent, difficulty, timestamp, miner, logsBloom):
@@ -218,6 +219,7 @@ class Beacon(object):
     def __init__(self, data, difficulty):
         miningData = data["miningData"]
         self.miner = w3.toChecksumAddress(miningData["miner"])
+        self.parentTxRoot = data.get("parentTxRoot", "0x0000000000000000000000000000000000000000000000000000000000000000")
         self.nonce = miningData["nonce"]
         self.difficulty = difficulty
         self.messages = bytes.fromhex(data['messages'].replace('0x', ''))
@@ -229,7 +231,6 @@ class Beacon(object):
         self.proof = self.proofOfWork()
         self.number = 0
         self.son = ""
-        self.parentTxRoot = data.get("parentTxRoot", None)
         self.v = data["signature"]["v"]
         self.r = data["signature"]["r"]
         self.s = data["signature"]["s"]
@@ -253,6 +254,9 @@ class Beacon(object):
         return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
 
     def signatureMatched(self):
+        print(f"Block proof : {self.proof}")
+        print(f"Signer : {w3.eth.account.recoverHash(self.proof, vrs=(self.v, self.r, self.s))}")
+        print(f"Miner : {self.miner}")
         return (w3.eth.account.recoverHash(self.proof, vrs=(self.v, self.r, self.s)) == self.miner)
 
     def messagesToHex(self):
@@ -270,7 +274,7 @@ class Beacon(object):
 
     def exportJson(self):
         # return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
-        return {"transactions": self.transactions, "messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}}
+        return {"transactions": self.transactions, "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": "0x0000000000000000000000000000000000000000000000000000000000000000", "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}}
 
 class Masternode(object):
     def __init__(self, owner, operator):
@@ -319,8 +323,8 @@ class BeaconChain(object):
             # return (False, "ALREADY_PRODUCED_LAST_BEACON")
         if ((int(beacon.timestamp) < (int(_lastBeacon.timestamp)+int(self.blockTime))) or (beacon.timestamp > time.time())):
             return (False, "INVALID_TIMESTAMP")
-        # if ((len(self.beacons) < self.STIUpgradeBlock) or (beacon.parentTxRoot == self.beacons[len(self.beacons)-1].txsRoot())):
-            # return (False, "STI_UPGRADE_UNMATCHED")
+        if ((len(self.beacons) < self.STIUpgradeBlock) or (beacon.parentTxRoot == self.beacons[len(self.beacons)-1].txsRoot())):
+            return (False, "STI_UPGRADE_UNMATCHED")
         return (True, "GOOD")
     
     

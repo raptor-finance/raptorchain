@@ -20,9 +20,9 @@ class BSCInterface(object):
         elif (rpc.split(":")[0]) in ["http", "https"]:
             self.chain = Web3(Web3.HTTPProvider(rpc))
         self.masterContract = self.chain.eth.contract(address=Web3.toChecksumAddress(MasterContractAddress), abi=MasterContractABI)
-        self.stakingContract = self.chain.eth.contract(address=self.masterContract.functions.staking().call(), abi=StakingContractABI)
+        # self.stakingContract = self.chain.eth.contract(address=self.masterContract.functions.staking().call(), abi=StakingContractABI)
         self.custodyContract = self.chain.eth.contract(address=self.masterContract.functions.custody().call(), abi=CustodyContractABI)
-        self.beaconChainContract = self.chain.eth.contract(address=self.masterContract.functions.beaconchain().call(), abi=BeaconChainContractABI)
+        # self.beaconChainContract = self.chain.eth.contract(address=self.masterContract.functions.beaconchain().call(), abi=BeaconChainContractABI)
         
         
     def getDepositDetails(self, _hash):
@@ -40,37 +40,34 @@ class RaptorBlockProducer(object):
     def __init__(self, nodeip, privkey):
         self.node = nodeip
         self.acct = w3.eth.account.from_key(privkey)
-        self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x62bba42220be7acf52bb923a0bdc098ff4db4a36", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x73fb40714a25783eF5Eb88B3B8d096C2b487f4F0", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
     
     def pullAvailableMessages(self):
         hexmessages = requests.get(f"{self.node}/chain/mempool").json().get("result")
-        print(hexmessages)
         bytesmessages = []
         for hexmsg in hexmessages:
             bytesmessages.append(bytes.fromhex(hexmsg.replace("0x", "")))
-        print(len(bytesmessages))
         return bytesmessages
     
     
     def blockHash(self, block):
-        print(block["messages"])
         messagesHash = w3.keccak(bytes.fromhex(block["messages"])).hex()
-        print(messagesHash)
-        bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32","address"], [block["parent"], int(block["timestamp"]), messagesHash, self.acct.address]).hex() # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
-        print(bRoot)
+        bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32", "bytes32", "address"], [block["parent"], int(block["timestamp"]), messagesHash, block["parentTxRoot"], self.acct.address]).hex() # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
         return w3.soliditySha3(["bytes32", "uint256"], [bRoot, int(0)]).hex()
     
     def buildBlock(self):
         blockHeight = requests.get(f"{self.node}/chain/length").json().get("result")
-        lastBlockHash = requests.get(f"{self.node}/chain/miningInfo").json().get("result").get("lastBlockHash")
+        lastBlock = requests.get(f"{self.node}/chain/miningInfo").json().get("result")
+        lastBlockHash = lastBlock.get("lastBlockHash")
+        parentTxRoot = lastBlock.get("txsRoot")
         pulledMessages = self.pullAvailableMessages()
         if (len(pulledMessages) == 0):
             pulledMessages = [self.defaultMessage]
         
         abiencodedmessages = eth_abi.encode_abi(["bytes[]"], [pulledMessages])
         
-        blockData = {"miningData" : {"miner": self.acct.address,"nonce": 0,"difficulty": 1,"miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","proof": None}, "height": blockHeight,"parent": lastBlockHash,"messages": abiencodedmessages.hex(), "timestamp": int(time.time()), "son": "0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": None, "r": None, "s": None, "sig": None}}
+        blockData = {"parentTxRoot": parentTxRoot, "miningData" : {"miner": self.acct.address,"nonce": 0,"difficulty": 1,"miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","proof": None}, "height": blockHeight,"parent": lastBlockHash,"messages": abiencodedmessages.hex(), "timestamp": int(time.time()), "son": "0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": None, "r": None, "s": None, "sig": None}}
         blockData["miningData"]["proof"] = self.blockHash(blockData)
         print(blockData["miningData"]["proof"])
         _sig = self.acct.signHash(blockData["miningData"]["proof"])
@@ -103,38 +100,6 @@ class RaptorBlockProducer(object):
         _encodedSigS = bytes.fromhex(hex(block["signature"]["s"])[2:])
         
         return (self.acct.address, int(0), msgsList, 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), _encodedParent, _encodedProof, int(block["height"]), _encodedSon, int(block["signature"]["v"]), _encodedSigR, _encodedSigS)
-
-    def pushMissingBlocksToBSC(self):
-        for i in range(int(self.bsc.chainLength()), int(int(requests.get(f"{self.node}/chain/length").json().get("result"))-1)):
-            _block = requests.get(f"{self.node}/chain/block/{i}").json().get("result")
-            self.pushBlockOnBSC(_block)
-
-    def pushBlockOnBSC(self, block):
-        # msgsList = list(eth_abi.decode_abi(["bytes[]"], bytes.fromhex(block["messages"]))[0])
-        # msgsList = eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"]))
-        # print(msgsList)
-        # data = (self.acct.address, int(0), msgsList, 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), bytes.fromhex(block["parent"].replace("0x", "")), bytes.fromhex(block["miningData"]["proof"].replace("0x", "")), int(block["height"]), bytes.fromhex(block["son"].replace("0x", "")), int(block["signature"]["v"]), bytes.fromhex(hex(block["signature"]["r"])[2:]), bytes.fromhex(hex(block["signature"]["s"])[2:]))
-        data = self.blockStruct(block)
-        
-        _data = []
-        for x in list(data):
-            if type(x) == bytes:
-                _data.append(f"0x{x.hex()}")
-            elif type(x) == int:
-                _data.append(str(x))
-            else:
-                _data.append(x)
-        print(_data)
-
-        tx = self.bsc.stakingContract.functions.sendL2Block(data).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.acct.address),'chainId': self.bsc.chainID, 'gasPrice': int(11*(10**9)), "gas": 1000000, 'from':self.acct.address})
-        # tx = self.bsc.stakingContract.functions.sendL2Block(self.acct.address, int(0), eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"])), 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), bytes.fromhex(block["parent"].replace("0x", "")), bytes.fromhex(block["miningData"]["proof"].replace("0x", "")), int(block["height"]), bytes.fromhex(block["son"].replace("0x", "")), int(block["signature"]["v"]), bytes.fromhex(hex(block["signature"]["r"])[2:]), bytes.fromhex(hex(block["signature"]["s"])[2:])).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.acct.address),'chainId': self.bsc.chainID, 'gasPrice': 10, 'from':self.acct.address})
-        signedtx = self.acct.signTransaction(tx)
-        self.bsc.chain.eth.send_raw_transaction(signedtx.rawTransaction)
-        txid = w3.toHex(w3.keccak(signedtx.rawTransaction))
-        print(txid)
-        receipt = self.bsc.chain.eth.waitForTransactionReceipt(txid)
-        print(receipt)
-        return receipt
     
     def produceNewBlock(self):
         _block = self.buildBlock()
@@ -146,17 +111,15 @@ class RaptorBlockProducer(object):
         
     def blockProductionLoop(self):
         while True:
-            self.pushMissingBlocksToBSC()
             self.produceNewBlock()
-            self.pushMissingBlocksToBSC()
             time.sleep(60)
 
 # key used during tests : 47173285a8d7341e5e972fc677286384f802f8ef42a5ec5f03bbfa254cb01fad
 # this key leads to address 0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846
 
 
-nodeaddr = input("Input node address here : ")
-privkey = input("Input private key here : ")
+nodeaddr = "http://localhost:2022/"
+privkey = "47173285a8d7341e5e972fc677286384f802f8ef42a5ec5f03bbfa254cb01fad"
 
 producer = RaptorBlockProducer(nodeaddr, privkey)
 # producer.pushBlockOnBSC({"miningData": {"miner": "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846", "nonce": 0, "difficulty": 1, "miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "proof": "0x8b25b3052cb1d93f487d79771266fb330b4f52690bb1d09c26be0d247f272fa7"}, "height": 1, "parent": "0x7d9e1f415e0084675c211687b1c8dfaee67e53128e325b5fdda9c98d7288aaeb", "messages": "000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000", "timestamp": 1645475025, "son": "0x0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": 28, "r": 79009779851901873211831854445404623019765375818202350246342002756271780528694, "s": 52695979310865140892079600528745975379835716148072056739716945000819311632034, "sig": "0xaeadf35de94d451ed85e37e02ea38eec1cff3811ba96ee86e13be45dc3ba02367480de09c37a08f1b42d840d90e9b73c9d9eb0d6b5a760eb27efdf184f15dea21c"}})
