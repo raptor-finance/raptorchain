@@ -290,7 +290,7 @@ class BeaconChain(object):
         self.blockTime = 600 # in seconds
         self.validators = {}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
-        self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x62bba42220be7acf52bb923a0bdc098ff4db4a36", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x73fb40714a25783eF5Eb88B3B8d096C2b487f4F0", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.STIUpgradeBlock = 1
 
     def checkBeaconMessages(self, beacon):
@@ -525,8 +525,7 @@ class State(object):
         self.beaconChain.createValidator(tx.sender, tx.recipient)
     
     def destroyMN(self, tx):
-        willSucceed = self.estimateDestroyMNSuccess(self, tx):
-        if not willSucceed:
+        if not self.estimateDestroyMNSuccess(self, tx):
             return False
         self.getAccount(self.beaconChain.validators.get(tx.recipient).owner).balance += 1000000000000000000000000
         self.beaconChain.destroyValidator(tx.recipient)

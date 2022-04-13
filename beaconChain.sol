@@ -226,10 +226,11 @@ contract CustodyManager {
 	address beaconChainAddress;
 	StakeManager public stakingManager;
 	
-	constructor(StakeManager _stakingManager) {
-		masterContract = msg.sender;
-		stakingManager = _stakingManager;
-		beaconChainAddress = address(_stakingManager.beaconChain());
+	// constructor(StakeManager _stakingManager) {
+	constructor() {
+		// masterContract = msg.sender;
+		// stakingManager = _stakingManager;
+		// beaconChainAddress = address(_stakingManager.beaconChain());
 	}
 	
 	event Deposited(address indexed depositor, address indexed token, uint256 amount, uint256 nonce, bytes32 hash);
@@ -402,7 +403,7 @@ contract BeaconChainHandler {
 		while (n < _beacon.messages.length) {
 			(recipient, chainID, data) = abi.decode(_beacon.messages[n], (address, uint256, bytes));
 			if (chainID == _chainId()) {
-				recipient.call(abi.encodeWithSelector(byte4("bridgeFallBack(bytes32, bytes)"),keccak256(data), data));			
+				recipient.call(abi.encodeWithSelector(bytes4(keccak256("bridgeFallBack(bytes32, bytes)")),keccak256(data), data));			
 				// BridgeFallbackInterface(recipient).bridgeFallBack(keccak256(data), data);
 			}
 			n += 1;
@@ -535,15 +536,15 @@ contract StakeManager {
 }
 
 contract MasterContract {
-	StakeManager public staking;
+	// StakeManager public staking;
 	CustodyManager public custody;
-	BeaconChainHandler public beaconchain;
+	// BeaconChainHandler public beaconchain;
 	
 	constructor(address stakingToken, BeaconChainHandler.Beacon memory _genesisBeacon) {
-		staking = new StakeManager(stakingToken);
-		custody = new CustodyManager(staking);
-		beaconchain = new BeaconChainHandler(_genesisBeacon, staking);
-		staking.setBeaconHandler(beaconchain);
+		// staking = new StakeManager(stakingToken);
+		custody = new CustodyManager();
+		// beaconchain = new BeaconChainHandler(_genesisBeacon, staking);
+		// staking.setBeaconHandler(beaconchain);
 	}
 	
 }
