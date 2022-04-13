@@ -104,35 +104,44 @@ class Transaction(object):
     def __init__(self, tx):
         txData = json.loads(tx["data"])
         self.txtype = (txData.get("type") or 0)
-        if (self.txtype == 0):
+        if (self.txtype == 0): # legacy transfer
             self.fee = (10**9)*21000
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.value = max(int(txData.get("tokens")), 0)
-        if (self.txtype == 1):
+        if (self.txtype == 1): # block mining/staking tx
             self.fee = 0
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.blockData = txData.get("blockData")
             # print(self.blockData)
             self.recipient = "0x0000000000000000000000000000000000000000"
             self.value = 0
-        elif self.txtype == 2:
+        elif self.txtype == 2: # metaamask transaction
             decoder = ETHTransactionDecoder()
             ethDecoded = decoder.decode_raw_tx(txData.get("rawTx"))
-            self.fee = ethDecoded.gas_price*ethDecoded.gas
+            self.fee = ethDecoded.gas_price*21000
             self.sender = ethDecoded.from_
             self.recipient = ethDecoded.to
             self.value = int(ethDecoded.value)
             self.nonce = ethDecoded.nonce
             self.ethData = ethDecoded.data
             self.ethTxid = ethDecoded.hash_tx
-        elif self.txtype == 3:
+        elif self.txtype == 3: # deposits checking trigger
             self.fee = 0
             self.l2hash = txData["l2hash"]
             self.value = 0
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = "0x0000000000000000000000000000000000000000"
-            
+        elif self.txtype == 4: # MN create
+            self.fee = 0
+            self.value = 1000000000000000000000000
+            self.sender = w3.toChecksumAddress(txData.get("from"))
+            self.recipient = w3.toChecksumAddress(txData.get("to"))
+        elif self.txtype == 5: # MN destroy
+            self.fee = 0
+            self.value = 0
+            self.sender = w3.toChecksumAddress(txData.get("from"))
+            self.recipient = w3.toChecksumAddress(txData.get("to"))
         
         self.epoch = txData.get("epoch")
         self.bio = txData.get("bio")
@@ -263,6 +272,13 @@ class Beacon(object):
         # return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
         return {"transactions": self.transactions, "messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}}
 
+class Masternode(object):
+    def __init__(self, owner, operator):
+        self.owner = owner
+        self.operator = operator
+        self.collateral = 1000000000000000000000000
+        
+
 class BeaconChain(object):
     def __init__(self):
         self.difficulty = 1
@@ -272,6 +288,7 @@ class BeaconChain(object):
         self.pendingMessages = []
         self.blockReward = 0
         self.blockTime = 600 # in seconds
+        self.validators = {}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x62bba42220be7acf52bb923a0bdc098ff4db4a36", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.STIUpgradeBlock = 1
@@ -294,14 +311,16 @@ class BeaconChain(object):
             return (False, "INVALID_MESSAGE")
         if not beacon.signatureMatched():
             return (False, "UNMATCHED_SIGNATURE")
-        if (not self.bsc.beaconChainContract.functions.isValidatorAtBlock(len(self.blocks), w3.toChecksumAddress(beacon.miner))):
-            return (False, "NOT_A_MASTERNODE")
+        # if (not self.bsc.beaconChainContract.functions.isValidatorAtBlock(len(self.blocks), w3.toChecksumAddress(beacon.miner))):
+            # return (False, "NOT_A_MASTERNODE")
+        if not self.validators.get(w3.toChecksumAddress(beacon.miner)):
+            return (False, "NOT_IN_VALIDATOR_SET")
         # if (beacon.miner == _lastBeacon.miner):
             # return (False, "ALREADY_PRODUCED_LAST_BEACON")
         if ((int(beacon.timestamp) < (int(_lastBeacon.timestamp)+int(self.blockTime))) or (beacon.timestamp > time.time())):
             return (False, "INVALID_TIMESTAMP")
-        if ((len(self.beacons) < self.STIUpgradeBlock) or (beacon.parentTxRoot == self.beacons[len(self.beacons)-1].txsRoot())):
-            return (False, "STI_UPGRADE_UNMATCHED")
+        # if ((len(self.beacons) < self.STIUpgradeBlock) or (beacon.parentTxRoot == self.beacons[len(self.beacons)-1].txsRoot())):
+            # return (False, "STI_UPGRADE_UNMATCHED")
         return (True, "GOOD")
     
     
@@ -369,7 +388,14 @@ class BeaconChain(object):
     def postMessage(self, to, data):
         self.pendingMessages.append(eth_abi.encode_abi(["address", "uint256", "bytes"], [self.bsc.custodyContract.address, self.bsc.chainID, data]))
 #			(recipient, chainID, data) = abi.decode(_beacon.messages[n], (address, uint256, bytes));
-
+    
+    def createValidator(self, owner, operator):
+        if not self.validators.get(operator):
+            self.validators[operator] = Masternode(owner, operator)
+    
+    def destroyValidator(self, operator):
+        if self.validators.get(operator):
+            del self.validators[operator]
 
 class BSCInterface(object):
     def __init__(self, rpc, MasterContractAddress, tokenAddress):
@@ -388,9 +414,9 @@ class BSCInterface(object):
         elif (rpc.split(":")[0]) in ["http", "https"]:
             self.chain = Web3(Web3.HTTPProvider(rpc))
         self.masterContract = self.chain.eth.contract(address=Web3.toChecksumAddress(MasterContractAddress), abi=MasterContractABI)
-        self.stakingContract = self.chain.eth.contract(address=self.masterContract.functions.staking().call(), abi=StakingContractABI)
+        # self.stakingContract = self.chain.eth.contract(address=self.masterContract.functions.staking().call(), abi=StakingContractABI)
         self.custodyContract = self.chain.eth.contract(address=self.masterContract.functions.custody().call(), abi=CustodyContractABI)
-        self.beaconChainContract = self.chain.eth.contract(address=self.masterContract.functions.beaconchain().call(), abi=BeaconChainContractABI)
+        # self.beaconChainContract = self.chain.eth.contract(address=self.masterContract.functions.beaconchain().call(), abi=BeaconChainContractABI)
         
         
     def getDepositDetails(self, _hash):
@@ -427,6 +453,8 @@ class State(object):
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
         self.lastIndex = 0
 
+    def getAccount(self, _addr):
+        return self.accounts.get(w3.toChecksumAddress(_addr), Account(_addr))
 
     def getCurrentEpoch(self):
         return self.beaconChain.getLastBeacon().proof
@@ -479,7 +507,29 @@ class State(object):
     def estimateDepositSuccess(self, _tx):
         return ((not _tx.l2hash in self.processedL2Hashes), "Checking if it's already processed")
 
-
+    def estimateCreateMNSuccess(self, tx):
+        _sufficientBalance = (self.getAccount(tx.sender).balance >= 1000000000000000000000000) # 1 million with 18 decimals
+        _canAddToSet = (not (self.beaconChain.validators.get(tx.recipient)))
+        return (_sufficientBalance and _canAddToSet)
+    
+    def estimateDestroyMNSuccess(self, tx):
+        if ((not (self.beaconChain.validators.get(tx.recipient)))):
+            return False
+        return (self.beaconChain.validators.get(tx.recipient).owner == tx.sender)
+        
+    def createMN(self, tx):
+        willSucceed = self.estimateCreateMNSuccess(tx)
+        if not willSucceed:
+            return False
+        self.getAccount(tx.sender).balance -= 1000000000000000000000000
+        self.beaconChain.createValidator(tx.sender, tx.recipient)
+    
+    def destroyMN(self, tx):
+        willSucceed = self.estimateDestroyMNSuccess(self, tx):
+        if not willSucceed:
+            return False
+        self.getAccount(self.beaconChain.validators.get(tx.recipient).owner).balance += 1000000000000000000000000
+        self.beaconChain.destroyValidator(tx.recipient)
     
 
     # def checkOutDeposit(self, tx):
@@ -533,7 +583,10 @@ class State(object):
         if _tx.txtype == 3:
             underlyingOperationSuccess = self.estimateDepositSuccess(_tx)
             # underlyingOperationSuccess = (True, "Better to show True")
-            
+        if _tx.txtype == 4:
+            underlyingOperationSuccess = self.estimateCreateMNSuccess(_tx)
+        if _tx.txtype == 5:
+            underlyingOperationSuccess = self.estimateDestroyMNSuccess(_tx)
         print(underlyingOperationSuccess, correctBeacon, correctParent)
         return (underlyingOperationSuccess[0] and correctBeacon and correctParent)
         
@@ -622,7 +675,11 @@ class State(object):
             feedback = self.executeTransfer(_tx, showMessage)
         if _tx.txtype == 3:
             feedback = self.checkOutDeposit(_tx)
-        
+        if _tx.txtype == 4:
+            feedback = self.createMN(_tx)
+        if _tx.txtype == 5:
+            feedback = self.destroyMN(_tx)
+            
         
         if (_tx.bio):
             self.accounts[_tx.sender].bio = _tx.bio.replace("%20", " ")
