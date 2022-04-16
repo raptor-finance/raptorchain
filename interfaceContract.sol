@@ -542,10 +542,23 @@ contract BeaconChainHandler {
 // }
 
 contract ChainsImplementationHandler {
-	address[] public handlers;
+	address[] public instances;
+	mapping (address => address[]) public instancesPerOwner;
 	
-	function getAllHandlers() public view returns (address[] memory) {
-		return handlers;
+	BeaconChainHandler.Beacon public genesisBeacon;
+	
+	constructor(BeaconChainHandler.Beacon _genesisBeacon) {
+		genesisBeacon = _genesisBeacon;
+	}	
+	
+	function getAllInstances() public view returns (address[] memory) {
+		return instances;
+	}
+	
+	function createInstance(address instanceOwner) {
+		address newInstance = address(new BeaconChainHandler(genesisBeacon, instanceOwner));
+		instances.push(newInstance);
+		instanceOwner[instanceOwner].push(newInstance);
 	}
 	
 }
