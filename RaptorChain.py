@@ -1,4 +1,4 @@
-import requests, time, json, threading, hashlib, flask, rlp, eth_abi
+import requests, time, json, threading, flask, rlp, eth_abi
 global config
 from web3.auto import w3
 from web3 import Web3
