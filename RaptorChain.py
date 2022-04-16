@@ -116,7 +116,7 @@ class Transaction(object):
             # print(self.blockData)
             self.recipient = "0x0000000000000000000000000000000000000000"
             self.value = 0
-        elif self.txtype == 2: # metaamask transaction
+        elif self.txtype == 2: # metamask transaction
             decoder = ETHTransactionDecoder()
             ethDecoded = decoder.decode_raw_tx(txData.get("rawTx"))
             self.fee = ethDecoded.gas_price*21000
