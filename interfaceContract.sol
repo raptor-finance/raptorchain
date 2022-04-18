@@ -223,14 +223,13 @@ contract CustodyManager {
 	
 	uint256 public transferNonce = 0;
 	uint256 public totalDeposited;
-	address beaconChainAddress;
+	address withdrawalsOperator;
 	// StakeManager public stakingManager;
 	
 	// constructor(StakeManager _stakingManager) {
-	constructor() {
-		// masterContract = msg.sender;
-		// stakingManager = _stakingManager;
-		// beaconChainAddress = address(_stakingManager.beaconChain());
+	constructor(address _withdrawalsOperator) {
+		masterContract = msg.sender;
+		withdrawalsOperator = _withdrawalsOperator;
 	}
 	
 	event Deposited(address indexed depositor, address indexed token, uint256 amount, uint256 nonce, bytes32 hash);
@@ -277,7 +276,7 @@ contract CustodyManager {
 	}
 	
 	function bridgeFallBack(bytes memory _data) public {
-		require(msg.sender == address(beaconChainAddress), "Only beacon chain contract can use this :/");
+		require(msg.sender == address(withdrawalsOperator), "Only withdrawals operator address can use this :/");
 		bytes32 _hash = keccak256(_data);
 		(address token, address withdrawer, uint256 amount, uint256 nonce) = abi.decode(_data, (address, address, uint256, uint256));
 		requestWithdrawal(token, withdrawer, amount, nonce, _hash);
@@ -547,7 +546,7 @@ contract ChainsImplementationHandler {
 	
 	BeaconChainHandler.Beacon public genesisBeacon;
 	
-	constructor(BeaconChainHandler.Beacon _genesisBeacon) {
+	constructor(BeaconChainHandler.Beacon memory _genesisBeacon) {
 		genesisBeacon = _genesisBeacon;
 	}	
 	
@@ -555,10 +554,10 @@ contract ChainsImplementationHandler {
 		return instances;
 	}
 	
-	function createInstance(address instanceOwner) {
+	function createInstance(address instanceOwner) public {
 		address newInstance = address(new BeaconChainHandler(genesisBeacon, instanceOwner));
 		instances.push(newInstance);
-		instanceOwner[instanceOwner].push(newInstance);
+		instancesPerOwner[instanceOwner].push(newInstance);
 	}
 	
 }
@@ -566,11 +565,12 @@ contract ChainsImplementationHandler {
 contract MasterContract {
 	// StakeManager public staking;
 	CustodyManager public custody;
-	// BeaconChainHandler public beaconchain;
+    ChainsImplementationHandler public chainInstances;
 	
-	constructor(address stakingToken, BeaconChainHandler.Beacon memory _genesisBeacon) {
+	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, address _withdrawalsOperator) {
 		// staking = new StakeManager(stakingToken);
-		custody = new CustodyManager();
+		custody = new CustodyManager(_withdrawalsOperator);
+        chainInstances = new ChainsImplementationHandler(_genesisBeacon);
 		// beaconchain = new BeaconChainHandler(_genesisBeacon, staking);
 		// staking.setBeaconHandler(beaconchain);
 	}
