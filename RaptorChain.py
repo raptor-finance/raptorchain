@@ -155,9 +155,9 @@ class Transaction(object):
 
 class GenesisBeacon(object):
     def __init__(self):
-        self.timestamp = 1645457628
+        self.timestamp = 1650271392
         self.miner = "0x0000000000000000000000000000000000000000"
-        self.parent = "Initializing the RaptorChain...".encode()
+        self.parent = "Initializing the RaptorChain... ".encode()
         self.difficulty = 1
         self.decodedMessages = ["Hey guys, just trying to implement a kind of raptor chain, feel free to have a look".encode()]
         self.messages = eth_abi.encode_abi(["bytes[]"], [self.decodedMessages])
