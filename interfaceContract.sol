@@ -304,47 +304,10 @@ contract BeaconChainHandler {
 		bytes32 r;
 		bytes32 s;
 	}
-	
-	// struct ValidatorSet {
-		// mapping (address => bool) isValidator;
-		// address[] addressesToCheck;
-	// }
-	
-	// mapping (uint256 => ValidatorSet) internal validatorSet;
-	// function copyValidatorSet(uint256 sourceBlock, uint256 destinationBlock) private {
-		// ValidatorSet storage source = validatorSet[sourceBlock];
-		// ValidatorSet storage destination = validatorSet[destinationBlock];
-		// address _guy;
-		// bool _val;
-		// for (uint256 n = 0; n < source.addressesToCheck.length; n++) {
-			// _guy = source.addressesToCheck[n];
-			// _val = source.isValidator[_guy];
-			// if (_val) {
-				// destination.addressesToCheck.push(_guy);
-				// destination.isValidator[_guy] = _val;
-			// }
-		// }
-	// }
-
-	// function isValidatorAtBlock(uint256 blockNumber, address valoper) public view returns (bool) {
-		// return validatorSet[blockNumber].isValidator[valoper];
-	// }
-
-	// function getValidatorsAtBlock(uint256 blockNumber) public view returns (address[] memory) {
-		// return validatorSet[blockNumber].addressesToCheck;
-	// }
-	
-	
-	
 	// StakeManager public stakingContract;
 	address owner;
 	Beacon[] public beacons;
 	uint256 blockTime = 600;
-	
-	// modifier onlyStakingContract {
-		// require(msg.sender == address(stakingContract));
-		// _;
-	// }
 	
 	modifier onlyOwner {
 		require(msg.sender == owner);
@@ -389,9 +352,6 @@ contract BeaconChainHandler {
 		if (ecrecover(_beacon.proof, _beacon.v, _beacon.r, _beacon.s) != _beacon.miner) {
 			return (false, "INVALID_SIGNATURE");
 		}
-		// if (!(validatorSet[beacons.length].isValidator[_beacon.miner])) {
-			// return (false, "NOT_A_VALIDATOR");
-		// }
 		return (true, "VALID_BEACON");
 	}
 	
@@ -419,126 +379,8 @@ contract BeaconChainHandler {
 	function chainLength() public view returns (uint256) {
 		return beacons.length;
 	}
-	
-	// function enableValidator(address validator) public onlyOwner {
-		// if (!(validatorSet[beacons.length].isValidator[validator])) {
-			// validatorSet[beacons.length].addressesToCheck.push(validator);
-		// }
-		// validatorSet[beacons.length].isValidator[validator] = true;
-	// }
-	
-	// function disableValidator(address validator) public onlyStakingContract {
-		// validatorSet[beacons.length].isValidator[validator] = false;
-		// address[] memory _addrstocheck = validatorSet[beacons.length].addressesToCheck;
-		// for (uint256 n=0; n<_addrstocheck.length; n++) {
-			// if (_addrstocheck[n] != validator) {
-				// validatorSet[beacons.length].addressesToCheck.push(_addrstocheck[n]);
-			// }
-		// }
-	// }
 }
 
-// contract StakeManager {
-	// using SafeMath for uint256;
-	// ERC20Interface public stakingToken;
-	// BeaconChainHandler public beaconChain;
-	
-	// address masterContract;
-	// uint256 totalStaked;
-	// uint256 MNCollateral;
-	
-	// struct Staker {
-		// uint256 staked;
-		// uint256 signed;
-		// mapping (bytes32 => uint256) voted;
-		// uint256 unlockDate;
-		// bytes32[] votedList;
-	// }
-	// // mapping (address => Staker) stakers;
-	
-	// struct MasterNode {
-		// address owner;
-		// address operator;
-		// uint256 collateral;
-		// uint256 rewards;
-		// bytes32[] signedBlocks;
-		// bool operating;
-	// }
-	// mapping (address => MasterNode) public masternodes;
-	
-	
-	
-	
-	// constructor(address _stakingToken) {
-		// stakingToken = ERC20Interface(_stakingToken);
-		// masterContract = msg.sender;
-	// }
-	
-	// modifier onlyMasterContract {
-		// require(msg.sender == masterContract, "CALLER_NOT_MASTER");
-		// _;
-	// }
-
-	// function setBeaconHandler(BeaconChainHandler _handler) public onlyMasterContract {
-		// require(address(beaconChain) == address(0), "BEACONHANDLER_ALREADY_SET");
-		// beaconChain = _handler;
-	// }
-	
-	
-	
-	// function sendL2Block(BeaconChainHandler.Beacon memory _block) public {
-		// require(masternodes[_block.miner].operating, "INVALID_MASTERNODE");
-		// (bool _valid, string memory _reason) = beaconChain.isBeaconValid(_block);
-		// require(_valid, _reason);
-		// beaconChain.pushBeacon(_block);
-	// }
-	
-	// function createMN(address nodeOperator) public {
-		// require(masternodes[nodeOperator].owner == address(0), "NODE_ALDREADY_EXISTS");
-		// stakingToken.transferFrom(msg.sender, address(this), MNCollateral);
-		// masternodes[nodeOperator] = MasterNode({owner: msg.sender, operator: nodeOperator, collateral: MNCollateral, rewards: 0, signedBlocks: (new bytes32[](0)),operating: true});
-		// beaconChain.enableValidator(nodeOperator);
-		// totalStaked += 1;
-	// }
-	
-	// function disableMN(address nodeOperator) public {
-		// MasterNode storage MN = masternodes[nodeOperator];
-		// require(MN.owner == msg.sender, "UNMATCHED_MN_OWNER");
-		// require(MN.operating, "NODE_ALREADY_STOPPED");
-		// claimMNRewards(nodeOperator);
-		// masternodes[nodeOperator].operating = false;
-		// beaconChain.disableValidator(nodeOperator);
-		// require(stakingToken.transfer(msg.sender, MNCollateral));
-		// totalStaked -= 1;
-	// }
-	
-	// function enableMN(address nodeOperator) public {
-		// MasterNode storage MN = masternodes[nodeOperator];
-		// require(MN.owner == msg.sender, "UNMATCHED_MN_OWNER");
-		// require(!MN.operating, "NODE_ALREADY_RUNNING");
-		// require(stakingToken.transferFrom(msg.sender, address(this), MNCollateral));
-		// masternodes[nodeOperator].operating = true;
-		// beaconChain.enableValidator(nodeOperator);
-		// totalStaked += 1;
-	// }
-	
-	// function destroyMN(address nodeOperator) public {
-		// MasterNode storage MN = masternodes[nodeOperator];
-		// require(MN.owner == msg.sender, "UNMATCHED_MN_OWNER");
-		// if (MN.operating) {
-			// disableMN(nodeOperator);
-		// }
-		// delete masternodes[nodeOperator];
-	// }
-	
-	// function claimMNRewards(address nodeOperator) public {
-		// MasterNode storage MN = masternodes[nodeOperator];
-		// require(MN.owner == msg.sender, "UNMATCHED_MN_OWNER");
-		// uint256 _rewards = MN.rewards;
-		// MN.rewards = 0;
-		// stakingToken.transfer(msg.sender, _rewards);
-	// }
-// }
 
 contract ChainsImplementationHandler {
 	address[] public instances;
@@ -566,6 +408,27 @@ contract MasterContract {
 	// StakeManager public staking;
 	CustodyManager public custody;
     ChainsImplementationHandler public chainInstances;
+	
+	// struct Beacon {
+		// address miner; // "0x0000000000000000000000000000000000000000"
+		// uint256 nonce; // 0
+		// bytes[] messages; // ["0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b"]
+		// uint256 difficulty; // 1
+		// bytes32 miningTarget; // bytes32(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+		// uint256 timestamp; // 1650271392
+		// bytes32 parent; // bytes32(0x496e697469616c697a696e672074686520526170746f72436861696e2e2e2e20)
+		// bytes32 proof; // bytes32(0x5115cbb8aab4470dcdb6950eb0e36d5ac7bb3ebb92988c21a5dc35547100a8ef)
+		// uint256 height; // 0
+		// bytes32 son; // "0x0000000000000000000000000000000000000000000000000000000000000000"
+		// bytes32 parentTxRoot; // bytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
+		// uint8 v; // 0
+		// bytes32 r; // bytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
+		// bytes32 s; // bytes32(0x0000000000000000000000000000000000000000000000000000000000000000)
+	// }
+	
+	// BeaconChainHandler.Beacon({miner: address(0), nonce: 0, messages: [bytes("0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b")], difficulty: 1, miningTarget: bytes32(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff), timestamp: 1650271392, parent: bytes32(0x496e697469616c697a696e672074686520526170746f72436861696e2e2e2e20), proof: bytes32(0x5115cbb8aab4470dcdb6950eb0e36d5ac7bb3ebb92988c21a5dc35547100a8ef), height: 0, son: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000), parentTxRoot: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000), v: 0, r: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000), s: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000)})
+	
+	// GenesisBeacon calldata : ["0x0000000000000000000000000000000000000000",0,["0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b"],1,"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",1645457628,"496e697469616c697a696e672074686520526170746f72436861696e2e2e2e","0x7d9e1f415e0084675c211687b1c8dfaee67e53128e325b5fdda9c98d7288aaeb",0,"0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000",0,"0x0000000000000000000000000000000000000000000000000000000000000000","0x0000000000000000000000000000000000000000000000000000000000000000"]
 	
 	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, address _withdrawalsOperator) {
 		// staking = new StakeManager(stakingToken);
