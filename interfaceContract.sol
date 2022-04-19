@@ -200,7 +200,8 @@ contract CustodyManager {
 		address depositor; // address that deposits tokens
 		uint256 nonce;
 		address token; // or address 0 if you deposit BNB
-		bytes32 hash; // keccak256(abi.encodePacked(amount, depositor, token, blockhash(), nonce))
+		bytes data; // data appended to deposit (could be passed to a contract on raptorchain)
+		bytes32 hash; // keccak256(abi.encodePacked(amount, depositor, token, blockhash(), data, nonce))
 	}
 	
 	struct Withdrawal {
@@ -258,19 +259,37 @@ contract CustodyManager {
 		return _withdrawals[_hash];
 	}
 
-
-	
-	function deposit(address token, uint256 amount) public {
+	function _deposit(address token, address user, uint256 amount, bytes memory data) private {
 		ERC20Interface _token = ERC20Interface(token);
 		uint256 balanceBefore = _token.balanceOf(address(this));
-		_token.transferFrom(msg.sender, address(this), amount);
+		_token.transferFrom(user, address(this), amount);
 		uint256 received = _token.balanceOf(address(this)).sub(balanceBefore);
-		bytes32 _hash_ = keccak256(abi.encodePacked(received,msg.sender, blockhash(block.number-1), transferNonce));
-		Deposit memory _newDeposit = Deposit({amount: received, depositor: msg.sender, nonce: transferNonce, token: token, hash: _hash_});
+		
+		bytes32 _hash_ = keccak256(abi.encodePacked(received, user, blockhash(block.number-1), data, transferNonce));
+		Deposit memory _newDeposit = Deposit({amount: received, depositor: user, nonce: transferNonce, token: token, data: data, hash: _hash_});
 		__deposits.push(_newDeposit);
 		_deposits[_hash_] = _newDeposit;
-		emit Deposited(msg.sender, token, received, transferNonce, _hash_);
+		emit Deposited(user, token, received, transferNonce, _hash_);
 		transferNonce += 1;
+	}
+	
+	function deposit(address token, uint256 amount, bytes memory data) public {
+		_deposit(token, msg.sender, amount, data); // using same function for approveAndCall and "legacy" deposit
+		// ERC20Interface _token = ERC20Interface(token);
+		// uint256 balanceBefore = _token.balanceOf(address(this));
+		// _token.transferFrom(msg.sender, address(this), amount);
+		// uint256 received = _token.balanceOf(address(this)).sub(balanceBefore);
+		// bytes32 _hash_ = keccak256(abi.encodePacked(received,msg.sender, blockhash(block.number-1), transferNonce));
+		// Deposit memory _newDeposit = Deposit({amount: received, depositor: msg.sender, nonce: transferNonce, token: token, hash: _hash_});
+		// __deposits.push(_newDeposit);
+		// _deposits[_hash_] = _newDeposit;
+		// emit Deposited(msg.sender, token, received, transferNonce, _hash_);
+		// transferNonce += 1;
+	}
+	
+	function receiveApproval(address spender, uint256 _amount, address token, bytes memory _data) public {
+		require(msg.sender == token, "INVALID_TOKEN_ADDRESS");
+		_deposit(token, spender, _amount, _data);
 	}
 	
 	function requestWithdrawal(address token, address withdrawer, uint256 amount, uint256 nonce, bytes32 l2Hash) private {
@@ -281,7 +300,7 @@ contract CustodyManager {
 		_withdrawals[l2Hash] = _newWithdrawal;
 		__withdrawals.push(_newWithdrawal);
 		ERC20Interface(token).transfer(withdrawer, amount);
-		emit Withdrawn(withdrawer, token, amount, nonce, l2Hash)
+		emit Withdrawn(withdrawer, token, amount, nonce, l2Hash);
 	}
 	
 	function bridgeFallBack(bytes memory _data) public {
@@ -418,6 +437,7 @@ contract MasterContract {
 	CustodyManager public custody;
     ChainsImplementationHandler public chainInstances;
 	
+	// comment used as a reminder, DON'T REMOVE
 	// struct Beacon {
 		// address miner; // "0x0000000000000000000000000000000000000000"
 		// uint256 nonce; // 0
@@ -437,6 +457,8 @@ contract MasterContract {
 	
 	// BeaconChainHandler.Beacon({miner: address(0), nonce: 0, messages: [bytes("0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b")], difficulty: 1, miningTarget: bytes32(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff), timestamp: 1650271392, parent: bytes32(0x496e697469616c697a696e672074686520526170746f72436861696e2e2e2e20), proof: bytes32(0x5115cbb8aab4470dcdb6950eb0e36d5ac7bb3ebb92988c21a5dc35547100a8ef), height: 0, son: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000), parentTxRoot: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000), v: 0, r: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000), s: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000)})
 	
+	
+	// calldata to use on deployment
 	// GenesisBeacon calldata : ["0x0000000000000000000000000000000000000000",0,["0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b"],1,"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",1645457628,"0x496e697469616c697a696e672074686520526170746f72436861696e2e2e2e00","0x7d9e1f415e0084675c211687b1c8dfaee67e53128e325b5fdda9c98d7288aaeb",0,"0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000",0,"0x0000000000000000000000000000000000000000000000000000000000000000","0x0000000000000000000000000000000000000000000000000000000000000000"]
 	
 	constructor(BeaconChainHandler.Beacon memory _genesisBeacon) {
