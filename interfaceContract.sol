@@ -224,6 +224,7 @@ contract CustodyManager {
 	uint256 public transferNonce = 0;
 	uint256 public totalDeposited;
 	address withdrawalsOperator;
+	event WithdrawalOperatorChanged(address indexed oldOperator, address indexed newOperator);
 	// StakeManager public stakingManager;
 	
 	// constructor(StakeManager _stakingManager) {
@@ -232,7 +233,14 @@ contract CustodyManager {
 		withdrawalsOperator = _withdrawalsOperator;
 	}
 	
-	event Deposited(address indexed depositor, address indexed token, uint256 amount, uint256 nonce, bytes32 hash);
+	function changeWithdrawalOperator(address _newOperator) public {
+		require(msg.sender == address(withdrawalsOperator), "Only withdrawals operator address can do that :/");
+		emit WithdrawalOperatorChanged(withdrawalsOperator, _newOperator);
+		withdrawalsOperator = _newOperator;
+	}
+	
+	event Deposited(address indexed user, address indexed token, uint256 amount, uint256 nonce, bytes32 hash);
+	event Withdrawn(address indexed user, address indexed token, uint256 amount, uint256 nonce, bytes32 hash);
 	
 	function deposits(uint256 _index) public view returns (Deposit memory) {
 		return __deposits[_index];
@@ -273,10 +281,11 @@ contract CustodyManager {
 		_withdrawals[l2Hash] = _newWithdrawal;
 		__withdrawals.push(_newWithdrawal);
 		ERC20Interface(token).transfer(withdrawer, amount);
+		emit Withdrawn(withdrawer, token, amount, nonce, l2Hash)
 	}
 	
 	function bridgeFallBack(bytes memory _data) public {
-		require(msg.sender == address(withdrawalsOperator), "Only withdrawals operator address can use this :/");
+		require(msg.sender == address(withdrawalsOperator), "Only withdrawals operator address can do that :/");
 		bytes32 _hash = keccak256(_data);
 		(address token, address withdrawer, uint256 amount, uint256 nonce) = abi.decode(_data, (address, address, uint256, uint256));
 		requestWithdrawal(token, withdrawer, amount, nonce, _hash);
@@ -428,11 +437,11 @@ contract MasterContract {
 	
 	// BeaconChainHandler.Beacon({miner: address(0), nonce: 0, messages: [bytes("0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b")], difficulty: 1, miningTarget: bytes32(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff), timestamp: 1650271392, parent: bytes32(0x496e697469616c697a696e672074686520526170746f72436861696e2e2e2e20), proof: bytes32(0x5115cbb8aab4470dcdb6950eb0e36d5ac7bb3ebb92988c21a5dc35547100a8ef), height: 0, son: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000), parentTxRoot: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000), v: 0, r: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000), s: bytes32(0x0000000000000000000000000000000000000000000000000000000000000000)})
 	
-	// GenesisBeacon calldata : ["0x0000000000000000000000000000000000000000",0,["0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b"],1,"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",1645457628,"496e697469616c697a696e672074686520526170746f72436861696e2e2e2e","0x7d9e1f415e0084675c211687b1c8dfaee67e53128e325b5fdda9c98d7288aaeb",0,"0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000",0,"0x0000000000000000000000000000000000000000000000000000000000000000","0x0000000000000000000000000000000000000000000000000000000000000000"]
+	// GenesisBeacon calldata : ["0x0000000000000000000000000000000000000000",0,["0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b"],1,"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",1645457628,"0x496e697469616c697a696e672074686520526170746f72436861696e2e2e2e00","0x7d9e1f415e0084675c211687b1c8dfaee67e53128e325b5fdda9c98d7288aaeb",0,"0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000",0,"0x0000000000000000000000000000000000000000000000000000000000000000","0x0000000000000000000000000000000000000000000000000000000000000000"]
 	
-	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, address _withdrawalsOperator) {
+	constructor(BeaconChainHandler.Beacon memory _genesisBeacon) {
 		// staking = new StakeManager(stakingToken);
-		custody = new CustodyManager(_withdrawalsOperator);
+		custody = new CustodyManager(msg.sender); // to change after deployment
         chainInstances = new ChainsImplementationHandler(_genesisBeacon);
 		// beaconchain = new BeaconChainHandler(_genesisBeacon, staking);
 		// staking.setBeaconHandler(beaconchain);
