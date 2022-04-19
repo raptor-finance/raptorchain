@@ -22,9 +22,11 @@ class BSCInterface(object):
 
 
 class BSCPusher(object):
-    def __init__(node, privkey):
+    def __init__(self, node, privkey, bscInterface):
+        self.bsc = bscInterface
         self.node = node
         self.acct = w3.eth.account.from_key(privkey)
+        print(f"Relayer BSC address : {self.acct.address}")
         
     def pushBlockOnBSC(self, block):
         # msgsList = list(eth_abi.decode_abi(["bytes[]"], bytes.fromhex(block["messages"]))[0])
@@ -57,3 +59,5 @@ class BSCPusher(object):
         for i in range(int(self.bsc.chainLength()), int(int(requests.get(f"{self.node}/chain/length").json().get("result"))-1)):
             _block = requests.get(f"{self.node}/chain/block/{i}").json().get("result")
             self.pushBlockOnBSC(_block)
+
+relayer = BSCPusher("http://localhost:2022/", BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", 97, None)) # Beacon instance to deploy
