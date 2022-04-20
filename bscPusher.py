@@ -28,15 +28,18 @@ class BSCPusher(object):
         self.acct = w3.eth.account.from_key(privkey)
         print(f"Relayer BSC address : {self.acct.address}")
 
+    def bytes32Padding(self, hexStr):
+        _hexstr = hexStr.replace("0x", "")
+        return (("0" * (64 - len(_hexstr))) + _hexstr)
+
     def blockStruct(self, block):
         msgsList = list(eth_abi.decode_abi(["bytes[]"], bytes.fromhex(block["messages"]))[0])
         # msgsList = eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"]))
         _encodedParent = bytes.fromhex(block["parent"].replace("0x", ""))
         _encodedProof = bytes.fromhex(block["miningData"]["proof"].replace("0x", ""))
         _encodedSon = bytes.fromhex(block["son"].replace("0x", ""))
-        _encodedSigR = bytes.fromhex(hex(block["signature"]["r"])[2:])
-        print(hex(block["signature"]["s"]))
-        _encodedSigS = bytes.fromhex(hex(block["signature"]["s"])[2:])
+        _encodedSigR = bytes.fromhex(self.bytes32Padding(hex(block["signature"]["r"])[2:]))
+        _encodedSigS = bytes.fromhex(self.bytes32Padding(hex(block["signature"]["s"])[2:]))
         
         return (block["miningData"]["miner"], int(0), msgsList, 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), _encodedParent, _encodedProof, int(block["height"]), _encodedSon, block["parentTxRoot"], int(block["signature"]["v"]), _encodedSigR, _encodedSigS)
 
