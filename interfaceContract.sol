@@ -338,6 +338,7 @@ contract BeaconChainHandler {
 	uint256 blockTime = 600;
 	
 	event CallExecuted(address indexed to, bytes data);
+	event CallDismissed(address indexed to, bytes data, string reason);
 	
 	modifier onlyOwner {
 		require(msg.sender == owner);
@@ -385,27 +386,24 @@ contract BeaconChainHandler {
 		return (true, "VALID_BEACON");
 	}
 	
-	function executeCall(address recipient, bytes memory data) private {
-		recipient.call(abi.encodeWithSelector(bytes4(keccak256("bridgeFallBack(bytes)")), data));
-		emit CallExecuted(recipient, data);
+	function executeCall(bytes memory message) private {
+		(address recipient, uint256 chainID, bytes memory data) = abi.decode(message, (address, uint256, bytes));
+		if (_chainId() == chainID) {
+			recipient.call(abi.encodeWithSelector(bytes4(keccak256("bridgeFallBack(bytes)")), data));
+			emit CallExecuted(recipient, data);
+		}
+		else {
+			emit CallDismissed(recipient, data, "INVALID_CHAIN_ID");
+		}
 	}
 	
 	function extractBeaconMessages(Beacon memory _beacon) public pure returns (bytes[] memory messages, uint256 length) {
-		return (_beacon.messages, _beacon.messages.length)
+		return (_beacon.messages, _beacon.messages.length);
 	}
 	
 	function executeMessages(Beacon memory _beacon) private {
-		uint256 currentChainID = _chainId();
-		uint256 chainID;
-		address recipient;
-		bytes memory data;
-		for (uint256 n = 0; n<_beacon.messages.length; n++)
-		while (n < _beacon.messages.length) {
-			(recipient, chainID, data) = abi.decode(_beacon.messages[n], (address, uint256, bytes));
-			if (chainID == currentChainID) {
-				// BridgeFallbackInterface(recipient).bridgeFallBack(keccak256(data), data);
-				executeCall(recipient, data);
-			}
+		for (uint256 n = 0; n<_beacon.messages.length; n++) {
+			executeCall(_beacon.messages[n]);
 			n += 1;
 		}
 	}
