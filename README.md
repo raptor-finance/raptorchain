@@ -7,13 +7,12 @@ A chain for RPTR (Raptor Token), but still under development !!!
 ### What works ?
 - Transfers (raptorchain address to another raptorchain address)
 - Deposits (bsc to raptorchain)
-
-
-### What's needed (mandatory before mainnet release) ?
-- Withdrawals (raptorchain to bsc) : that's what I'm working on with [back-and-forth-transfers branch](https://github.com/raptor-finance/raptorchain/tree/back-and-forth-transfers)
-
+- Withdrawals (raptorchain to bsc)
 
 ### What's not mandatory but would be very useful ?
+- Reducing fee on withdrawal
+	Basically, raptorchain-to-bsc communications works by operating an instance of raptorchain's beacon chain (which contains cross-chain data and is getting used as time anchor).
+	Thus, broadcasting one block per 10 minutes is very expensive !
 - EVM implementation (allows to run smart contracts same way as bsc or ethereum)
 
 
