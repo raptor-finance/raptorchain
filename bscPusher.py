@@ -71,7 +71,7 @@ class BSCPusher(object):
         return receipt
     
     def pushBlocks(self):
-        for i in range(int(self.bsc.chainLength()), int(int(requests.get(f"{self.node}/chain/length").json().get("result"))-1)):
+        for i in range(int(self.bsc.chainLength()), int(int(requests.get(f"{self.node}/chain/length").json().get("result")))):
             _block = requests.get(f"{self.node}/chain/block/{i}").json().get("result")
             self.pushBlockOnBSC(_block)
 
