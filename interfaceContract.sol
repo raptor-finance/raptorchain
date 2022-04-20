@@ -390,12 +390,16 @@ contract BeaconChainHandler {
 		emit CallExecuted(recipient, data);
 	}
 	
+	function extractBeaconMessages(Beacon memory _beacon) public pure returns (bytes[] memory messages, uint256 length) {
+		return (_beacon.messages, _beacon.messages.length)
+	}
+	
 	function executeMessages(Beacon memory _beacon) private {
 		uint256 currentChainID = _chainId();
-		uint256 n = 0;
 		uint256 chainID;
 		address recipient;
 		bytes memory data;
+		for (uint256 n = 0; n<_beacon.messages.length; n++)
 		while (n < _beacon.messages.length) {
 			(recipient, chainID, data) = abi.decode(_beacon.messages[n], (address, uint256, bytes));
 			if (chainID == currentChainID) {
