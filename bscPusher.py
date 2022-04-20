@@ -76,7 +76,7 @@ class BSCPusher(object):
             self.pushBlockOnBSC(_block)
 
 privkey = input("Enter private key : ")
-relayer = BSCPusher("http://localhost:2022/", privkey, BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", 97, "0x0aFFb881f36D01AD735bf943893d7Eb6AFA70323")) # Beacon instance to deploy
+relayer = BSCPusher("http://localhost:2022/", privkey, BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", 97, "0xaB442c1c1862e4147874e971E3428B6AD3EbBFC6")) # Beacon instance to deploy
 
 while True:
     try:
