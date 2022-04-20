@@ -16,7 +16,7 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "raptorchain-testnet1.5.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET"}
+    config = {"dataBaseFile": "raptorchain-testnet1.6.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET"}
 
 try:
     ssl_context = tuple(config["ssl"])
@@ -294,7 +294,7 @@ class BeaconChain(object):
         self.blockTime = 600 # in seconds
         self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
-        self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x08B0c8dD2aBB292Bca39bB4b54c4c7EFf221c1Ee", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x5b52548d31c12C5bAf6540919BbB2458f3f15e13", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.STIUpgradeBlock = 1
 
     def checkBeaconMessages(self, beacon):
