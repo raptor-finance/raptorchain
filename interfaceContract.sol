@@ -337,7 +337,7 @@ contract BeaconChainHandler {
 	Beacon[] public beacons;
 	uint256 blockTime = 600;
 	
-	event CalledContract(address indexed to, bytes data);
+	event CallExecuted(address indexed to, bytes data);
 	
 	modifier onlyOwner {
 		require(msg.sender == owner);
@@ -385,25 +385,34 @@ contract BeaconChainHandler {
 		return (true, "VALID_BEACON");
 	}
 	
-	function pushBeacon(Beacon memory _beacon) public onlyOwner {
-		(bool _valid, string memory _reason) = isBeaconValid(_beacon);
-		require(_valid, _reason);
-		beacons.push(_beacon);
+	function executeCall(address recipient, bytes memory data) private {
+		recipient.call(abi.encodeWithSelector(bytes4(keccak256("bridgeFallBack(bytes)")), data));
+		emit CallExecuted(recipient, data);
+	}
+	
+	function executeMessages(Beacon memory _beacon) private {
+		uint256 currentChainID = _chainId();
 		uint256 n = 0;
 		uint256 chainID;
 		address recipient;
 		bytes memory data;
-		beacons[beacons.length-1].son = _beacon.proof;
-		
 		while (n < _beacon.messages.length) {
 			(recipient, chainID, data) = abi.decode(_beacon.messages[n], (address, uint256, bytes));
-			if (chainID == _chainId()) {
-				emit CalledContract(recipient, data);
-				recipient.call(abi.encodeWithSelector(bytes4(keccak256("bridgeFallBack(bytes32, bytes)")),keccak256(data), data));			
+			if (chainID == currentChainID) {
 				// BridgeFallbackInterface(recipient).bridgeFallBack(keccak256(data), data);
+				executeCall(recipient, data);
 			}
 			n += 1;
 		}
+	}
+	
+	function pushBeacon(Beacon memory _beacon) public onlyOwner {
+		(bool _valid, string memory _reason) = isBeaconValid(_beacon);
+		require(_valid, _reason);
+		beacons.push(_beacon);
+		beacons[beacons.length-2].son = _beacon.proof;
+		
+		executeMessages(_beacon);
 		// copyValidatorSet(beacons.length-1, beacons.length);
 	}
 	
