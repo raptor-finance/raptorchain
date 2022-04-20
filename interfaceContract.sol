@@ -337,6 +337,8 @@ contract BeaconChainHandler {
 	Beacon[] public beacons;
 	uint256 blockTime = 600;
 	
+	event CalledContract(address indexed to, bytes data);
+	
 	modifier onlyOwner {
 		require(msg.sender == owner);
 		_;
@@ -396,6 +398,7 @@ contract BeaconChainHandler {
 		while (n < _beacon.messages.length) {
 			(recipient, chainID, data) = abi.decode(_beacon.messages[n], (address, uint256, bytes));
 			if (chainID == _chainId()) {
+				emit CalledContract(recipient, data);
 				recipient.call(abi.encodeWithSelector(bytes4(keccak256("bridgeFallBack(bytes32, bytes)")),keccak256(data), data));			
 				// BridgeFallbackInterface(recipient).bridgeFallBack(keccak256(data), data);
 			}

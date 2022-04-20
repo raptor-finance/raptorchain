@@ -40,7 +40,7 @@ class RaptorBlockProducer(object):
     def __init__(self, nodeip, privkey):
         self.node = nodeip
         self.acct = w3.eth.account.from_key(privkey)
-        self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0xFA9ce56589d21D87441Ce156A8db49F723a97FcF", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x08B0c8dD2aBB292Bca39bB4b54c4c7EFf221c1Ee", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
     
     def pullAvailableMessages(self):
