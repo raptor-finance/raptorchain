@@ -337,7 +337,7 @@ contract BeaconChainHandler {
 	Beacon[] public beacons;
 	uint256 blockTime = 600;
 	
-	event CallExecuted(address indexed to, bytes data);
+	event CallExecuted(address indexed to, bytes data, bool success);
 	event CallDismissed(address indexed to, bytes data, string reason);
 	
 	modifier onlyOwner {
@@ -389,8 +389,8 @@ contract BeaconChainHandler {
 	function executeCall(bytes memory message) private {
 		(address recipient, uint256 chainID, bytes memory data) = abi.decode(message, (address, uint256, bytes));
 		if (_chainId() == chainID) {
-			recipient.call(abi.encodeWithSelector(bytes4(keccak256("bridgeFallBack(bytes)")), data));
-			emit CallExecuted(recipient, data);
+			(bool success, ) = recipient.call(abi.encodeWithSelector(bytes4(keccak256("bridgeFallBack(bytes)")), data));
+			emit CallExecuted(recipient, data, success);
 		}
 		else {
 			emit CallDismissed(recipient, data, "INVALID_CHAIN_ID");
