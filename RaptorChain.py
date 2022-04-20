@@ -555,6 +555,7 @@ class State(object):
         if not depositInfo["hash"] in self.processedL2Hashes:
             self.ensureExistence(depositInfo["depositor"])
             self.accounts[depositInfo["depositor"]].balance += depositInfo["amount"]
+            self.totalSupply += depositInfo["amount"]
             # if tx.sender != depositInfo["depositor"]:
                 # transactions[depositInfo["depositor"]].append(tx.txid)
             self.accounts[depositInfo["depositor"]].transactions.append(f"0x{depositInfo['hash'].hex()}")
@@ -644,13 +645,15 @@ class State(object):
         
         
         self.accounts[tx.sender].balance -= (tx.value + tx.fee)
-        self.accounts[tx.recipient].balance += tx.value
         self.accounts[self.beaconChain.blocksByHash.get(tx.epoch).miner].balance += tx.fee
         if (tx.recipient == self.crossChainAddress):
             self.requestCrosschainTransfer(tx)
+            self.totalSupply -= tx.value
+        else:
+            self.accounts[tx.recipient].balance += tx.value
         
         if (showMessage):
-            print(f"Transfer executed !\nAmount transferred : {tx.value}\nFrom: {tx.sender}\nTo: {tx.recipient}")
+            print(f"Transfer executed !\nAmount transferred : {(tx.value/(10**18))}\nFrom: {tx.sender}\nTo: {tx.recipient}")
         return (True, "Transfer succeeded")
 
     def mineBlock(self, tx):
@@ -679,7 +682,8 @@ class State(object):
         if _tx.txtype == 2:
             feedback = self.executeTransfer(_tx, showMessage)
         if _tx.txtype == 3:
-            feedback = self.checkOutDeposit(_tx)
+            # feedback = self.checkOutDeposit(_tx)
+            pass # deprecated
         if _tx.txtype == 4:
             feedback = self.createMN(_tx)
         if _tx.txtype == 5:
