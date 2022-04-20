@@ -231,6 +231,7 @@ class Beacon(object):
         self.proof = self.proofOfWork()
         self.number = 0
         self.son = ""
+        self.nextBlockTx = None
         self.v = data["signature"]["v"]
         self.r = data["signature"]["r"]
         self.s = data["signature"]["s"]
@@ -274,7 +275,7 @@ class Beacon(object):
 
     def exportJson(self):
         # return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
-        return {"transactions": self.transactions, "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}}
+        return {"transactions": (self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}}
 
 class Masternode(object):
     def __init__(self, owner, operator):
@@ -624,7 +625,10 @@ class State(object):
         
         _txepoch = tx.epoch
         if self.beaconChain.blocksByHash.get(_txepoch):
-            self.beaconChain.blocksByHash[_txepoch].transactions.append(tx.txid)
+            if tx.txtype != 1:
+                self.beaconChain.blocksByHash[_txepoch].transactions.append(tx.txid)
+            else:
+                self.beaconChain.blocksByHash[_txepoch].nextBlockTx = tx.txid
         else:
             return False
         
@@ -653,7 +657,7 @@ class State(object):
             self.accounts[tx.recipient].balance += tx.value
         
         if (showMessage):
-            print(f"Transfer executed !\nAmount transferred : {(tx.value/(10**18))}\nFrom: {tx.sender}\nTo: {tx.recipient}")
+            print(f"Transfer executed !\nAmount transferred : {(tx.value/(10**18))} RPTR\nFrom: {tx.sender}\nTo: {tx.recipient}")
         return (True, "Transfer succeeded")
 
     def mineBlock(self, tx):
