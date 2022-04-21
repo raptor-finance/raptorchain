@@ -561,6 +561,7 @@ class State(object):
                 # transactions[depositInfo["depositor"]].append(tx.txid)
             self.accounts[depositInfo["depositor"]].transactions.append(f"0x{depositInfo['hash'].hex()}")
             self.processedL2Hashes.append(depositInfo["hash"])
+            self.txChilds[f"0x{depositInfo['hash'].hex()}"] = []
             return (True, f"Deposited {depositInfo['amount']} to {depositInfo['depositor']}")
         else:
             return (False, "Already processed")
