@@ -8,6 +8,7 @@ from dataclasses import asdict, dataclass
 from typing import Optional
 from eth_utils import keccak
 from rlp.sedes import Binary, big_endian_int, binary
+import evmimplementation as EVM
 
 
 transactions = {}
@@ -341,7 +342,6 @@ class BeaconChain(object):
     def getLastBeacon(self):
         return self.blocks[len(self.blocks) - 1]
     
-    
     def addBeaconToChain(self, beacon):
         _messages = beacon.decodedMessages.copy()
         for msg in _messages:
@@ -444,10 +444,12 @@ class Account(object):
         self.mined = []
         self.bio = ""
         self.code = b""
+        self.storage = {}
 
 class State(object):
     def __init__(self, initTxID):
         self.messages = {}
+        self.opcodes = EVM.Opcodes()
         self.initTxID = initTxID
         self.txChilds = {self.initTxID: []}
         self.txIndex = {}
@@ -583,6 +585,10 @@ class State(object):
                 _holders.append(key)
         self.holders = _holders
 
+    def createSmartContract(self, tx):
+        pass
+    
+
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
         underlyingOperationSuccess = (False, None)
@@ -680,6 +686,17 @@ class State(object):
         except:
             raise
             return False
+
+
+    def executeContractCall(self, tx):
+        env = EVM.CallEnv(storage)
+        code = self.getAccount(self.recipient).code
+        while True:
+            self.opcodes[code[self.env.pc]](self.env)
+            if self.env.halt:
+                tx.returnValue = env.returnValue
+        
+
 
     def playTransaction(self, tx, showMessage):
         _tx = Transaction(tx)
