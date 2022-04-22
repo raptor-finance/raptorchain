@@ -109,6 +109,7 @@ class Transaction(object):
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.value = max(int(txData.get("tokens")), 0)
+            self.gasprice = (10**9)
         if (self.txtype == 1): # block mining/staking tx
             self.fee = 0
             self.sender = w3.toChecksumAddress(txData.get("from"))
@@ -116,9 +117,11 @@ class Transaction(object):
             # print(self.blockData)
             self.recipient = "0x0000000000000000000000000000000000000000"
             self.value = 0
+            self.gasprice = 0
         elif self.txtype == 2: # metamask transaction
             decoder = ETHTransactionDecoder()
             ethDecoded = decoder.decode_raw_tx(txData.get("rawTx"))
+            self.gasprice = ethDecoded.gas_price
             self.fee = ethDecoded.gas_price*21000
             self.sender = ethDecoded.from_
             self.recipient = ethDecoded.to
