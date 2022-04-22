@@ -379,6 +379,7 @@ class EVM(object):
             env.stack.push(int(env.getBlock(env.stack.pop()).proof, 16))
         
         
+        
 
 
     class Call(object):
