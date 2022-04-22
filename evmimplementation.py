@@ -17,10 +17,15 @@ class EVM(object):
 
     class CallMemory(object):
         def __init__(self):
-            self.data = bytearray()
+            self.data = bytearray(b"")
         
         def ceil32(self, number):
             return ((((number-1)//32)+1)*32)
+        
+        def tobytes32(self, number):
+            _bts = bytes.fromhex(number.hex()[2:])
+            return (b"\x00"*(32-(len(_bts))) + _bts)
+            
         
         def extend(self, start_position: int, size: int) -> None:
             if size == 0:
@@ -36,8 +41,8 @@ class EVM(object):
             except BufferError:
                 self.data = self.data + bytearray(size_to_extend)
         
-        def write(self, key: int, value: int):
-            self.data[int(key)] = int(value)
+        def write(self, begin, end, value):
+            self.data[begin:end] = tobytes32(int(value))
         
         
         def read(self, start_position: int, size: int) -> memoryview:
@@ -58,7 +63,7 @@ class EVM(object):
 
 
     class CallEnv(object):
-        def __init__(self, storage, caller, recipient, state, beaconchain, origin, value):
+        def __init__(self, storage, caller, recipient, state, beaconchain, origin, value, gaslimit):
             self.stack = []
             self.memory = CallMemory()
             self.storage = storage
@@ -68,14 +73,29 @@ class EVM(object):
             self.state = state
             self.chain = beaconchain
             self.value = value
+            self.chainid = 69420
+            self.gaslimit = gaslimit
+            self.gasUsed = 0
         
         def getBlock(height):
             return self.chain.blocks[min(height, len(self.chain.blocks)-1)]
             
+        def lastBlock():
+            return self.chain.blocks[len(self.chain.blocks)-1]
+
+        def blockNumber():
+            return (len(self.chain.blocks)-1)
+
         def getAccount(addr):
             chkaddr = w3.toChecksumAddress(addr)
             return self.state.get(chkaddr, Account(chkaddr, ""))
-
+        
+        def consumeGas(gas):
+            self.gasUsed += gas
+        
+        def remainingGas():
+            return self.gaslimit - self.gasUsed
+        
     # class Opcode(object):
         # def __init__(self, logic, gascost):
             # self.logic = logic
@@ -145,6 +165,7 @@ class EVM(object):
             a = env.stack.pop()
             b = env.stack.pop()
             env.stack.append(int(int(a+b)%(2**256)))
+            
         
         def sub(self, env):
             a = env.stack.pop()
@@ -360,7 +381,7 @@ class EVM(object):
             env.stack.append(env.tx.gasprice)
         
         def EXTCODESIZE(self, env):
-            env.stack.push(len(env.getAccount(env.stack.pop()).code))
+            env.stack.append(len(env.getAccount(env.stack.pop()).code))
 
         def EXTCODECOPY(self, env):
             addr = env.stack.pop()
@@ -370,17 +391,59 @@ class EVM(object):
             env.memory.data[destOffset:destOffset+length] = env.getAccount(addr).code[offset:offset+length]
             
         def RETURNDATASIZE(self, env):
-            env.stack.push(0) # TODO
+            env.stack.append(0) # TODO
             
         def RETURNDATACOPY(self, env):
-            env.stack.push(0) # TODO
+            env.stack.append(0) # TODO
+        
+        def EXTCODEHASH(self, env):
+            env.stack.append(int(w3.keccak(env.getAccount(env.stack.pop()).code), 16))
         
         def BLOCKHASH(self, env):
-            env.stack.push(int(env.getBlock(env.stack.pop()).proof, 16))
+            env.stack.append(int(env.getBlock(env.stack.pop()).proof, 16))
         
+        def COINBASE(self, env):
+            env.stack.append(int(env.lastBlock().miner, 16))
         
-        
+        def TIMESTAMP(self, env):
+            env.stack.append(int(env.lastBlock().timestamp))
+            
+        def NUMBER(self, env):
+            env.stack.append(int(env.blockNumber()))
+            
+        def DIFFICULTY(self, env):
+            env.stack.append(int(env.lastBlock().difficulty))
 
+        def GASLIMIT(self, env):
+            env.stack.append(int(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff))
+        
+        def CHAINID(self, env):
+            env.stack.append(int(env.chainid))
+        
+        def SELFBALANCE(self, env):
+            env.stack.append(env.getAccount(env.recipient).balance)
+            
+        def BASEFEE(self, env):
+            env.stack.append(int(0)) # london hardfork not implemented, adding this in case of use
+            
+        def POP(self, env):
+            env.stack.pop()
+        
+        def MLOAD(self, env):
+            offset = env.stack.pop()
+            env.stack.push(int(memory.data[offset:offset+32].hex(), 16))
+        
+        def MSTORE(self, env):
+            offset = env.stack.pop()            
+            value = env.stack.pop()
+            env.memory.write(offset, offset+32, value);
+        
+        def MSTORE8(self, env):
+            offset = env.stack.pop()
+            value = env.stack.pop()
+            env.memory[offset] = value%0x100
+            
+        
 
     class Call(object):
         def __init__(self, storage):
