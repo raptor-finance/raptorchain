@@ -695,7 +695,7 @@ class State(object):
             acct.transactions.append(txid)
 
     def executeContractCall(self, tx):
-        env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient).storage.copy(), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data)
+        env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient).storage.copy(), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall)
         code = self.getAccount(tx.recipient).code
         while True and (not env.halt):
             try:
@@ -718,11 +718,11 @@ class State(object):
                 self.opcodes[code[self.env.pc]](self.env)
             except:
                 break
-        tx.returnValue = env.returnValue
         if env.getSuccess():
             self.addParent(msg.tx.txid, msg.msgSender)
             self.addParent(msg.tx.txid, msg.recipient)
             self.getAccount(tx.recipient).storage = env.storage.copy()
+        return (env.getSuccess(), env.returnValue)
 
 
     def playTransaction(self, tx, showMessage):

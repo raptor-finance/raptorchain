@@ -243,7 +243,8 @@ class Opcodes(object):
         # Skipping rest of NONE stuff, it isn't useful
         self.opcodes[0xF0] = self.CREATE
 
-
+    def padded(self, data, size):
+        return (b"\x00"*(size-(len(_bts))) + _bts)[0:size]
 
     def unsigned_to_signed(value: int) -> int:
         return value if value <= (2**255) else value - (2**256)
@@ -253,7 +254,6 @@ class Opcodes(object):
         b = env.stack.pop()
         env.stack.append(int(int(a+b)%(2**256)))
         env.pc += 1
-        
     
     def sub(self, env):
         a = env.stack.pop()
@@ -930,9 +930,11 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
+        result = env.callFallback(CallEnv(self.getAccount, env.recipient, env.getAccount(env.recipient).storage, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback))
         
+        env.memory.data[retOffset:retOffset+retLength] = padded(retValue, retLength)
+
         
-        childCall = CallEnv(self.getAccount, env.recipient, env.getAccount(env.recipient).storage, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
         
     def CALLCODE(self, env):
         pass # TODO
@@ -941,6 +943,7 @@ class Opcodes(object):
         offset = env.stack.pop()
         length = env.stack.pop()
         env.returnCall(bytes(env.memory.data[offset:offset+length]))
+        
         
     def DELEGATECALL(self, env):
         pass # TODO
