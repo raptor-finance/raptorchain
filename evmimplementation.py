@@ -363,6 +363,12 @@ class EVM(object):
             offset = env.stack.pop()
             length = env.stack.pop()
             env.memory.data[destOffset:destOffset+length] = env.getAccount(addr).code[offset:offset+length]
+            
+        def RETURNDATASIZE(self, env):
+            env.stack.push(0) # TODO
+            
+        def RETURNDATACOPY(self, env):
+            env.stack.push(0) # TODO
 
 
     class Call(object):
