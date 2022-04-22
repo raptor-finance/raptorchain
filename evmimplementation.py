@@ -58,7 +58,7 @@ class EVM(object):
 
 
     class CallEnv(object):
-        def __init__(self, storage, caller, recipient, state, origin, value):
+        def __init__(self, storage, caller, recipient, state, beaconchain, origin, value):
             self.stack = []
             self.memory = CallMemory()
             self.storage = storage
@@ -66,10 +66,15 @@ class EVM(object):
             self.txorigin = origin
             self.recipient = recipient
             self.state = state
+            self.chain = beaconchain
             self.value = value
+        
+        def getBlock(height):
+            return self.chain.blocks[min(height, len(self.chain.blocks)-1)]
             
-        def getAccount(acct):
-            return self.state[w3.toChecksum]
+        def getAccount(addr):
+            chkaddr = w3.toChecksumAddress(addr)
+            return self.state.get(chkaddr, Account(chkaddr, ""))
 
     # class Opcode(object):
         # def __init__(self, logic, gascost):
@@ -369,6 +374,11 @@ class EVM(object):
             
         def RETURNDATACOPY(self, env):
             env.stack.push(0) # TODO
+        
+        def BLOCKHASH(self, env):
+            env.stack.push(int(env.getBlock(env.stack.pop()).proof, 16))
+        
+        
 
 
     class Call(object):
