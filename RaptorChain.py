@@ -440,6 +440,7 @@ class Account(object):
         self.received = []
         self.mined = []
         self.bio = ""
+        self.code = b""
 
 class State(object):
     def __init__(self, initTxID):
