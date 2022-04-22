@@ -414,6 +414,13 @@ class Opcodes(object):
         env.stack.append(int(result))
         env.pc += 1
     
+    def shl(self, env):
+        shift = env.stack.pop()
+        value = env.stack.pop()
+        result = (value << shift)%(2**256)
+        env.stack.append(int(result))
+        env.pc += 1
+    
     def shr(self, env):
         shift = env.stack.pop()
         value = env.stack.pop()
@@ -421,7 +428,8 @@ class Opcodes(object):
         env.stack.append(int(result))
         env.pc += 1
 
-    def shl(self, env):
+
+    def sar(self, env):
         shift = env.stack.pop()
         value = self.unsigned_to_signed(env.stack.pop())
         result = (value << shift)%(2**256)
@@ -431,7 +439,8 @@ class Opcodes(object):
         else:
             result = (value >> shift) & (2**256-1)
         env.pc += 1
-            
+
+    
 
     def sha3(self, env):
         start_position = env.stack.pop()
@@ -914,7 +923,16 @@ class Opcodes(object):
         pass # TODO
         
     def CALL(self, env):
-        pass # TODO
+        gas = env.stack.pop()
+        addr = env.stack.pop()
+        value = env.stack.pop()
+        argsOffset = env.stack.pop()
+        argsLength = env.stack.pop()
+        retOffset = env.stack.pop()
+        retLength = env.stack.pop()
+        
+        
+        childCall = CallEnv(self.getAccount, env.recipient, env.getAccount(env.recipient).storage, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
         
     def CALLCODE(self, env):
         pass # TODO
@@ -940,15 +958,15 @@ class Opcodes(object):
         pass # TODO
 
 
-
+# CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(env.recipient).storage, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
 class CallEnv(object):
-    def __init__(self, caller, storage, recipient, state, beaconchain, origin, value, gaslimit, tx, data):
+    def __init__(self, accountGetter, caller, storage, recipient, beaconchain, value, gaslimit, tx, data, callfallback):
         self.stack = []
+        self.getAccount = accountGetter
         self.memory = CallMemory()
         self.msgSender = caller
         self.txorigin = origin
         self.recipient = recipient
-        self.state = state
         self.chain = beaconchain
         self.originalStorage = storage.copy()
         self.storage = storage.copy()
@@ -961,6 +979,8 @@ class CallEnv(object):
         self.data = data
         self.halt = False
         self.returnValue = b""
+        self.success = True
+        self.callFallback = callfallback
     
     
 
@@ -972,15 +992,14 @@ class CallEnv(object):
 
     def blockNumber(self):
         return (len(self.chain.blocks)-1)
-
-    def getAccount(self, addr):
-        chkaddr = w3.toChecksumAddress(addr)
-        return self.state.get(chkaddr, Account(chkaddr, ""))
     
-    def consumeGas(self, gas):
-        self.gasUsed += gas
+    def consumeGas(self, units):
+        self.gasUsed += units
+        if (self.gasUsed > self.gaslimit):
+            self.halt = True
+            self.success = False
     
-    def remainingGas(self, ):
+    def remainingGas(self):
         return self.gaslimit - self.gasUsed
     
     def loadStorageKey(self, key):
@@ -1005,5 +1024,9 @@ class CallEnv(object):
     def revert(self, data):
         self.storage = self.originalStorage.copy()
         self.halt = True
+        self.success = False
         self.returnValue = data
+    
+    def getSuccess(self):
+        return (self.success and (self.remainingGas >= 0))
     

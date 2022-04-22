@@ -123,6 +123,7 @@ class Transaction(object):
             decoder = ETHTransactionDecoder()
             ethDecoded = decoder.decode_raw_tx(txData.get("rawTx"))
             self.gasprice = ethDecoded.gas_price
+            self.gasLimit = ethDecoded.gas
             self.fee = ethDecoded.gas_price*21000
             self.sender = ethDecoded.from_
             self.recipient = ethDecoded.to
@@ -130,6 +131,7 @@ class Transaction(object):
             self.nonce = ethDecoded.nonce
             self.ethData = ethDecoded.data
             self.ethTxid = ethDecoded.hash_tx
+            self.data = ethDecoded.data
         elif self.txtype == 3: # deposits checking trigger
             self.fee = 0
             self.l2hash = txData["l2hash"]
@@ -465,7 +467,7 @@ class State(object):
         self.lastIndex = 0
 
     def getAccount(self, _addr):
-        return self.accounts.get(w3.toChecksumAddress(_addr), Account(_addr))
+        return self.accounts.get(w3.toChecksumAddress(_addr), Account(_addr, self.initTxID))
 
     def getCurrentEpoch(self):
         return self.beaconChain.getLastBeacon().proof
@@ -687,15 +689,40 @@ class State(object):
             raise
             return False
 
+    def addParent(self, txid, addr):
+        acct = self.getAccount(addr)
+        if (acct.transactions[len(acct.transactions)-1] != txid):
+            acct.transactions.append(txid)
 
     def executeContractCall(self, tx):
-        env = EVM.CallEnv(storage)
-        code = self.getAccount(self.recipient).code
-        while True:
-            self.opcodes[code[self.env.pc]](self.env)
-            if self.env.halt:
-                tx.returnValue = env.returnValue
+        env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient).storage.copy(), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data)
+        code = self.getAccount(tx.recipient).code
+        while True and (not env.halt):
+            try:
+                self.opcodes[code[self.env.pc]](self.env)
+            except:
+                break
+        tx.returnValue = env.returnValue
+        if env.getSuccess():
+            self.getAccount(tx.recipient).storage = env.storage.copy()
         
+    def executeChildCall(self, msg):
+        if (msg.value > self.getAccount(msg.msgSender).balance):
+            return
+        if (msg.value > 0):
+            self.getAccount(msg.msgSender).balance -= msg.value
+            self.getAccount(msg.recipient).balance += msg.value
+        code = self.getAccount(tx.recipient).code
+        while True and (not env.halt):
+            try:
+                self.opcodes[code[self.env.pc]](self.env)
+            except:
+                break
+        tx.returnValue = env.returnValue
+        if env.getSuccess():
+            self.addParent(msg.tx.txid, msg.msgSender)
+            self.addParent(msg.tx.txid, msg.recipient)
+            self.getAccount(tx.recipient).storage = env.storage.copy()
 
 
     def playTransaction(self, tx, showMessage):
