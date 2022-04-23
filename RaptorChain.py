@@ -795,7 +795,7 @@ class State(object):
             try:
                 # self.opcodes[code[env.pc]](env)
                 op = code[env.pc]
-                history.append(op)
+                history.append(hex(op))
                 self.opcodes[op](env)
             except Exception as e:
                 print(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {code}\nLast succesful opcode : {op}\nHalted : {env.halt}")

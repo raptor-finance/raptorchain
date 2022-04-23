@@ -465,7 +465,7 @@ class Opcodes(object):
         env.pc += 1
 
     def ADDRESS(self, env):
-        env.stack.append(int(env.recipient, 16))
+        env.stack.append(int(env.runningAccount.address, 16))
         env.pc += 1
     
     def BALANCE(self, env):
@@ -481,7 +481,11 @@ class Opcodes(object):
         env.pc += 1
     
     def CALLVALUE(self, env):
-        env.stack.append(int(env.value))
+        try:
+            _value = int(env.value)
+        except:
+            _value = int(env.value, 16)
+        env.stack.append(_value)
         env.pc += 1
     
     def CALLDATALOAD(self, env):
@@ -506,14 +510,14 @@ class Opcodes(object):
         env.pc += 1
 
     def CODESIZE(self, env):
-        env.stack.append(len(env.getAccount(env.recipient).code))
+        env.stack.append(len(env.runningAccount.code))
         env.pc += 1
 
     def CODECOPY(self, env):
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
-        env.memory.data[destOffset:destOffset+length] = env.getAccount(env.recipient).code[offset:offset+length]
+        env.memory.data[destOffset:destOffset+length] = env.runningAccount.code[offset:offset+length]
         env.pc += 1
 
     def GASPRICE(self, env):
@@ -573,7 +577,7 @@ class Opcodes(object):
         env.pc += 1
     
     def SELFBALANCE(self, env):
-        env.stack.append(env.getAccount(env.recipient).balance)
+        env.stack.append(env.runningAccount.balance)
         env.pc += 1
         
     def BASEFEE(self, env):
@@ -935,6 +939,7 @@ class Opcodes(object):
 
     def CREATE(self, env):
         pass # TODO
+        env.pc += 1
         
     def CALL(self, env):
         gas = env.stack.pop()
@@ -948,11 +953,13 @@ class Opcodes(object):
         retValue = result[1]
         env.stack.append(int(result[0]))
         env.memory.data[retOffset:retOffset+retLength] = self.padded(retValue, retLength)
+        env.pc += 1
 
         
         
     def CALLCODE(self, env):
         pass # TODO
+        env.pc += 1
         
     def RETURN(self, env):
         print(f"Stack state just before return : {env.stack}")
@@ -972,6 +979,7 @@ class Opcodes(object):
         retValue = result[1]
         env.stack.append(int(result[0]))
         env.memory.data[retOffset:retOffset+retLength] = self.padded(retValue, retLength)
+        env.pc += 1
         
     def CREATE2(self, env):
         pass # TODO
@@ -987,6 +995,7 @@ class Opcodes(object):
         retValue = result[1]
         env.stack.append(int(result[0]))
         env.memory.data[retOffset:retOffset+retLength] = self.padded(retValue, retLength)
+        env.pc += 1
 
     def REVERT(self, env):
         offset = env.stack.pop()
@@ -1006,6 +1015,7 @@ class Opcodes(object):
             env.getAccount(env.recipient).code = b""
             env.getAccount(env.recipient).storage = {}
             env.halt = True
+        env.pc += 1
         
 
 
@@ -1068,8 +1078,9 @@ class CallEnv(object):
             self.storage[key] = value
     
     def getPushData(self, pc, length):
+        _data = self.runningAccount.code[pc+1:pc+length+1]
         self.pc += length
-        return int(self.runningAccount.code[pc+1:pc+length+1].hex(), 16)
+        return int(_data.hex(), 16)
     
     def swap(self, n):
         head = len(self.stack)-1
