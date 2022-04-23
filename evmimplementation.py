@@ -11,7 +11,7 @@ class CallMemory(object):
         return ((((number-1)//32)+1)*32)
     
     def tobytes32(self, number):
-        _bts = bytes.fromhex(number.hex()[2:])
+        _bts = bytes.fromhex(hex(number)[2:])
         return (b"\x00"*(32-(len(_bts))) + _bts)
         
     
@@ -30,7 +30,7 @@ class CallMemory(object):
             self.data = self.data + bytearray(size_to_extend)
     
     def write(self, begin, end, value):
-        self.data[begin:end] = tobytes32(int(value))
+        self.data[begin:end] = self.tobytes32(int(value))
     
     
     def read(self, start_position: int, size: int) -> memoryview:
@@ -242,6 +242,10 @@ class Opcodes(object):
         self.opcodes[0xAF] = None
         # Skipping rest of NONE stuff, it isn't useful
         self.opcodes[0xF0] = self.CREATE
+        self.opcodes[0xF1] = self.CALL
+        self.opcodes[0xF2] = self.CALLCODE
+        self.opcodes[0xF3] = self.RETURN
+        self.opcodes[0xFD] = self.REVERT
 
     def padded(self, data, size):
         return (b"\x00"*(size-(len(_bts))) + _bts)[0:size]
@@ -461,7 +465,7 @@ class Opcodes(object):
         env.pc += 1
 
     def ADDRESS(self, env):
-        env.stack.append(env.recipient)
+        env.stack.append(int(env.recipient, 16))
         env.pc += 1
     
     def BALANCE(self, env):
@@ -469,11 +473,11 @@ class Opcodes(object):
         env.pc += 1
     
     def ORIGIN(self, env):
-        env.stack.append(int(env.tx.sender))
+        env.stack.append(int(env.tx.sender, 16))
         env.pc += 1
     
     def CALLER(self, env):
-        env.stack.append(int(env.msgSender))
+        env.stack.append(int(env.msgSender, 16))
         env.pc += 1
     
     def CALLVALUE(self, env):
@@ -482,7 +486,11 @@ class Opcodes(object):
     
     def CALLDATALOAD(self, env):
         i = env.stack.pop()
-        env.stack.append(int((env.data[i:i+32]).hex(), 16))
+        _data = env.data[i:i+32]
+        if (len(_data) > 0):
+            env.stack.append(int((_data).hex(), 16))
+        else:
+            env.stack.append(0)
         env.pc += 1
     
     def CALLDATASIZE(self, env):
@@ -498,7 +506,7 @@ class Opcodes(object):
         env.pc += 1
 
     def CODESIZE(self, env):
-        env.stack.push(len(env.getAccount(env.recipient).code))
+        env.stack.append(len(env.getAccount(env.recipient).code))
         env.pc += 1
 
     def CODECOPY(self, env):
@@ -578,7 +586,7 @@ class Opcodes(object):
     
     def MLOAD(self, env):
         offset = env.stack.pop()
-        env.stack.push(int(memory.data[offset:offset+32].hex(), 16))
+        env.stack.append(int(memory.data[offset:offset+32].hex(), 16))
         env.pc += 1
     
     def MSTORE(self, env):
@@ -608,6 +616,7 @@ class Opcodes(object):
         env.pc = env.stack.pop()
     
     def JUMPI(self, env):
+        print(f"Stack before JUMPI : {env.stack}")
         dest = env.stack.pop()
         cond = env.stack.pop()
         env.pc = (dest if bool(cond) else (env.pc + 1))
@@ -621,138 +630,138 @@ class Opcodes(object):
         env.pc += 1
     
     def GAS(self, env):
-        env.stack.append(env.remainingGas)
+        env.stack.append(env.remainingGas())
         env.pc += 1
     
     def JUMPDEST(self, env):
         env.pc += 1
     
     def PUSH1(self, env):
-        env.stack.push(env.getPushData(env.pc, 1))
+        env.stack.append(env.getPushData(env.pc, 1))
         env.pc += 1
     
     def PUSH2(self, env):
-        env.stack.push(env.getPushData(env.pc, 2))
+        env.stack.append(env.getPushData(env.pc, 2))
         env.pc += 1
         
     def PUSH3(self, env):
-        env.stack.push(env.getPushData(env.pc, 3))
+        env.stack.append(env.getPushData(env.pc, 3))
         env.pc += 1
         
     def PUSH4(self, env):
-        env.stack.push(env.getPushData(env.pc, 4))
+        env.stack.append(env.getPushData(env.pc, 4))
         env.pc += 1
         
     def PUSH5(self, env):
-        env.stack.push(env.getPushData(env.pc, 5))
+        env.stack.append(env.getPushData(env.pc, 5))
         env.pc += 1
         
     def PUSH6(self, env):
-        env.stack.push(env.getPushData(env.pc, 6))
+        env.stack.append(env.getPushData(env.pc, 6))
         env.pc += 1
         
     def PUSH7(self, env):
-        env.stack.push(env.getPushData(env.pc, 7))
+        env.stack.append(env.getPushData(env.pc, 7))
         env.pc += 1
         
     def PUSH8(self, env):
-        env.stack.push(env.getPushData(env.pc, 8))
+        env.stack.append(env.getPushData(env.pc, 8))
         env.pc += 1
         
     def PUSH9(self, env):
-        env.stack.push(env.getPushData(env.pc, 9))
+        env.stack.append(env.getPushData(env.pc, 9))
         env.pc += 1
         
     def PUSH10(self, env):
-        env.stack.push(env.getPushData(env.pc, 10))
+        env.stack.append(env.getPushData(env.pc, 10))
         env.pc += 1
         
     def PUSH11(self, env):
-        env.stack.push(env.getPushData(env.pc, 11))
+        env.stack.append(env.getPushData(env.pc, 11))
         env.pc += 1
         
     def PUSH12(self, env):
-        env.stack.push(env.getPushData(env.pc, 12))
+        env.stack.append(env.getPushData(env.pc, 12))
         env.pc += 1
         
     def PUSH13(self, env):
-        env.stack.push(env.getPushData(env.pc, 13))
+        env.stack.append(env.getPushData(env.pc, 13))
         env.pc += 1
         
     def PUSH14(self, env):
-        env.stack.push(env.getPushData(env.pc, 14))
+        env.stack.append(env.getPushData(env.pc, 14))
         env.pc += 1
         
     def PUSH15(self, env):
-        env.stack.push(env.getPushData(env.pc, 15))
+        env.stack.append(env.getPushData(env.pc, 15))
         env.pc += 1
         
     def PUSH16(self, env):
-        env.stack.push(env.getPushData(env.pc, 16))
+        env.stack.append(env.getPushData(env.pc, 16))
         env.pc += 1
         
     def PUSH17(self, env):
-        env.stack.push(env.getPushData(env.pc, 17))
+        env.stack.append(env.getPushData(env.pc, 17))
         env.pc += 1
         
     def PUSH18(self, env):
-        env.stack.push(env.getPushData(env.pc, 18))
+        env.stack.append(env.getPushData(env.pc, 18))
         env.pc += 1
         
     def PUSH19(self, env):
-        env.stack.push(env.getPushData(env.pc, 19))
+        env.stack.append(env.getPushData(env.pc, 19))
         env.pc += 1
         
     def PUSH20(self, env):
-        env.stack.push(env.getPushData(env.pc, 20))
+        env.stack.append(env.getPushData(env.pc, 20))
         env.pc += 1
         
     def PUSH21(self, env):
-        env.stack.push(env.getPushData(env.pc, 21))
+        env.stack.append(env.getPushData(env.pc, 21))
         env.pc += 1
         
     def PUSH22(self, env):
-        env.stack.push(env.getPushData(env.pc, 22))
+        env.stack.append(env.getPushData(env.pc, 22))
         env.pc += 1
         
     def PUSH23(self, env):
-        env.stack.push(env.getPushData(env.pc, 23))
+        env.stack.append(env.getPushData(env.pc, 23))
         env.pc += 1
         
     def PUSH24(self, env):
-        env.stack.push(env.getPushData(env.pc, 24))
+        env.stack.append(env.getPushData(env.pc, 24))
         env.pc += 1
         
     def PUSH25(self, env):
-        env.stack.push(env.getPushData(env.pc, 25))
+        env.stack.append(env.getPushData(env.pc, 25))
         env.pc += 1
         
     def PUSH26(self, env):
-        env.stack.push(env.getPushData(env.pc, 26))
+        env.stack.append(env.getPushData(env.pc, 26))
         env.pc += 1
         
     def PUSH27(self, env):
-        env.stack.push(env.getPushData(env.pc, 27))
+        env.stack.append(env.getPushData(env.pc, 27))
         env.pc += 1
         
     def PUSH28(self, env):
-        env.stack.push(env.getPushData(env.pc, 28))
+        env.stack.append(env.getPushData(env.pc, 28))
         env.pc += 1
         
     def PUSH29(self, env):
-        env.stack.push(env.getPushData(env.pc, 29))
+        env.stack.append(env.getPushData(env.pc, 29))
         env.pc += 1
         
     def PUSH30(self, env):
-        env.stack.push(env.getPushData(env.pc, 30))
+        env.stack.append(env.getPushData(env.pc, 30))
         env.pc += 1
         
     def PUSH31(self, env):
-        env.stack.push(env.getPushData(env.pc, 31))
+        env.stack.append(env.getPushData(env.pc, 31))
         env.pc += 1
         
     def PUSH32(self, env):
-        env.stack.push(env.getPushData(env.pc, 32))
+        env.stack.append(env.getPushData(env.pc, 32))
         env.pc += 1
         
         
@@ -760,67 +769,67 @@ class Opcodes(object):
         
         
     def DUP1(self, env):
-        env.stack.push(env.stack[len(env.stack)-1])
+        env.stack.append(env.stack[len(env.stack)-1])
         env.pc += 1
 
     def DUP2(self, env):
-        env.stack.push(env.stack[len(env.stack)-2])
+        env.stack.append(env.stack[len(env.stack)-2])
         env.pc += 1
 
     def DUP3(self, env):
-        env.stack.push(env.stack[len(env.stack)-3])
+        env.stack.append(env.stack[len(env.stack)-3])
         env.pc += 1
 
     def DUP4(self, env):
-        env.stack.push(env.stack[len(env.stack)-4])
+        env.stack.append(env.stack[len(env.stack)-4])
         env.pc += 1
 
     def DUP5(self, env):
-        env.stack.push(env.stack[len(env.stack)-5])
+        env.stack.append(env.stack[len(env.stack)-5])
         env.pc += 1
 
     def DUP6(self, env):
-        env.stack.push(env.stack[len(env.stack)-6])
+        env.stack.append(env.stack[len(env.stack)-6])
         env.pc += 1
 
     def DUP7(self, env):
-        env.stack.push(env.stack[len(env.stack)-7])
+        env.stack.append(env.stack[len(env.stack)-7])
         env.pc += 1
 
     def DUP8(self, env):
-        env.stack.push(env.stack[len(env.stack)-8])
+        env.stack.append(env.stack[len(env.stack)-8])
         env.pc += 1
 
     def DUP9(self, env):
-        env.stack.push(env.stack[len(env.stack)-9])
+        env.stack.append(env.stack[len(env.stack)-9])
         env.pc += 1
 
     def DUP10(self, env):
-        env.stack.push(env.stack[len(env.stack)-10])
+        env.stack.append(env.stack[len(env.stack)-10])
         env.pc += 1
 
     def DUP11(self, env):
-        env.stack.push(env.stack[len(env.stack)-11])
+        env.stack.append(env.stack[len(env.stack)-11])
         env.pc += 1
 
     def DUP12(self, env):
-        env.stack.push(env.stack[len(env.stack)-12])
+        env.stack.append(env.stack[len(env.stack)-12])
         env.pc += 1
 
     def DUP13(self, env):
-        env.stack.push(env.stack[len(env.stack)-13])
+        env.stack.append(env.stack[len(env.stack)-13])
         env.pc += 1
 
     def DUP14(self, env):
-        env.stack.push(env.stack[len(env.stack)-14])
+        env.stack.append(env.stack[len(env.stack)-14])
         env.pc += 1
 
     def DUP15(self, env):
-        env.stack.push(env.stack[len(env.stack)-15])
+        env.stack.append(env.stack[len(env.stack)-15])
         env.pc += 1
 
     def DUP16(self, env):
-        env.stack.push(env.stack[len(env.stack)-16])
+        env.stack.append(env.stack[len(env.stack)-16])
         env.pc += 1
 
 
@@ -892,17 +901,20 @@ class Opcodes(object):
     def LOG0(self, env): # TODO
         offset = env.stack.pop()
         length = env.stack.pop()
+        env.pc += 1
         
     def LOG1(self, env): # TODO
         offset = env.stack.pop()
         length = env.stack.pop()
         topic0 = env.stack.pop()
+        env.pc += 1
         
     def LOG2(self, env): # TODO
         offset = env.stack.pop()
         length = env.stack.pop()
         topic0 = env.stack.pop()
         topic1 = env.stack.pop()
+        env.pc += 1
 
     def LOG3(self, env): # TOOD
         offset = env.stack.pop()
@@ -910,6 +922,7 @@ class Opcodes(object):
         topic0 = env.stack.pop()
         topic1 = env.stack.pop()
         topic2 = env.stack.pop()
+        env.pc += 1
         
     def LOG4(self, env): # TODO
         offset = env.stack.pop()
@@ -918,6 +931,7 @@ class Opcodes(object):
         topic1 = env.stack.pop()
         topic2 = env.stack.pop()
         topic3 = env.stack.pop()
+        env.pc += 1
 
     def CREATE(self, env):
         pass # TODO
@@ -941,10 +955,11 @@ class Opcodes(object):
         pass # TODO
         
     def RETURN(self, env):
+        print(f"Stack state just before return : {env.stack}")
         offset = env.stack.pop()
         length = env.stack.pop()
         env.returnCall(bytes(env.memory.data[offset:offset+length]))
-        
+        env.pc += 1
         
     def DELEGATECALL(self, env):
         gas = env.stack.pop()
@@ -977,13 +992,14 @@ class Opcodes(object):
         offset = env.stack.pop()
         length = env.stack.pop()
         env.revert(bytes(env.memory.data[offset:offset+length]))
+        env.pc += 1
 
     def SELFDESTRUCT(self, env):
         if env.isStatic():
             env.revert(b"NOT_SUPPORTED_IN_STATICCALL")
             return
-        addr = env.stack.pop()
         else:
+            addr = env.stack.pop()
             env.getAccount(addr).balance += env.getAccount(env.recipient).balance
             env.getAccount(env.recipient).balance = 0
             env.getAccount(env.recipient).bio = ""
@@ -1000,7 +1016,7 @@ class CallEnv(object):
         self.getAccount = accountGetter
         self.memory = CallMemory()
         self.msgSender = caller
-        self.txorigin = origin
+        self.txorigin = tx.sender
         self.recipient = recipient
         self.chain = beaconchain
         self.runningAccount = runningAccount
@@ -1053,10 +1069,10 @@ class CallEnv(object):
     
     def getPushData(self, pc, length):
         self.pc += length
-        return int(self.getAccount(self.recipient).code[pc:pc+length].hex(), 16)
+        return int(self.runningAccount.code[pc+1:pc+length+1].hex(), 16)
     
     def swap(self, n):
-        head = len(self.stack-1)
+        head = len(self.stack)-1
         toswap = head-n
         (self.stack[head], self.stack[toswap]) = (self.stack[toswap], self.stack[head])
     
@@ -1071,5 +1087,5 @@ class CallEnv(object):
         self.returnValue = data
     
     def getSuccess(self):
-        return (self.success and (self.remainingGas >= 0))
+        return (self.success and (self.remainingGas() >= 0))
     
