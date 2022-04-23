@@ -105,11 +105,13 @@ class Transaction(object):
     def __init__(self, tx):
         txData = json.loads(tx["data"])
         self.txtype = (txData.get("type") or 0)
+        self.affectedAccounts = []
         if (self.txtype == 0): # legacy transfer
             self.fee = (10**9)*21000
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.value = max(int(txData.get("tokens")), 0)
+            self.affectedAccounts = [self.sender, self.recipient]
             self.gasprice = (10**9)
         if (self.txtype == 1): # block mining/staking tx
             self.fee = 0
@@ -118,6 +120,7 @@ class Transaction(object):
             # print(self.blockData)
             self.recipient = "0x0000000000000000000000000000000000000000"
             self.value = 0
+            self.affectedAccounts = [self.sender]
             self.gasprice = 0
         elif self.txtype == 2: # metamask transaction
             decoder = ETHTransactionDecoder()
@@ -138,16 +141,25 @@ class Transaction(object):
             self.value = 0
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = "0x0000000000000000000000000000000000000000"
+            self.affectedAccounts = [self.sender]
         elif self.txtype == 4: # MN create
             self.fee = 0
             self.value = 1000000000000000000000000
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
+            self.affectedAccounts = [self.sender, self.recipient]
         elif self.txtype == 5: # MN destroy
             self.fee = 0
             self.value = 0
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
+            self.affectedAccounts = [self.sender, self.recipient]
+
+        def formatAddress(self, _addr):
+            if (type(_addr) == int):
+                hexfmt = hex(_addr)[2:]
+                return w3.toChecksumAddress("0x" + ("0" * 40-len(hexfmt)) + hexfmt)
+            return w3.toChecksumAddress(_addr)        
         
         self.epoch = txData.get("epoch")
         self.bio = txData.get("bio")
@@ -158,6 +170,10 @@ class Transaction(object):
         
         # self.PoW = ""
         # self.endTimeStamp = 0
+    def markAccountAffected(self, addr):
+        _addr = self.formatAddress(addr):
+        if not _addr in self.affectedAccounts:
+            self.affectedAccounts.append(_addr)
 
 class GenesisBeacon(object):
     def __init__(self):
@@ -447,6 +463,13 @@ class Account(object):
         self.bio = ""
         self.code = b""
         self.storage = {}
+        self.tempStorage = {}
+        
+    def makeChangesPermanent(self):
+        self.storage = self.tempStorage.copy()
+    
+    def cancelChanges(self):
+        self.tempStorage = self.storage.copy()
 
 class State(object):
     def __init__(self, initTxID):
@@ -466,8 +489,15 @@ class State(object):
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
         self.lastIndex = 0
 
+    def formatAddress(self, _addr):
+        if (type(_addr) == int):
+            hexfmt = hex(_addr)[2:]
+            return w3.toChecksumAddress("0x" + ("0" * 40-len(hexfmt)) + hexfmt)
+        return w3.toChecksumAddress(_addr)
+
     def getAccount(self, _addr):
-        return self.accounts.get(w3.toChecksumAddress(_addr), Account(_addr, self.initTxID))
+        chkaddr = self.formatAddress(_addr)
+        return self.accounts.get(chkaddr, Account(chkaddr, self.initTxID))
 
     def getCurrentEpoch(self):
         return self.beaconChain.getLastBeacon().proof
@@ -695,7 +725,7 @@ class State(object):
             acct.transactions.append(txid)
 
     def executeContractCall(self, tx):
-        env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient).storage.copy(), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall)
+        env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient).storage.copy(), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, False)
         code = self.getAccount(tx.recipient).code
         while True and (not env.halt):
             try:
@@ -704,11 +734,13 @@ class State(object):
                 break
         tx.returnValue = env.returnValue
         if env.getSuccess():
-            self.getAccount(tx.recipient).storage = env.storage.copy()
+            for _addr in tx.affectedAccounts:
+                self.getAccount(_addr).storage = self.getAccount(_addr).tempStorage.copy()
+        
         
     def executeChildCall(self, msg):
-        if (msg.value > self.getAccount(msg.msgSender).balance):
-            return
+        if ((msg.value > self.getAccount(msg.msgSender).balance) or ((msg.value > 0) and msg.isStatic)):
+            return (False, b"")
         if (msg.value > 0):
             self.getAccount(msg.msgSender).balance -= msg.value
             self.getAccount(msg.recipient).balance += msg.value
@@ -719,9 +751,7 @@ class State(object):
             except:
                 break
         if env.getSuccess():
-            self.addParent(msg.tx.txid, msg.msgSender)
-            self.addParent(msg.tx.txid, msg.recipient)
-            self.getAccount(tx.recipient).storage = env.storage.copy()
+            msg.runningAccount.tempStorage = msg.storage.copy()
         return (env.getSuccess(), env.returnValue)
 
 

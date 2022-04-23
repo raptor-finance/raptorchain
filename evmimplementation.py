@@ -930,9 +930,10 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        result = env.callFallback(CallEnv(self.getAccount, env.recipient, env.getAccount(env.recipient).storage, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback))
-        
-        env.memory.data[retOffset:retOffset+retLength] = padded(retValue, retLength)
+        result = env.callFallback(CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, self.isStatic))
+        retValue = result[1]
+        env.stack.append(int(result[0]))
+        env.memory.data[retOffset:retOffset+retLength] = self.padded(retValue, retLength)
 
         
         
@@ -946,24 +947,55 @@ class Opcodes(object):
         
         
     def DELEGATECALL(self, env):
-        pass # TODO
+        gas = env.stack.pop()
+        addr = env.stack.pop()
+        argsOffset = env.stack.pop()
+        argsLength = env.stack.pop()
+        retOffset = env.stack.pop()
+        retLength = env.stack.pop()
+        result = env.callFallback(CallEnv(self.getAccount, env.msgSender, env.getAccount(env.recipient), env.recipient, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.isStatic))
+        retValue = result[1]
+        env.stack.append(int(result[0]))
+        env.memory.data[retOffset:retOffset+retLength] = self.padded(retValue, retLength)
         
     def CREATE2(self, env):
         pass # TODO
     
     def STATICCALL(self, env):
-        pass # TODO
+        gas = env.stack.pop()
+        addr = env.stack.pop()
+        argsOffset = env.stack.pop()
+        argsLength = env.stack.pop()
+        retOffset = env.stack.pop()
+        retLength = env.stack.pop()
+        result = env.callFallback(CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, True))
+        retValue = result[1]
+        env.stack.append(int(result[0]))
+        env.memory.data[retOffset:retOffset+retLength] = self.padded(retValue, retLength)
 
     def REVERT(self, env):
-        env.revert
+        offset = env.stack.pop()
+        length = env.stack.pop()
+        env.revert(bytes(env.memory.data[offset:offset+length]))
 
     def SELFDESTRUCT(self, env):
-        pass # TODO
+        if env.isStatic():
+            env.revert(b"NOT_SUPPORTED_IN_STATICCALL")
+            return
+        addr = env.stack.pop()
+        else:
+            env.getAccount(addr).balance += env.getAccount(env.recipient).balance
+            env.getAccount(env.recipient).balance = 0
+            env.getAccount(env.recipient).bio = ""
+            env.getAccount(env.recipient).code = b""
+            env.getAccount(env.recipient).storage = {}
+            env.halt = True
+        
 
 
-# CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(env.recipient).storage, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
+# CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
 class CallEnv(object):
-    def __init__(self, accountGetter, caller, storage, recipient, beaconchain, value, gaslimit, tx, data, callfallback):
+    def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, static):
         self.stack = []
         self.getAccount = accountGetter
         self.memory = CallMemory()
@@ -971,8 +1003,8 @@ class CallEnv(object):
         self.txorigin = origin
         self.recipient = recipient
         self.chain = beaconchain
-        self.originalStorage = storage.copy()
-        self.storage = storage.copy()
+        self.runningAccount = runningAccount
+        self.storage = runningAccount.tempStorage.copy()
         self.value = value
         self.chainid = 69420
         self.gaslimit = gaslimit
@@ -984,7 +1016,10 @@ class CallEnv(object):
         self.returnValue = b""
         self.success = True
         self.callFallback = callfallback
-    
+        self.isStatic = static
+        self.tx.markAccountAffected(caller)
+        self.tx.markAccountAffected(recipient)
+        self.tx.markAccountAffected(runningAccount.address)
     
 
     def getBlock(self, height):
@@ -1009,7 +1044,12 @@ class CallEnv(object):
         return self.storage.get(key, 0)
     
     def writeStorageKey(self, key, value):
-        self.storage[key] = value
+        if isStatic:
+            self.success = False
+            self.halt = True
+            self.returnValue = b"STATICCALL_DONT_ALLOW_CHANGING_STATE"
+        else:
+            self.storage[key] = value
     
     def getPushData(self, pc, length):
         self.pc += length
@@ -1025,7 +1065,7 @@ class CallEnv(object):
         self.returnValue = data
     
     def revert(self, data):
-        self.storage = self.originalStorage.copy()
+        self.storage = self.runningAccount.tempStorage.copy()
         self.halt = True
         self.success = False
         self.returnValue = data
