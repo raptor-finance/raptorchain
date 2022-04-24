@@ -69,6 +69,7 @@ class Msg(object):
 class Opcodes(object):
     def __init__(self):
         self.opcodes = {}
+        self.opcodes[0x00] = self.STOP
         self.opcodes[0x01] = self.add
         self.opcodes[0x02] = self.mul
         self.opcodes[0x03] = self.sub
@@ -255,8 +256,11 @@ class Opcodes(object):
     def padded(self, data, size):
         return (b"\x00"*(size-(len(_bts))) + _bts)[0:size]
 
-    def unsigned_to_signed(value: int) -> int:
+    def unsigned_to_signed(self, value):
         return value if value <= (2**255) else value - (2**256)
+    
+    def STOP(self, env):
+        env.halt = True
     
     def add(self, env):
         a = env.stack.pop()
