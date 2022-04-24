@@ -11,7 +11,9 @@ class CallMemory(object):
         return ((((number-1)//32)+1)*32)
     
     def tobytes32(self, number):
-        _bts = bytes.fromhex(hex(number)[2:])
+        _hex_ = hex(number)[2:]
+        
+        _bts = bytes.fromhex(("0"*(len(_hex_)%2)) + _hex_)
         return (b"\x00"*(32-(len(_bts))) + _bts)
         
     
@@ -33,8 +35,11 @@ class CallMemory(object):
         self.data[begin:end] = self.tobytes32(int(value))
     
     
-    def read(self, start_position: int, size: int) -> memoryview:
-        return memoryview(self.data)[start_position:start_position + size]
+    def read(self, offset, size) -> memoryview:
+        _data = bytes(self.data[offset:offset+size])
+        if len(_data) == 0:
+            return 0
+        return int(_data.hex(), 16)
 
     def read_bytes(self, start_position: int, size: int) -> bytes:
         return bytes(self.data[start_posision:start_posision + size])
@@ -90,8 +95,8 @@ class Opcodes(object):
         self.opcodes[0x18] = self.xor
         self.opcodes[0x19] = self.not_op
         self.opcodes[0x1a] = self.byte_op
-        self.opcodes[0x1b] = self.shr
-        self.opcodes[0x1c] = self.shl
+        self.opcodes[0x1b] = self.shl
+        self.opcodes[0x1c] = self.shr
         self.opcodes[0x1d] = self.sar
         self.opcodes[0x1e] = None
         self.opcodes[0x1f] = None
@@ -510,14 +515,14 @@ class Opcodes(object):
         env.pc += 1
 
     def CODESIZE(self, env):
-        env.stack.append(len(env.runningAccount.code))
+        env.stack.append(len(env.code))
         env.pc += 1
 
     def CODECOPY(self, env):
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
-        env.memory.data[destOffset:destOffset+length] = env.runningAccount.code[offset:offset+length]
+        env.memory.data[destOffset:destOffset+length] = env.code[offset:offset+length]
         env.pc += 1
 
     def GASPRICE(self, env):
@@ -590,7 +595,7 @@ class Opcodes(object):
     
     def MLOAD(self, env):
         offset = env.stack.pop()
-        env.stack.append(int(memory.data[offset:offset+32].hex(), 16))
+        env.stack.append(int(env.memory.read(offset, 32)))
         env.pc += 1
     
     def MSTORE(self, env):
@@ -991,7 +996,7 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        result = env.callFallback(CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, True))
+        result = env.callFallback(CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, code, True))
         retValue = result[1]
         env.stack.append(int(result[0]))
         env.memory.data[retOffset:retOffset+retLength] = self.padded(retValue, retLength)
@@ -1021,7 +1026,7 @@ class Opcodes(object):
 
 # CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
 class CallEnv(object):
-    def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, static):
+    def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, code, static):
         self.stack = []
         self.getAccount = accountGetter
         self.memory = CallMemory()
@@ -1034,10 +1039,11 @@ class CallEnv(object):
         self.value = value
         self.chainid = 69420
         self.gaslimit = gaslimit
-        self.gasUsed = 0
+        self.gasUsed = 21000
         self.pc = 0
         self.tx = tx
         self.data = data
+        self.code = code
         self.halt = False
         self.returnValue = b""
         self.success = True
@@ -1078,7 +1084,7 @@ class CallEnv(object):
             self.storage[key] = value
     
     def getPushData(self, pc, length):
-        _data = self.runningAccount.code[pc+1:pc+length+1]
+        _data = self.code[pc+1:pc+length+1]
         self.pc += length
         return int(_data.hex(), 16)
     
