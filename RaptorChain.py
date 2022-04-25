@@ -799,7 +799,7 @@ class State(object):
         env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(deplAddr), deplAddr, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
         self.execEVMCall(env)
         self.getAccount(deplAddr).code = env.returnValue
-        self.getAccount(deplAddr).storage = env.storage
+        self.getAccount(deplAddr).storage = env.storage.copy()
         self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
         print(f"Deployed contract {deplAddr} in tx {tx.txid}")
         for _addr in tx.affectedAccounts:
@@ -833,7 +833,7 @@ class State(object):
             else:
                 for _addr in tx.affectedAccounts:
                     self.getAccount(_addr).cancelChanges()
-                return (False, tx.returnValue.hex()) # TODO : remove it after test tx receipts
+                return (False, tx.returnValue.hex())
         else:
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).cancelChanges()
@@ -868,7 +868,6 @@ class State(object):
         return (env.gasUsed)
 
     def executeContractCall(self, tx, showMessage):
-        env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
         if (tx.value > self.getAccount(tx.sender).balance):
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
             return (False, b"")
@@ -879,6 +878,7 @@ class State(object):
         
         senderAcct.cancelChanges()
         recipientAcct.cancelChanges()
+        env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
         
         senderAcct.tempBalance -= tx.value
         recipientAcct.tempBalance += tx.value
@@ -886,7 +886,7 @@ class State(object):
             self.execEVMCall(env)
             tx.returnValue = env.returnValue
             if env.getSuccess():
-                env.runningAccount.tempStorage = env.storage.copy()
+                self.getAccount(env.recipient).tempStorage = env.storage.copy()
                 for _addr in tx.affectedAccounts:
                     self.getAccount(_addr).makeChangesPermanent()
                     self.getAccount(_addr).addParent(tx.txid)
