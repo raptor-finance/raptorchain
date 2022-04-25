@@ -135,6 +135,9 @@ class Transaction(object):
             self.nonce = ethDecoded.nonce
             self.ethData = ethDecoded.data
             self.ethTxid = ethDecoded.hash_tx
+            self.v = ethDecoded.v
+            self.r = ethDecoded.r
+            self.s = ethDecoded.s
             self.data = bytes.fromhex(ethDecoded.data.replace("0x", ""))
             if not self.recipient:
                 self.recipient = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(self.sender.replace("0x", "")), int(self.nonce)]))[12:])
@@ -780,7 +783,7 @@ class State(object):
                     op = env.code[env.pc]
                     history.append(hex(op))
                     self.opcodes[op](env)
-                    debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {env.stack} - memory : {bytes(env.memory.data)} - storage : {env.storage} - halted : {env.halt}\n")
+                    debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {env.stack} - memory : {bytes(env.memory.data)} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
                 else:
                     self.opcodes[env.code[env.pc]](env)
             except Exception as e:
@@ -883,6 +886,7 @@ class State(object):
             self.execEVMCall(env)
             tx.returnValue = env.returnValue
             if env.getSuccess():
+                env.runningAccount.tempStorage = env.storage.copy()
                 for _addr in tx.affectedAccounts:
                     self.getAccount(_addr).makeChangesPermanent()
                     self.getAccount(_addr).addParent(tx.txid)
@@ -1226,8 +1230,12 @@ class Node(object):
         except:
             return ""
     
-    
-    
+    def ethGetTransactionByHash(self, txid):
+        try:
+            tx = self.transactions[txid]
+            return {"hash": tx.txid, "nonce": tx.nonce, "blockHash": tx.txid, "transactionIndex": "0x0", "from": tx.sender, "to": (None if tx.contractDeployment else tx.recipient), "value": tx.value, "gasPrice": tx.gasprice, "gas": tx.gasLimit, "input": tx.data, "v": tx.v, "r": tx.r, "s": tx.s}
+        except:
+            return "0x"
 
     def integrateETHTransaction(self, ethTx):
         data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "type": 2})
@@ -1501,8 +1509,12 @@ def handleWeb3Request():
         # print(result)
     if method == "eth_getTransactionReceipt":
         result = node.txReceipt(params[0])
-    
-        
+    if method == "eth_getCode":
+        result = f"0x{node.state.getAccount(params[0]).code.hex()}"
+    if method == "eth_getStorageAt":
+        result = hex(int(node.state.getAccount(params[0]).storage[int(params[1])]))
+    if method == "eth_getTransactionByHash":
+        result = node.ethGetTransactionByHash(params[0])
     return flask.Response(json.dumps({"id": _id, "jsonrpc": "2.0", "result": result}), mimetype='application/json');
     
 
