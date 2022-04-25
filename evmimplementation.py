@@ -13,8 +13,9 @@ class CallMemory(object):
     def tobytes32(self, number):
         _hex_ = hex(number)[2:]
         
-        _bts = bytes.fromhex(("0"*(len(_hex_)%2)) + _hex_)
-        return (b"\x00"*(32-(len(_bts))) + _bts)
+        _bts = int(number).to_bytes(32, "big")
+        return _bts
+        # return (b"\x00"*(32-(len(_bts))) + _bts)
         
     
     def extend(self, start_position: int, size: int) -> None:
@@ -25,14 +26,15 @@ class CallMemory(object):
         if new_size <= len(self):
             return
 
-        size_to_extend = new_size - len(self)
+        size_to_extend = new_size - len(self.data)
         try:
             self.data.extend(itertools.repeat(0, size_to_extend))
         except BufferError:
             self.data = self.data + bytearray(size_to_extend)
     
     def write(self, begin, end, value):
-        self.data[begin:end] = self.tobytes32(int(value))
+        _data = self.tobytes32(int(value))
+        self.data[begin:end] = _data
     
     
     def read(self, offset, size) -> memoryview:
@@ -605,7 +607,7 @@ class Opcodes(object):
         env.pc += 1
     
     def MSTORE(self, env):
-        offset = env.stack.pop()            
+        offset = env.stack.pop()
         value = env.stack.pop()
         env.memory.write(offset, offset+32, value)
         env.pc += 1
@@ -613,7 +615,7 @@ class Opcodes(object):
     def MSTORE8(self, env):
         offset = env.stack.pop()
         value = env.stack.pop()
-        env.memory[offset] = value%0x100
+        env.memory.data[offset] = value%0x100
         env.pc += 1
         
     def SLOAD(self, env):
