@@ -499,7 +499,7 @@ class Opcodes(object):
         i = env.stack.pop()
         _data = env.data[i:i+32]
         if (len(_data) > 0):
-            _data = (_data + (b"\x00"*(32-len(data))))
+            _data = (_data + (b"\x00"*(32-len(_data))))
             env.stack.append(int.from_bytes(_data, byteorder="big"))
         else:
             env.stack.append(0)
