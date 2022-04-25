@@ -531,6 +531,7 @@ class State(object):
         self.lastIndex = 0
         self.accounts["0x0000000000000000000000000000000000000001"].code = bytes.fromhex("608060405234801561001057600080fd5b506004361061002b5760003560e01c806357ecc14714610030575b600080fd5b61003861004e565b60405161004591906100c4565b60405180910390f35b60606040518060400160405280600b81526020017f48656c6c6f20776f726c64000000000000000000000000000000000000000000815250905090565b6000610096826100e6565b6100a081856100f1565b93506100b0818560208601610102565b6100b981610135565b840191505092915050565b600060208201905081810360008301526100de818461008b565b905092915050565b600081519050919050565b600082825260208201905092915050565b60005b83811015610120578082015181840152602081019050610105565b8381111561012f576000848401525b50505050565b6000601f19601f830116905091905056fea2646970667358221220ad44bfb067953d1048acb02d7ee13b978ad64129db11c038ac3f4c82c858f71f64736f6c63430007060033")
         self.receipts = {}
+        self.debug = True
 
     def formatAddress(self, _addr):
         if (type(_addr) == int):
@@ -767,26 +768,46 @@ class State(object):
             return False
 
     def execEVMCall(self, env):
+        history = []
+        if self.debug:
+            debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "w")
+            debugfile.write(f"Calldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.tx.contractDeployment}\n")
+            debugfile.close()
+            debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
         while True and (not env.halt):
             try:
-                self.opcodes[env.code[env.pc]](env)
+                if self.debug:
+                    op = env.code[env.pc]
+                    history.append(hex(op))
+                    self.opcodes[op](env)
+                    debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {env.stack} - memory : {bytes(env.memory.data)} - storage : {env.storage} - halted : {env.halt}\n")
+                else:
+                    self.opcodes[env.code[env.pc]](env)
             except Exception as e:
                 print(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.tx.contractDeployment}\nHalted : {env.halt}")
                 raise
         print(f"ReturnValue : {env.returnValue}")
 
     def deployContract(self, tx):
+        self.applyParentStuff(tx)
         deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(tx.sender.replace("0x", "")), int(tx.nonce)]))[12:])
         self.ensureExistence(tx.sender)
         self.ensureExistence(deplAddr)
         env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(deplAddr), deplAddr, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
         self.execEVMCall(env)
         self.getAccount(deplAddr).code = env.returnValue
+        self.getAccount(deplAddr).storage = env.storage
         self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
         print(f"Deployed contract {deplAddr} in tx {tx.txid}")
+        for _addr in tx.affectedAccounts:
+            self.getAccount(_addr).addParent(tx.txid)
+
 
     def tryContractCall(self, tx):
-        env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
+        if tx.contractDeployment:
+            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
+        else:
+            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
         if (tx.value > self.getAccount(tx.sender).balance):
             return (False, b"")
         self.ensureExistence(tx.sender)
@@ -809,7 +830,7 @@ class State(object):
             else:
                 for _addr in tx.affectedAccounts:
                     self.getAccount(_addr).cancelChanges()
-                return (True, tx.returnValue.hex()) # TODO : remove it after test tx receipts
+                return (False, tx.returnValue.hex()) # TODO : remove it after test tx receipts
         else:
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).cancelChanges()
@@ -1344,8 +1365,10 @@ def accountInfo(account):
         bio = node.state.accounts.get(_address).bio
     except:
         bio = ""
+    code = node.state.getAccount(_address).code.hex()
+    storage = node.state.getAccount(_address).storage
     nonce = len(node.state.accounts.get(w3.toChecksumAddress(_address), Account(w3.toChecksumAddress(_address), node.state.initTxID)).sent)
-    return flask.jsonify(result={"balance": (balance or 0), "nonce": nonce, "transactions": transactions, "bio": bio}, success= True)
+    return flask.jsonify(result={"balance": (balance or 0), "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
 
 @app.route("/accounts/sent/<account>")
 def sentByAccount(account):

@@ -39,10 +39,10 @@ class CallMemory(object):
         _data = bytes(self.data[offset:offset+size])
         if len(_data) == 0:
             return 0
-        return int(_data.hex(), 16)
+        return int.from_bytes(_data, byteorder="big")
 
     def read_bytes(self, start_position: int, size: int) -> bytes:
-        return bytes(self.data[start_posision:start_posision + size])
+        return bytes(self.data[start_position:start_position + size])
 
     def extend(self, length: int):
         self.data += [0]*length
@@ -459,8 +459,6 @@ class Opcodes(object):
         start_position = env.stack.pop()
         size = env.stack.pop()
 
-        env.memory.extend(start_position, extend)
-
         sha3_bytes = env.memory.read_bytes(start_position, size)
         # word_count = ceil32(len(sha3_bytes) - 1) // 32
         word_count = (((len(sha3_bytes) - 1)//32) + 1)
@@ -468,7 +466,7 @@ class Opcodes(object):
         # gas_cost = constants.GAS_SHA3WORD * word_count
         # computation.consume_gas(gas_cost, reason="SHA3: word gas cost")
 
-        result = int(w3.keccak(sha3_bytes).hex())
+        result = int(w3.keccak(sha3_bytes).hex(), 16)
 
         env.stack.append(result)
         env.pc += 1
@@ -501,7 +499,8 @@ class Opcodes(object):
         i = env.stack.pop()
         _data = env.data[i:i+32]
         if (len(_data) > 0):
-            env.stack.append(int((_data).hex(), 16))
+            _data = (_data + (b"\x00"*(32-len(data))))
+            env.stack.append(int.from_bytes(_data, byteorder="big"))
         else:
             env.stack.append(0)
         env.pc += 1
@@ -594,7 +593,10 @@ class Opcodes(object):
         env.pc += 1
         
     def POP(self, env):
-        env.stack.pop()
+        try:
+            env.stack.pop()
+        except:
+            pass
         env.pc += 1
     
     def MLOAD(self, env):
@@ -616,7 +618,7 @@ class Opcodes(object):
         
     def SLOAD(self, env):
         key = env.stack.pop()
-        env.stack.append(env.loadStorageKey(env.stack.pop()))
+        env.stack.append(env.loadStorageKey(key))
         env.pc += 1
         
     def SSTORE(self, env):
@@ -629,10 +631,10 @@ class Opcodes(object):
         env.pc = env.stack.pop()
     
     def JUMPI(self, env):
-        print(f"Stack before JUMPI : {env.stack}")
         dest = env.stack.pop()
         cond = env.stack.pop()
         env.pc = (dest if bool(cond) else (env.pc + 1))
+        env.consumeGas(1000)
     
     def PC(self, env):
         env.stack.append(env.pc)
@@ -1042,8 +1044,11 @@ class CallEnv(object):
         self.storage = runningAccount.tempStorage.copy()
         self.value = value
         self.chainid = 69420
-        self.gaslimit = gaslimit
-        self.gasUsed = 21000
+        try:
+            self.gaslimit = int(gaslimit)
+        except:
+            self.gaslimit = int(gaslimit, 16)
+        self.gasUsed = 0
         self.pc = 0
         self.tx = tx
         self.data = data
@@ -1080,7 +1085,7 @@ class CallEnv(object):
         return self.storage.get(key, 0)
     
     def writeStorageKey(self, key, value):
-        if isStatic:
+        if self.isStatic:
             self.success = False
             self.halt = True
             self.returnValue = b"STATICCALL_DONT_ALLOW_CHANGING_STATE"
