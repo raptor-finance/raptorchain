@@ -1,4 +1,4 @@
-import requests, time, json, threading, flask, rlp, eth_abi
+import requests, time, json, threading, flask, rlp, eth_abi, itertools
 global config
 from web3.auto import w3
 from web3 import Web3
@@ -777,6 +777,8 @@ class State(object):
             debugfile.write(f"Calldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.tx.contractDeployment}\n")
             debugfile.close()
             debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
+        if not len(env.code):
+            return
         while True and (not env.halt):
             try:
                 if self.debug:
@@ -800,8 +802,11 @@ class State(object):
         self.execEVMCall(env)
         self.getAccount(deplAddr).code = env.returnValue
         self.getAccount(deplAddr).storage = env.storage.copy()
-        self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
-        print(f"Deployed contract {deplAddr} in tx {tx.txid}")
+        if env.getSuccess():
+            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
+            print(f"Deployed contract {deplAddr} in tx {tx.txid}")
+        else:
+            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
         for _addr in tx.affectedAccounts:
             self.getAccount(_addr).addParent(tx.txid)
 

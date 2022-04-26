@@ -1,6 +1,5 @@
 from web3.auto import w3
-def __init__(self):
-    self.storage = {}
+import itertools
 
 
 class CallMemory(object):
@@ -11,10 +10,10 @@ class CallMemory(object):
         return ((((number-1)//32)+1)*32)
     
     def tobytes32(self, number):
-        _hex_ = hex(number)[2:]
-        
-        _bts = int(number).to_bytes(32, "big")
-        return _bts
+        # _hex_ = hex(number)[2:]
+        # _bts = bytes.fromhex(_hex_+("0"*(64-len(_hex_))))
+        # return _bts
+        return int(number).to_bytes(32, "big")
         # return (b"\x00"*(32-(len(_bts))) + _bts)
         
     
@@ -23,7 +22,7 @@ class CallMemory(object):
             return
 
         new_size = self.ceil32(start_position + size)
-        if new_size <= len(self):
+        if new_size <= len(self.data):
             return
 
         size_to_extend = new_size - len(self.data)
@@ -34,10 +33,12 @@ class CallMemory(object):
     
     def write(self, begin, end, value):
         _data = self.tobytes32(int(value))
+        _len_ = len(self.data)
+        self.extend(begin, end-begin)
         self.data[begin:end] = _data
     
     
-    def read(self, offset, size) -> memoryview:
+    def read(self, offset, size) -> int:
         _data = bytes(self.data[offset:offset+size])
         if len(_data) == 0:
             return 0
@@ -46,8 +47,8 @@ class CallMemory(object):
     def read_bytes(self, start_position: int, size: int) -> bytes:
         return bytes(self.data[start_position:start_position + size])
 
-    def extend(self, length: int):
-        self.data += [0]*length
+    # def extend(self, length: int):
+        # self.data += [0]*length
 
 
 class Msg(object):
@@ -1097,7 +1098,8 @@ class CallEnv(object):
     def getPushData(self, pc, length):
         _data = self.code[pc+1:pc+length+1]
         self.pc += length
-        return int(_data.hex(), 16)
+        return int.from_bytes(_data, "big")
+        # return int(_data.hex(), 16)
     
     def swap(self, n):
         head = len(self.stack)-1
