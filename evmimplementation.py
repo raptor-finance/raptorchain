@@ -37,6 +37,9 @@ class CallMemory(object):
         self.extend(begin, end-begin)
         self.data[begin:end] = _data
     
+    def write_bytes(self, offset, length, value):
+        self.extend(offset, length)
+        self.data[offset:offset+length] = value
     
     def read(self, offset, size) -> int:
         _data = bytes(self.data[offset:offset+size])
@@ -516,8 +519,7 @@ class Opcodes(object):
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
-        
-        env.memory.data[destOffset:destOffset+length] = env.data[offset:offset+length]
+        env.memory.write_bytes(destOffset, length, env.data[offset:offset+length])
         env.pc += 1
 
     def CODESIZE(self, env):
@@ -528,7 +530,7 @@ class Opcodes(object):
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
-        env.memory.data[destOffset:destOffset+length] = env.code[offset:offset+length]
+        env.memory.write_bytes(destOffset, length, env.code[offset:offset+length])
         env.pc += 1
 
     def GASPRICE(self, env):
@@ -544,7 +546,7 @@ class Opcodes(object):
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
-        env.memory.data[destOffset:destOffset+length] = env.getAccount(addr).code[offset:offset+length]
+        env.memory.write(destOffset, length, env.getAccount(addr).code[offset:offset+length])
         env.pc += 1
         
     def RETURNDATASIZE(self, env):
@@ -966,7 +968,7 @@ class Opcodes(object):
         result = env.callFallback(CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, self.isStatic))
         retValue = result[1]
         env.stack.append(int(result[0]))
-        env.memory.data[retOffset:retOffset+retLength] = self.padded(retValue, retLength)
+        env.memory.write(retOffset, retLength, retValue)
         env.pc += 1
 
         
