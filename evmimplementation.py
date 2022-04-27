@@ -275,18 +275,21 @@ class Opcodes(object):
         a = env.stack.pop()
         b = env.stack.pop()
         env.stack.append(int(int(a+b)%(2**256)))
+        env.consumeGas(3)
         env.pc += 1
     
     def sub(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
         env.stack.append(int(int(a-b)%(2**256)))
+        env.consumeGas(3)
         env.pc += 1
     
     def mul(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
         env.stack.append(int(int(a*b)%(2**256)))
+        env.consumeGas(5)
         env.pc += 1
 
     def div(self, env):
@@ -295,6 +298,7 @@ class Opcodes(object):
         result = 0 if (b==0) else a//b*(-1 if b * b < 0 else 1)
             
         env.stack.append(int(int(result)%(2**256)))
+        env.consumeGas(5)
         env.pc += 1
         
     def sdiv(self, env):
@@ -303,12 +307,14 @@ class Opcodes(object):
         result = 0 if (b==0) else a//b*(-1 if b * b < 0 else 1)
             
         env.stack.append(int(int(result)%(2**256)))
+        env.consumeGas(5)
         env.pc += 1
 
     def mod(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
         env.stack.append(int(int(0 if a == 0 else (a%b))%(2**256)))
+        env.consumeGas(5)
         env.pc += 1
     
     def smod(self, env):
@@ -316,6 +322,7 @@ class Opcodes(object):
         b = self.unsigned_to_signed(env.stack.pop())
         result = 0 if mod == 0 else (abs(a) % abs(b) * (-1 if a < 0 else 1)) & (2**256-1)
         env.stack.append(int(int(result)%(2**256)))
+        env.consumeGas(5)
         env.pc += 1
         
     def addmod(self, env):
@@ -326,6 +333,7 @@ class Opcodes(object):
         result = 0 if mod == 0 else (a + b) % c
 
         env.stack.append(int(int(result)%(2**256)))
+        env.consumeGas(8)
         env.pc += 1
 
     def mulmod(self, env):
@@ -336,6 +344,7 @@ class Opcodes(object):
         result = 0 if mod == 0 else (a * b) % c
 
         env.stack.append(int(int(result)%(2**256)))
+        env.consumeGas(8)
         env.pc += 1
 
     def exp(self, env):
@@ -343,6 +352,7 @@ class Opcodes(object):
         b = env.stack.pop()
         result = pow(a, b, (2**256))
         env.stack.append(int(int(result)%(2**256)))
+        env.consumeGas(10*(b+1))
         env.pc += 1
 
     def signextend(self, env):
@@ -359,6 +369,7 @@ class Opcodes(object):
         else:
             result = value
         env.stack.append(int(int(result)%(2**256)))
+        env.consumeGas(5)
         env.pc += 1
 
     def lt(self, env):
@@ -366,6 +377,7 @@ class Opcodes(object):
         b = env.stack.pop()
         result = int(a<b)
         env.stack.append(int(result))
+        env.consumeGas(3)
         env.pc += 1
     
     def gt(self, env):
@@ -373,6 +385,7 @@ class Opcodes(object):
         b = env.stack.pop()
         result = int(a>b)
         env.stack.append(int(result))
+        env.consumeGas(3)
         env.pc += 1
 
     def slt(self, env):
@@ -380,6 +393,7 @@ class Opcodes(object):
         b = self.unsigned_to_signed(env.stack.pop())
         result = int(a<b)
         env.stack.append(result)
+        env.consumeGas(3)
         env.pc += 1
 
     def sgt(self, env):
@@ -387,6 +401,7 @@ class Opcodes(object):
         b = self.unsigned_to_signed(env.stack.pop())
         result = int(a>b)
         env.stack.append(int(result))
+        env.consumeGas(3)
         env.pc += 1
 
     def eq(self, env):
@@ -394,12 +409,14 @@ class Opcodes(object):
         b = env.stack.pop()
         result = int(a==b)
         env.stack.append(int(result))
+        env.consumeGas(3)
         env.pc += 1
     
     def iszero(self, env):
         a = env.stack.pop()
         result = int(a==0)
         env.stack.append(int(result))
+        env.consumeGas(3)
         env.pc += 1
     
     def and_op(self, env):
@@ -407,6 +424,7 @@ class Opcodes(object):
         b = env.stack.pop()
         result = a&b
         env.stack.append(int(result))
+        env.consumeGas(3)
         env.pc += 1
     
     def or_op(self, env):
@@ -414,6 +432,7 @@ class Opcodes(object):
         b = env.stack.pop()
         result = a|b
         env.stack.append(int(result))
+        env.consumeGas(3)
         env.pc += 1
     
     def xor(self, env):
@@ -421,12 +440,14 @@ class Opcodes(object):
         b = env.stack.pop()
         result = a^b
         env.stack.append(int(result))
+        env.consumeGas(3)
         env.pc += 1
     
     def not_op(self, env):
         a = env.stack.pop()
         result = (2**256-1)-a
         env.stack.append(int(result))
+        env.consumeGas(3)
         env.pc += 1
     
     def byte_op(self, env):
@@ -434,6 +455,7 @@ class Opcodes(object):
         value = env.stack.pop()
         result = 0 if position >= 32 else (value // pow(256, 31 - position)) % 256
         env.stack.append(int(result))
+        env.consumeGas(3)
         env.pc += 1
     
     def shl(self, env):
@@ -474,7 +496,7 @@ class Opcodes(object):
 
         # gas_cost = constants.GAS_SHA3WORD * word_count
         # computation.consume_gas(gas_cost, reason="SHA3: word gas cost")
-
+        env.consumeGas(30+(6*word_count))
         result = int(w3.keccak(sha3_bytes).hex(), 16)
 
         env.stack.append(result)
@@ -482,18 +504,22 @@ class Opcodes(object):
 
     def ADDRESS(self, env):
         env.stack.append(int(env.runningAccount.address, 16))
+        env.consumeGas(2)
         env.pc += 1
     
     def BALANCE(self, env):
         env.stack.append(env.getAccount(env.stack.pop()).balance)
+        env.consumeGas(400)
         env.pc += 1
     
     def ORIGIN(self, env):
         env.stack.append(int(env.tx.sender, 16))
+        env.consumeGas(2)
         env.pc += 1
     
     def CALLER(self, env):
         env.stack.append(int(env.msgSender, 16))
+        env.consumeGas(2)
         env.pc += 1
     
     def CALLVALUE(self, env):
@@ -502,6 +528,7 @@ class Opcodes(object):
         except:
             _value = int(env.value, 16)
         env.stack.append(_value)
+        env.consumeGas(2)
         env.pc += 1
     
     def CALLDATALOAD(self, env):
@@ -512,10 +539,12 @@ class Opcodes(object):
             env.stack.append(int.from_bytes(_data, byteorder="big"))
         else:
             env.stack.append(0)
+        env.consumeGas(3)
         env.pc += 1
     
     def CALLDATASIZE(self, env):
         env.stack.append(len(env.data))
+        env.consumeGas(2)
         env.pc += 1
 
     def CALLDATACOPY(self, env):
@@ -523,10 +552,12 @@ class Opcodes(object):
         offset = env.stack.pop()
         length = env.stack.pop()
         env.memory.write_bytes(destOffset, length, env.data[offset:offset+length])
+        env.consumeGas(((((length - 1)//32) + 1) * 3) + 2)
         env.pc += 1
 
     def CODESIZE(self, env):
         env.stack.append(len(env.code))
+        env.consumeGas(2)
         env.pc += 1
 
     def CODECOPY(self, env):
@@ -534,14 +565,17 @@ class Opcodes(object):
         offset = env.stack.pop()
         length = env.stack.pop()
         env.memory.write_bytes(destOffset, length, env.code[offset:offset+length])
+        env.consumeGas(((((int(length) - 1)//32) + 1) * 3) + 2)
         env.pc += 1
 
     def GASPRICE(self, env):
         env.stack.append(env.tx.gasprice)
+        env.stack.consumeGas(2)
         env.pc += 1
     
     def EXTCODESIZE(self, env):
         env.stack.append(len(env.getAccount(env.stack.pop()).code))
+        env.consumeGas(700)
         env.pc += 1
 
     def EXTCODECOPY(self, env):
@@ -550,6 +584,7 @@ class Opcodes(object):
         offset = env.stack.pop()
         length = env.stack.pop()
         env.memory.write_bytes(destOffset, length, env.getAccount(addr).code[offset:offset+length])
+        env.consumeGas(700+(3*(length//32)))
         env.pc += 1
         
     def RETURNDATASIZE(self, env):
@@ -561,42 +596,52 @@ class Opcodes(object):
         offset = env.stack.pop()
         length = env.stack.pop()
         env.memory.write_bytes(destOffset, length, env.lastCallReturn[offset:offset+length])
+        env.consumeGas(((length//32) * 3) + 2)
         env.pc += 1
     
     def EXTCODEHASH(self, env):
         env.stack.append(int(w3.keccak(env.getAccount(env.stack.pop()).code), 16))
+        env.consumeGas(700)
         env.pc += 1
     
     def BLOCKHASH(self, env):
         env.stack.append(int(env.getBlock(env.stack.pop()).proof, 16))
+        env.consumeGas(200)
         env.pc += 1
     
     def COINBASE(self, env):
         env.stack.append(int(env.lastBlock().miner, 16))
+        env.consumeGas(200)
         env.pc += 1
     
     def TIMESTAMP(self, env):
         env.stack.append(int(env.lastBlock().timestamp))
+        env.consumeGas(200)
         env.pc += 1
         
     def NUMBER(self, env):
         env.stack.append(int(env.blockNumber()))
+        env.consumeGas(20)
         env.pc += 1
         
     def DIFFICULTY(self, env):
         env.stack.append(int(env.lastBlock().difficulty))
+        env.consumeGas(200)
         env.pc += 1
 
     def GASLIMIT(self, env):
         env.stack.append(int(0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)) # as blocks don't physically contain txns, there isn't real limit
+        env.consumeGas(2)
         env.pc += 1
     
     def CHAINID(self, env):
         env.stack.append(int(env.chainid))
+        env.consumeGas(2)
         env.pc += 1
     
     def SELFBALANCE(self, env):
         env.stack.append(env.runningAccount.balance)
+        env.consumeGas(5)
         env.pc += 1
         
     def BASEFEE(self, env):
@@ -608,54 +653,64 @@ class Opcodes(object):
             env.stack.pop()
         except:
             pass
+        env.consumeGas(2)
         env.pc += 1
     
     def MLOAD(self, env):
         offset = env.stack.pop()
         env.stack.append(int(env.memory.read(offset, 32)))
+        env.consumeGas(3)
         env.pc += 1
     
     def MSTORE(self, env):
         offset = env.stack.pop()
         value = env.stack.pop()
         env.memory.write(offset, offset+32, value)
+        env.consumeGas(3)
         env.pc += 1
     
     def MSTORE8(self, env):
         offset = env.stack.pop()
         value = env.stack.pop()
         env.memory.data[offset] = value%0x100
+        env.consumeGas(3)
         env.pc += 1
         
     def SLOAD(self, env):
         key = env.stack.pop()
         env.stack.append(env.loadStorageKey(key))
+        env.consumeGas(200)
         env.pc += 1
         
     def SSTORE(self, env):
         key = env.stack.pop()
         value = env.stack.pop()
         env.writeStorageKey(key, value)
+        env.consumeGas(5000 if (value == 0) else 20000)
         env.pc += 1
     
     def JUMP(self, env):
         env.pc = env.stack.pop()
+        env.consumeGas(8)
     
     def JUMPI(self, env):
         dest = env.stack.pop()
         cond = env.stack.pop()
         env.pc = (dest if bool(cond) else (env.pc + 1))
-        env.consumeGas(1000)
+        env.consumeGas(10)
     
     def PC(self, env):
         env.stack.append(env.pc)
+        env.consumeGas(2)
         env.pc += 1
     
     def MSIZE(self, env):
         env.stack.append(len(env.memory.data))
+        env.consumeGas(2)
         env.pc += 1
     
     def GAS(self, env):
+        env.consumeGas(2)
         env.stack.append(env.remainingGas())
         env.pc += 1
     
@@ -664,130 +719,162 @@ class Opcodes(object):
     
     def PUSH1(self, env):
         env.stack.append(env.getPushData(env.pc, 1))
+        env.consumeGas(3)
         env.pc += 1
     
     def PUSH2(self, env):
         env.stack.append(env.getPushData(env.pc, 2))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH3(self, env):
         env.stack.append(env.getPushData(env.pc, 3))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH4(self, env):
         env.stack.append(env.getPushData(env.pc, 4))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH5(self, env):
         env.stack.append(env.getPushData(env.pc, 5))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH6(self, env):
         env.stack.append(env.getPushData(env.pc, 6))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH7(self, env):
         env.stack.append(env.getPushData(env.pc, 7))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH8(self, env):
         env.stack.append(env.getPushData(env.pc, 8))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH9(self, env):
         env.stack.append(env.getPushData(env.pc, 9))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH10(self, env):
         env.stack.append(env.getPushData(env.pc, 10))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH11(self, env):
         env.stack.append(env.getPushData(env.pc, 11))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH12(self, env):
         env.stack.append(env.getPushData(env.pc, 12))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH13(self, env):
         env.stack.append(env.getPushData(env.pc, 13))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH14(self, env):
         env.stack.append(env.getPushData(env.pc, 14))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH15(self, env):
         env.stack.append(env.getPushData(env.pc, 15))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH16(self, env):
         env.stack.append(env.getPushData(env.pc, 16))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH17(self, env):
         env.stack.append(env.getPushData(env.pc, 17))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH18(self, env):
         env.stack.append(env.getPushData(env.pc, 18))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH19(self, env):
         env.stack.append(env.getPushData(env.pc, 19))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH20(self, env):
         env.stack.append(env.getPushData(env.pc, 20))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH21(self, env):
         env.stack.append(env.getPushData(env.pc, 21))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH22(self, env):
         env.stack.append(env.getPushData(env.pc, 22))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH23(self, env):
         env.stack.append(env.getPushData(env.pc, 23))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH24(self, env):
         env.stack.append(env.getPushData(env.pc, 24))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH25(self, env):
         env.stack.append(env.getPushData(env.pc, 25))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH26(self, env):
         env.stack.append(env.getPushData(env.pc, 26))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH27(self, env):
         env.stack.append(env.getPushData(env.pc, 27))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH28(self, env):
         env.stack.append(env.getPushData(env.pc, 28))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH29(self, env):
         env.stack.append(env.getPushData(env.pc, 29))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH30(self, env):
         env.stack.append(env.getPushData(env.pc, 30))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH31(self, env):
         env.stack.append(env.getPushData(env.pc, 31))
+        env.consumeGas(3)
         env.pc += 1
         
     def PUSH32(self, env):
         env.stack.append(env.getPushData(env.pc, 32))
+        env.consumeGas(3)
         env.pc += 1
         
         
@@ -796,132 +883,164 @@ class Opcodes(object):
         
     def DUP1(self, env):
         env.stack.append(env.stack[len(env.stack)-1])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP2(self, env):
         env.stack.append(env.stack[len(env.stack)-2])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP3(self, env):
         env.stack.append(env.stack[len(env.stack)-3])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP4(self, env):
         env.stack.append(env.stack[len(env.stack)-4])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP5(self, env):
         env.stack.append(env.stack[len(env.stack)-5])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP6(self, env):
         env.stack.append(env.stack[len(env.stack)-6])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP7(self, env):
         env.stack.append(env.stack[len(env.stack)-7])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP8(self, env):
         env.stack.append(env.stack[len(env.stack)-8])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP9(self, env):
         env.stack.append(env.stack[len(env.stack)-9])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP10(self, env):
         env.stack.append(env.stack[len(env.stack)-10])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP11(self, env):
         env.stack.append(env.stack[len(env.stack)-11])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP12(self, env):
         env.stack.append(env.stack[len(env.stack)-12])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP13(self, env):
         env.stack.append(env.stack[len(env.stack)-13])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP14(self, env):
         env.stack.append(env.stack[len(env.stack)-14])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP15(self, env):
         env.stack.append(env.stack[len(env.stack)-15])
+        env.consumeGas(3)
         env.pc += 1
 
     def DUP16(self, env):
         env.stack.append(env.stack[len(env.stack)-16])
+        env.consumeGas(3)
         env.pc += 1
 
 
 
     def SWAP1(self, env):
         env.swap(1)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP2(self, env):
         env.swap(2)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP3(self, env):
         env.swap(3)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP4(self, env):
         env.swap(4)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP5(self, env):
         env.swap(5)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP6(self, env):
         env.swap(6)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP7(self, env):
         env.swap(7)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP8(self, env):
         env.swap(8)
+        env.consumeGas(3)
         env.pc += 1
         
     def SWAP9(self, env):
         env.swap(9)
+        env.consumeGas(3)
         env.pc += 1
         
     def SWAP10(self, env):
         env.swap(10)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP11(self, env):
         env.swap(11)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP12(self, env):
         env.swap(12)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP13(self, env):
         env.swap(13)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP14(self, env):
         env.swap(14)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP15(self, env):
         env.swap(15)
+        env.consumeGas(3)
         env.pc += 1
 
     def SWAP16(self, env):
         env.swap(16)
+        env.consumeGas(3)
         env.pc += 1
 
     def LOG0(self, env): # TODO
@@ -973,6 +1092,7 @@ class Opcodes(object):
         result = env.callFallback(_childEnv)
         env.lastCallReturn = _childEnv.returnValue
         env.stack.append(int(deplAddr, 16))
+        env.consumeGas(32000)
         env.pc += 1
         
     def CALL(self, env):
@@ -983,11 +1103,13 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getAccount(addr).code, env.isStatic, calltype=1))
+        _childEnv = CallEnv(env.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getAccount(addr).code, env.isStatic, calltype=1)
+        result = env.callFallback(_childEnv)
         retValue = result[1]
         env.lastCallReturn = retValue
         env.stack.append(int(result[0]))
         env.memory.write_bytes(retOffset, retLength, retValue)
+        env.consumeGas(_childEnv.gasUsed + 5000)
         env.pc += 1
 
         
@@ -1018,6 +1140,7 @@ class Opcodes(object):
             env.storage = _subCallEnv.storage.copy()
         env.stack.append(int(result[0]))
         env.memory.write_bytes(retOffset, retLength, retValue)
+        env.consumeGas(_childEnv.gasUsed + 5000)
         env.pc += 1
         
     def CREATE2(self, env):
@@ -1034,6 +1157,7 @@ class Opcodes(object):
         deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([0xFF, bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(salt), _initBytecode]))[12:])
         result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3))
         env.stack.append(int(deplAddr, 16))
+        env.consumeGas(32000)
     
     def STATICCALL(self, env):
         gas = env.stack.pop()
@@ -1042,11 +1166,13 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getAccount(addr).code, True, calltype=1))
+        _childEnv = CallEnv(env.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getAccount(addr).code, True, calltype=1)
+        result = env.callFallback(_childEnv)
         retValue = result[1]
         env.lastCallReturn = retValue
         env.stack.append(int(result[0]))
         env.memory.write_bytes(retOffset, retLength, retValue)
+        env.consumeGas(_childEnv.gasUsed + 5000)
         env.pc += 1
 
     def REVERT(self, env):
@@ -1094,7 +1220,7 @@ class CallEnv(object):
             self.gaslimit = int(gaslimit)
         except:
             self.gaslimit = int(gaslimit, 16)
-        self.gasUsed = 0
+        self.gasUsed = 21000
         self.pc = 0
         self.tx = tx
         self.data = data
