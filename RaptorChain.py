@@ -113,7 +113,11 @@ class Transaction(object):
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.value = max(int(txData.get("tokens")), 0)
             self.affectedAccounts = [self.sender, self.recipient]
-            self.gasprice = (10**9)
+            self.gasprice = 0
+            try:
+                self.data = bytes.fromhex(txData.get("callData", "").replace("0x", ""))
+            except:
+                self.data = b""
         if (self.txtype == 1): # block mining/staking tx
             self.fee = 0
             self.sender = w3.toChecksumAddress(txData.get("from"))
@@ -774,7 +778,7 @@ class State(object):
         history = []
         if self.debug:
             debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "w")
-            debugfile.write(f"Calldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.tx.contractDeployment}\n")
+            debugfile.write(f"Calldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.contractDeployment}\n")
             debugfile.close()
             debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
         if not len(env.code):
@@ -789,7 +793,7 @@ class State(object):
                 else:
                     self.opcodes[env.code[env.pc]](env)
             except Exception as e:
-                print(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.tx.contractDeployment}\nHalted : {env.halt}")
+                print(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}")
                 raise
         print(f"ReturnValue : {env.returnValue}")
 
@@ -915,18 +919,23 @@ class State(object):
     def executeChildCall(self, msg):
         if ((msg.value > self.getAccount(msg.msgSender).tempBalance) or ((msg.value > 0) and msg.isStatic)):
             return (False, b"")
+        self.ensureExistence(msg.msgSender)
+        self.ensureExistence(msg.recipient)
         if (msg.value > 0):
             self.getAccount(msg.msgSender).tempBalance -= msg.value
             self.getAccount(msg.recipient).tempBalance += msg.value
-        code = self.getAccount(msg.recipient).code
-        while True and (not env.halt):
+        # code = self.getAccount(msg.recipient).code
+        while True and (not msg.halt):
             try:
-                self.opcodes[code[msg.pc]](msg)
+                self.opcodes[msg.code[msg.pc]](msg)
             except:
                 break
-        if env.getSuccess():
-            msg.runningAccount.tempStorage = msg.storage.copy()
-        return (env.getSuccess(), env.returnValue)
+        if (msg.getSuccess() and msg.calltype != 2):
+            self.getAccount(msg.recipient).tempStorage = msg.storage.copy()
+            if (msg.calltype == 3):
+                self.getAccount(msg.recipient).makeChangesPermanent()
+                self.getAccount(msg.recipient).code = msg.returnValue
+        return (msg.getSuccess(), msg.returnValue)
 
     def eth_Call(self, call):
         tx = CallBlankTransaction(call)
@@ -944,7 +953,8 @@ class State(object):
         _tx = Transaction(tx)
         feedback = False
         if _tx.txtype == 0:
-            feedback = self.executeTransfer(_tx, showMessage)
+            # feedback = self.executeTransfer(_tx, showMessage)
+            feedback = self.executeContractCall(_tx, showMessage)
         if _tx.txtype == 1:
             feedback = self.mineBlock(_tx)
         if _tx.txtype == 2:
