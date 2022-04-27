@@ -1,5 +1,5 @@
 from web3.auto import w3
-import itertools
+import itertools, rlp
 
 
 class CallMemory(object):
@@ -257,6 +257,9 @@ class Opcodes(object):
         self.opcodes[0xF1] = self.CALL
         self.opcodes[0xF2] = self.CALLCODE
         self.opcodes[0xF3] = self.RETURN
+        self.opcodes[0xF4] = self.DELEGATECALL
+        self.opcodes[0xF5] = self.CREATE2
+        self.opcodes[0xFA] = self.STATICCALL
         self.opcodes[0xFD] = self.REVERT
 
     def padded(self, data, size):
@@ -546,15 +549,18 @@ class Opcodes(object):
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
-        env.memory.write(destOffset, length, env.getAccount(addr).code[offset:offset+length])
+        env.memory.write_bytes(destOffset, length, env.getAccount(addr).code[offset:offset+length])
         env.pc += 1
         
     def RETURNDATASIZE(self, env):
-        env.stack.append(0) # TODO
+        env.stack.append(len(env.lastCallReturn))
         env.pc += 1
         
     def RETURNDATACOPY(self, env):
-        env.stack.append(0) # TODO
+        destOffset = env.stack.pop()
+        offset = env.stack.pop()
+        length = env.stack.pop()
+        env.memory.write_bytes(destOffset, length, env.lastCallReturn[offset:offset+length])
         env.pc += 1
     
     def EXTCODEHASH(self, env):
@@ -954,7 +960,19 @@ class Opcodes(object):
         env.pc += 1
 
     def CREATE(self, env):
-        pass # TODO
+        if env.isStatic:
+            env.revert(b"STATICCALL_DONT_ALLOW_CREATE")
+            return
+        value = env.stack.pop()
+        offset = env.stack.pop()
+        length = env.stack.pop()
+        _nonce = len(env.runningAccount.sent)
+        env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
+        deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(_nonce)]))[12:])
+        _childEnv = CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, env.memory.read_bytes(offset, length), False, calltype=3)
+        result = env.callFallback(_childEnv)
+        env.lastCallReturn = _childEnv.returnValue
+        env.stack.append(int(deplAddr, 16))
         env.pc += 1
         
     def CALL(self, env):
@@ -965,10 +983,11 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        result = env.callFallback(CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, self.isStatic))
+        result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getAccount(addr).code, env.isStatic, calltype=1))
         retValue = result[1]
+        env.lastCallReturn = retValue
         env.stack.append(int(result[0]))
-        env.memory.write(retOffset, retLength, retValue)
+        env.memory.write_bytes(retOffset, retLength, retValue)
         env.pc += 1
 
         
@@ -991,14 +1010,30 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        result = env.callFallback(CallEnv(self.getAccount, env.msgSender, env.getAccount(env.recipient), env.recipient, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.isStatic))
+        _subCallEnv = CallEnv(env.getAccount, env.msgSender, env.getAccount(env.recipient), env.recipient, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.isStatic, calltype=2)
+        result = env.callFallback(_subCallEnv)
         retValue = result[1]
+        env.lastCallReturn = retValue
+        if result[0]:
+            env.storage = _subCallEnv.storage.copy()
         env.stack.append(int(result[0]))
-        env.memory.data[retOffset:retOffset+retLength] = self.padded(retValue, retLength)
+        env.memory.write_bytes(retOffset, retLength, retValue)
         env.pc += 1
         
     def CREATE2(self, env):
-        pass # TODO
+        if env.isStatic:
+            env.revert(b"STATICCALL_DONT_ALLOW_CREATE")
+            return
+        value = env.stack.pop()
+        offset = env.stack.pop()
+        length = env.stack.pop()
+        salt = env.stack.pop()
+        _nonce = len(env.runningAccount.sent)
+        _initBytecode = env.memory.read_bytes(offset, length)
+        env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
+        deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([0xFF, bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(salt), _initBytecode]))[12:])
+        result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3))
+        env.stack.append(int(deplAddr, 16))
     
     def STATICCALL(self, env):
         gas = env.stack.pop()
@@ -1007,10 +1042,11 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        result = env.callFallback(CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, code, True))
+        result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getAccount(addr).code, True, calltype=1))
         retValue = result[1]
+        env.lastCallReturn = retValue
         env.stack.append(int(result[0]))
-        env.memory.data[retOffset:retOffset+retLength] = self.padded(retValue, retLength)
+        env.memory.write_bytes(retOffset, retLength, retValue)
         env.pc += 1
 
     def REVERT(self, env):
@@ -1037,7 +1073,7 @@ class Opcodes(object):
 
 # CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
 class CallEnv(object):
-    def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, code, static):
+    def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, code, static,*, storage=None, calltype=0):
         self.stack = []
         self.getAccount = accountGetter
         self.memory = CallMemory()
@@ -1046,7 +1082,12 @@ class CallEnv(object):
         self.recipient = recipient
         self.chain = beaconchain
         self.runningAccount = runningAccount
-        self.storage = runningAccount.tempStorage.copy()
+        self.calltype=calltype # 0 = in transaction, 1 = child call (staticcall included), 2 = delegate call, 3 = contract creation in subcall
+        self.lastCallReturn = b""
+        if storage:
+            self.storage = storage.copy()
+        else:
+            self.storage = runningAccount.tempStorage.copy()
         self.value = value
         self.chainid = 69420
         try:
@@ -1066,6 +1107,7 @@ class CallEnv(object):
         self.tx.markAccountAffected(caller)
         self.tx.markAccountAffected(recipient)
         self.tx.markAccountAffected(runningAccount.address)
+        self.contractDeployment = ((self.tx.contractDeployment) or calltype == 3)
     
 
     def getBlock(self, height):
@@ -1093,7 +1135,7 @@ class CallEnv(object):
         if self.isStatic:
             self.success = False
             self.halt = True
-            self.returnValue = b"STATICCALL_DONT_ALLOW_CHANGING_STATE"
+            self.returnValue = b"STATICCALL_DONT_ALLOW_SSTORE"
         else:
             self.storage[key] = value
     
