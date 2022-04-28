@@ -664,7 +664,10 @@ class State(object):
     def checkDepositsTillIndex(self, maxIndex):
         _lastindex = self.lastIndex
         for i in range(_lastindex, maxIndex+1):
-            self.checkOutDepositByIndex(i)
+            try:
+                self.checkOutDepositByIndex(i)
+            except:
+                pass
             self.lastIndex = i+1
 
     def updateHolders(self):
