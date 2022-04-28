@@ -17,7 +17,7 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "raptorchain-testnet3.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET"}
+    config = {"dataBaseFile": "raptorchain-testnet-3.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET"}
 
 try:
     ssl_context = tuple(config["ssl"])
@@ -543,7 +543,7 @@ class State(object):
         self.lastIndex = 0
         self.accounts["0x0000000000000000000000000000000000000001"].code = bytes.fromhex("608060405234801561001057600080fd5b506004361061002b5760003560e01c806357ecc14714610030575b600080fd5b61003861004e565b60405161004591906100c4565b60405180910390f35b60606040518060400160405280600b81526020017f48656c6c6f20776f726c64000000000000000000000000000000000000000000815250905090565b6000610096826100e6565b6100a081856100f1565b93506100b0818560208601610102565b6100b981610135565b840191505092915050565b600060208201905081810360008301526100de818461008b565b905092915050565b600081519050919050565b600082825260208201905092915050565b60005b83811015610120578082015181840152602081019050610105565b8381111561012f576000848401525b50505050565b6000601f19601f830116905091905056fea2646970667358221220ad44bfb067953d1048acb02d7ee13b978ad64129db11c038ac3f4c82c858f71f64736f6c63430007060033")
         self.receipts = {}
-        self.debug = True
+        self.debug = False
 
     def formatAddress(self, _addr):
         if (type(_addr) == int):
@@ -1435,6 +1435,8 @@ def sendRawTransactions():
         print(tx)
         if (type(tx["data"]) == dict):
             tx["data"] = json.dumps(tx["data"]).replace(" ", "")
+        if not tx.get("indexToCheck", None)
+            tx["indexToCheck"] = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
         txs.append(tx)
         hashes.append(tx["hash"])
     node.checkTxs(txs)
