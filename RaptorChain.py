@@ -649,6 +649,8 @@ class State(object):
         if not depositInfo["hash"] in self.processedL2Hashes:
             self.ensureExistence(depositInfo["depositor"])
             self.accounts[depositInfo["depositor"]].balance += depositInfo["amount"]
+            self.accounts[depositInfo["depositor"]].tempBalance += depositInfo["amount"]
+            print(f"Depositing {depositInfo['amount']} to {depositInfo['depositor']}")
             self.totalSupply += depositInfo["amount"]
             # if tx.sender != depositInfo["depositor"]:
                 # transactions[depositInfo["depositor"]].append(tx.txid)
@@ -661,7 +663,7 @@ class State(object):
 
     def checkDepositsTillIndex(self, maxIndex):
         _lastindex = self.lastIndex
-        for i in range(_lastindex, maxIndex):
+        for i in range(_lastindex, maxIndex+1):
             self.checkOutDepositByIndex(i)
             self.lastIndex = i+1
 
@@ -1435,7 +1437,7 @@ def sendRawTransactions():
         print(tx)
         if (type(tx["data"]) == dict):
             tx["data"] = json.dumps(tx["data"]).replace(" ", "")
-        if not tx.get("indexToCheck", None)
+        if not tx.get("indexToCheck", None):
             tx["indexToCheck"] = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
         txs.append(tx)
         hashes.append(tx["hash"])
