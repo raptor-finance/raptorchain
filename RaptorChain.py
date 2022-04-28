@@ -973,10 +973,13 @@ class State(object):
         if _tx.txtype == 1:
             feedback = self.mineBlock(_tx)
         if _tx.txtype == 2:
-            if _tx.contractDeployment:
-                feedback = self.deployContract(_tx)
+            if (_tx.recipient == self.crossChainAddress):
+                feedback = self.executeTransfer(_tx, showMessage)
             else:
-                feedback = self.executeContractCall(_tx, showMessage)
+                if _tx.contractDeployment:
+                    feedback = self.deployContract(_tx)
+                else:
+                    feedback = self.executeContractCall(_tx, showMessage)
         if _tx.txtype == 3:
             # feedback = self.checkOutDeposit(_tx)
             pass # deprecated
