@@ -966,7 +966,10 @@ class State(object):
         feedback = False
         if _tx.txtype == 0:
             # feedback = self.executeTransfer(_tx, showMessage)
-            feedback = self.executeContractCall(_tx, showMessage)
+            if (_tx.recipient == self.crossChainAddress):
+                feedback = self.executeTransfer(_tx, showMessage)
+            else:
+                feedback = self.executeContractCall(_tx, showMessage)
         if _tx.txtype == 1:
             feedback = self.mineBlock(_tx)
         if _tx.txtype == 2:
