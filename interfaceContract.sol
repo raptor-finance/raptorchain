@@ -303,7 +303,7 @@ contract CustodyManager {
 		emit Withdrawn(withdrawer, token, amount, nonce, l2Hash);
 	}
 	
-	function bridgeFallBack(bytes memory _data) public {
+	function execBridgeCall(bytes memory _data) public {
 		require(msg.sender == address(withdrawalsOperator), "Only withdrawals operator address can do that :/");
 		bytes32 _hash = keccak256(_data);
 		(address token, address withdrawer, uint256 amount, uint256 nonce) = abi.decode(_data, (address, address, uint256, uint256));
@@ -336,6 +336,7 @@ contract BeaconChainHandler {
 	address owner;
 	Beacon[] public beacons;
 	uint256 blockTime = 600;
+	address handler;
 	
 	event CallExecuted(address indexed to, bytes data, bool success);
 	event CallDismissed(address indexed to, bytes data, string reason);
@@ -357,6 +358,7 @@ contract BeaconChainHandler {
 		owner = _owner;
 		beacons.push(_genesisBeacon);
 		beacons[0].height = 0;
+		handler = msg.sender;
 	}
 	
 	function beaconHash(Beacon memory _beacon) public pure returns (bytes32 beaconRoot) {
@@ -387,14 +389,7 @@ contract BeaconChainHandler {
 	}
 	
 	function executeCall(bytes memory message) private {
-		(address recipient, uint256 chainID, bytes memory data) = abi.decode(message, (address, uint256, bytes));
-		if (_chainId() == chainID) {
-			(bool success, ) = recipient.call(abi.encodeWithSelector(bytes4(keccak256("bridgeFallBack(bytes)")), data));
-			emit CallExecuted(recipient, data, success);
-		}
-		else {
-			emit CallDismissed(recipient, data, "INVALID_CHAIN_ID");
-		}
+		handler.call(abi.encodeWithSelector(bytes4(keccak256("routeCall(bytes)")), message));
 	}
 	
 	function extractBeaconMessages(Beacon memory _beacon) public pure returns (bytes[] memory messages, uint256 length) {
@@ -426,13 +421,43 @@ contract BeaconChainHandler {
 
 contract ChainsImplementationHandler {
 	address[] public instances;
+	mapping (address => bool) public isInstance;
 	mapping (address => address[]) public instancesPerOwner;
 	
 	BeaconChainHandler.Beacon public genesisBeacon;
+	ERC20Interface public stakingToken;
+	address owner;
+	address officialInstance;
 	
-	constructor(BeaconChainHandler.Beacon memory _genesisBeacon) {
+	event CallExecuted(address indexed to, bytes data, bool success);
+	event CallDismissed(address indexed to, bytes data, string reason);
+	
+	modifier onlyOwner {
+		require(msg.sender == owner);
+		_;
+	}
+
+	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, ERC20Interface _stakingToken) {
 		genesisBeacon = _genesisBeacon;
-	}	
+		stakingToken = _stakingToken;
+		owner = tx.origin;
+	}
+
+	function _chainId() internal pure returns (uint256) {
+		uint256 id;
+		assembly {
+			id := chainid()
+		}
+		return id;
+	}
+	
+	function transferOwnership(address _to) public onlyOwner {
+		owner = _to;
+	}
+	
+	function setOfficialInstance(address _instance) public onlyOwner{
+		officialInstance = _instance;
+	}
 	
 	function getAllInstances() public view returns (address[] memory) {
 		return instances;
@@ -441,9 +466,23 @@ contract ChainsImplementationHandler {
 	function createInstance(address instanceOwner) public {
 		address newInstance = address(new BeaconChainHandler(genesisBeacon, instanceOwner));
 		instances.push(newInstance);
+		isInstance[newInstance] = true;
 		instancesPerOwner[instanceOwner].push(newInstance);
 	}
 	
+	function routeCall(bytes memory call) public {
+		if (msg.sender != officialInstance) {
+			return;
+		}
+		(address recipient, uint256 chainID, bytes memory data) = abi.decode(call, (address, uint256, bytes));
+		if (_chainId() == chainID) {
+			(bool success, ) = recipient.call(abi.encodeWithSelector(bytes4(keccak256("execBridgeCall(bytes)")), data));
+			emit CallExecuted(recipient, data, success);
+		}
+		else {
+			emit CallDismissed(recipient, data, "INVALID_CHAIN_ID");
+		}
+	}
 }
 
 contract MasterContract {
@@ -475,10 +514,10 @@ contract MasterContract {
 	// calldata to use on deployment
 	// GenesisBeacon calldata : ["0x0000000000000000000000000000000000000000",0,["0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b"],1,"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",1645457628,"0x496e697469616c697a696e672074686520526170746f72436861696e2e2e2e00","0x7d9e1f415e0084675c211687b1c8dfaee67e53128e325b5fdda9c98d7288aaeb",0,"0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000",0,"0x0000000000000000000000000000000000000000000000000000000000000000","0x0000000000000000000000000000000000000000000000000000000000000000"]
 	
-	constructor(BeaconChainHandler.Beacon memory _genesisBeacon) {
+	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, ERC20Interface stakingToken) {
 		// staking = new StakeManager(stakingToken);
 		custody = new CustodyManager(msg.sender); // to change after deployment
-        chainInstances = new ChainsImplementationHandler(_genesisBeacon);
+        chainInstances = new ChainsImplementationHandler(_genesisBeacon, stakingToken);
 		// beaconchain = new BeaconChainHandler(_genesisBeacon, staking);
 		// staking.setBeaconHandler(beaconchain);
 	}

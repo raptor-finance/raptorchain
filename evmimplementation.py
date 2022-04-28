@@ -1220,7 +1220,7 @@ class CallEnv(object):
             self.gaslimit = int(gaslimit)
         except:
             self.gaslimit = int(gaslimit, 16)
-        self.gasUsed = 21000
+        self.gasUsed = 21000 if (calltype == 0) else 0
         self.pc = 0
         self.tx = tx
         self.data = data

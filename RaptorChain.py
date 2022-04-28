@@ -108,12 +108,13 @@ class Transaction(object):
         self.txtype = (txData.get("type") or 0)
         self.affectedAccounts = []
         if (self.txtype == 0): # legacy transfer
-            self.fee = (10**9)*21000
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.value = max(int(txData.get("tokens")), 0)
             self.affectedAccounts = [self.sender, self.recipient]
             self.gasprice = 0
+            self.gasLimit = 69000
+            self.fee = self.gasprice*self.gasLimit
             try:
                 self.data = bytes.fromhex(txData.get("callData", "").replace("0x", ""))
             except:
@@ -363,8 +364,10 @@ class BeaconChain(object):
 
     def checkBeaconMessages(self, beacon):
         _messages = beacon.decodedMessages.copy()
+        if (not len(_messages)):
+            return False
         for msg in _messages:
-            if (not ((msg in self.pendingMessages) or (msg == self.defaultMessage))):
+            if (not (msg in self.pendingMessages)):
                 return False
         return True
     
@@ -389,6 +392,8 @@ class BeaconChain(object):
             return (False, "INVALID_TIMESTAMP")
         if ((len(self.blocks) < self.STIUpgradeBlock) or (beacon.parentTxRoot == self.blocks[len(self.blocks)-1].txsRoot())):
             return (False, "STI_UPGRADE_UNMATCHED")
+        if (not len(self.pendingMessages)):
+            return (False, "NO_DATA_HERE")
         return (True, "GOOD")
     
     
@@ -789,7 +794,7 @@ class State(object):
                     op = env.code[env.pc]
                     history.append(hex(op))
                     self.opcodes[op](env)
-                    debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {env.stack} - memory : {bytes(env.memory.data)} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
+                    debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {env.stack} - lastRetValue : {env.lastCallReturn} - memory : {bytes(env.memory.data)} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
                 else:
                     self.opcodes[env.code[env.pc]](env)
             except Exception as e:
@@ -877,6 +882,7 @@ class State(object):
         return (env.gasUsed)
 
     def executeContractCall(self, tx, showMessage):
+        self.applyParentStuff(tx)
         if (tx.value > self.getAccount(tx.sender).balance):
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
             return (False, b"")
@@ -894,6 +900,8 @@ class State(object):
         if len(env.code):
             self.execEVMCall(env)
             tx.returnValue = env.returnValue
+            if showMessage:
+                print(f"Success : {env.getSuccess()}\nReturnValue : {env.returnValue}")
             if env.getSuccess():
                 self.getAccount(env.recipient).tempStorage = env.storage.copy()
                 for _addr in tx.affectedAccounts:
@@ -911,9 +919,8 @@ class State(object):
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).makeChangesPermanent()
                 self.getAccount(_addr).addParent(tx.txid)
-            self.applyParentStuff(tx)
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
-            return (True, "0x")
+            return (True, b"")
         
         
     def executeChildCall(self, msg):
@@ -1391,7 +1398,7 @@ def accountInfo(account):
     code = node.state.getAccount(_address).code.hex()
     storage = node.state.getAccount(_address).storage
     nonce = len(node.state.accounts.get(w3.toChecksumAddress(_address), Account(w3.toChecksumAddress(_address), node.state.initTxID)).sent)
-    return flask.jsonify(result={"balance": (balance or 0), "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
+    return flask.jsonify(result={"balance": (balance or 0), "tempBalance": node.state.getAccount(account).tempBalance, "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
 
 @app.route("/accounts/sent/<account>")
 def sentByAccount(account):
