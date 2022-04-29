@@ -528,6 +528,7 @@ class State(object):
     def __init__(self, initTxID):
         self.messages = {}
         self.opcodes = EVM.Opcodes().opcodes
+        self.precompiledContracts = EVM.PrecompiledContracts().contracts
         self.initTxID = initTxID
         self.txChilds = {self.initTxID: []}
         self.txIndex = {}
@@ -716,6 +717,15 @@ class State(object):
             self.type0ToType2Hash[tx.txid] = tx.ethTxid
             # print(tx.parent)
             
+        if self.beaconChain.blocksByHash.get(tx.epoch):
+            if tx.txtype != 1:
+                if not tx.txid in self.beaconChain.blocksByHash[tx.epoch].transactions:
+                    self.beaconChain.blocksByHash[tx.epoch].transactions.append(tx.txid)
+            else:
+                self.beaconChain.blocksByHash[tx.epoch].nextBlockTx = tx.txid
+        else:
+            return False
+            
         self.txChilds[tx.parent].append(tx.txid)
         self.txIndex[tx.txid] = self.lastTxIndex
         self.lastTxIndex += 1
@@ -731,15 +741,6 @@ class State(object):
             self.ensureExistence(miner)
             self.accounts[miner].mined.append(tx.txid)
             self.accounts[miner].transactions.append(tx.txid)
-        
-        _txepoch = tx.epoch
-        if self.beaconChain.blocksByHash.get(_txepoch):
-            if tx.txtype != 1:
-                self.beaconChain.blocksByHash[_txepoch].transactions.append(tx.txid)
-            else:
-                self.beaconChain.blocksByHash[_txepoch].nextBlockTx = tx.txid
-        else:
-            return False
         
         self.accounts[tx.recipient].received.append(tx.txid)
 
@@ -784,15 +785,18 @@ class State(object):
             raise
             return False
 
+    def ecRecover(self, env):
+        sig = env.data[63:]
+        try:
+            recovered = w3.eth.account.recoverHash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
+        except:
+            recovered = "0x0000000000000000000000000000000000000000"
+        env.returnValue = int(recovered, 16).to_bytes(32, "big")
+        # print(f"Called ecRecover with sig {sig} and hash {env.data[0:32]}, returnValue : {env.returnValue}")
+
     def execEVMCall(self, env):
-        if (env.runningAccount.address == "0x0000000000000000000000000000000000000001"):
-            sig = env.data[63:]
-            try:
-                recovered = w3.eth.account.recoverHash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
-            except:
-                recovered = "0x0000000000000000000000000000000000000000"
-            env.returnValue = int(recovered, 16).to_bytes(32, "big")
-            print(f"Called ecRecover with sig {sig} and hash {env.data[0:32]}, returnValue : {env.returnValue}")
+        if self.precompiledContracts.get(env.runningAccount.address):
+            self.precompiledContracts.get(env.runningAccount.address).call(env)
             return
         history = []
         if self.debug:
@@ -1171,7 +1175,7 @@ class Node(object):
                         txs.append(tx)
                         break
                     except Exception as e:
-                        print(e)
+                        print(txid, e)
             else:
                 txs.append(localTx)
         return txs
