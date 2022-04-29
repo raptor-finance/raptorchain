@@ -562,7 +562,7 @@ class State(object):
         return self.beaconChain.blocks[0].proof
 
     def ensureExistence(self, _user):
-        user = w3.toChecksumAddress(_user)
+        user = self.formatAddress(_user)
         if not self.accounts.get(user):
             self.accounts[user] = Account(user, self.initTxID)
 
@@ -785,6 +785,15 @@ class State(object):
             return False
 
     def execEVMCall(self, env):
+        if (env.runningAccount.address == "0x0000000000000000000000000000000000000001"):
+            sig = env.data[63:]
+            try:
+                recovered = w3.eth.account.recoverHash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
+            except:
+                recovered = "0x0000000000000000000000000000000000000000"
+            env.returnValue = int(recovered, 16).to_bytes(32, "big")
+            print(f"Called ecRecover with sig {sig} and hash {env.data[0:32]}, returnValue : {env.returnValue}")
+            return
         history = []
         if self.debug:
             debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "w")
@@ -937,11 +946,12 @@ class State(object):
             self.getAccount(msg.msgSender).tempBalance -= msg.value
             self.getAccount(msg.recipient).tempBalance += msg.value
         # code = self.getAccount(msg.recipient).code
-        while True and (not msg.halt):
-            try:
-                self.opcodes[msg.code[msg.pc]](msg)
-            except:
-                break
+        self.execEVMCall(msg)
+        # while True and (not msg.halt):
+            # try:
+                # self.opcodes[msg.code[msg.pc]](msg)
+            # except:
+                # break
         if (msg.getSuccess() and msg.calltype != 2):
             self.getAccount(msg.recipient).tempStorage = msg.storage.copy()
             if (msg.calltype == 3):

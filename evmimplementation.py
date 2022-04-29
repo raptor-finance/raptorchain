@@ -672,6 +672,7 @@ class Opcodes(object):
     def MSTORE8(self, env):
         offset = env.stack.pop()
         value = env.stack.pop()
+        env.memory.extend(offset, 1)
         env.memory.data[offset] = value%0x100
         env.consumeGas(3)
         env.pc += 1
