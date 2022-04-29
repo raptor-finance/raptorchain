@@ -1196,7 +1196,21 @@ class Opcodes(object):
             env.halt = True
         env.pc += 1
         
-
+class PrecompiledContracts(object):
+    class ecRecover(object):
+        def call(self, env):
+            sig = env.data[63:]
+            try:
+                recovered = w3.eth.account.recoverHash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
+            except:
+                recovered = "0x0000000000000000000000000000000000000000"
+            env.returnValue = int(recovered, 16).to_bytes(32, "big")
+    
+    
+    def __init__(self):
+        self.contracts = {}
+        self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
+    
 
 # CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
 class CallEnv(object):
