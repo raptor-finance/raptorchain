@@ -1170,8 +1170,8 @@ class Node(object):
                         tx = requests.get(f"{peer}/get/transactions/{txid}").json()["result"][0]
                         txs.append(tx)
                         break
-                    except:
-                        raise
+                    except Exception as e:
+                        print(e)
             else:
                 txs.append(localTx)
         return txs
