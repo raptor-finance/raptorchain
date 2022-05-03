@@ -1206,10 +1206,22 @@ class PrecompiledContracts(object):
                 recovered = "0x0000000000000000000000000000000000000000"
             env.returnValue = int(recovered, 16).to_bytes(32, "big")
     
+    class crossChainBridge(object):
+        def __init__(self, bridgeFallBack):
+            self.fallback = bridgeFallBack
+        
+        def call(self, env):
+            if env.calltype: # shouldn't be in child call
+                env.revert(b"DONT_WORK_IN_CHILD_CALL")
+                return
+            self.fallback(env.tx)
+                
     
-    def __init__(self):
+    
+    def __init__(self, bridgeFallBack):
         self.contracts = {}
         self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
+        self.contracts["0x0000000000000000000000000000000000000097"] = self.crossChainBridge(bridgeFallBack)
     
 
 # CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)

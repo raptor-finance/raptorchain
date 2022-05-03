@@ -511,7 +511,19 @@ class Account(object):
         self.code = b""
         self.storage = {}
         self.tempStorage = {}
+        self.root = ""
         
+    def serializeEVMStorage(data):
+        btarr = b""
+        for key, value in sorted(data.items()):
+            if value > 0:
+                btarr = (btarr + int(key).to_bytes(32, "big") + int(key).to_bytes(32, "big"))
+        return btarr
+
+        
+    def calcRoot(self):
+        self.root = w3.solidityKeccak(["address", "uint256", "bytes"], [self.address, self.balance, self.serializeEVMStorage(self.storage)])
+    
     def makeChangesPermanent(self):
         self.storage = self.tempStorage.copy()
         self.balance = self.tempBalance
@@ -528,7 +540,7 @@ class State(object):
     def __init__(self, initTxID):
         self.messages = {}
         self.opcodes = EVM.Opcodes().opcodes
-        self.precompiledContracts = EVM.PrecompiledContracts().contracts
+        self.precompiledContracts = EVM.PrecompiledContracts(self.requestCrosschainTransfer).contracts
         self.initTxID = initTxID
         self.txChilds = {self.initTxID: []}
         self.txIndex = {}
