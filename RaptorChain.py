@@ -346,7 +346,10 @@ class Masternode(object):
         self.owner = w3.toChecksumAddress(owner)
         self.operator = w3.toChecksumAddress(operator)
         self.collateral = 1000000000000000000000000
-        
+        self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
+    
+    def updateHash(self):
+        self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
 
 class BeaconChain(object):
     def __init__(self):
@@ -468,6 +471,13 @@ class BeaconChain(object):
     def destroyValidator(self, operator):
         if self.validators.get(operator):
             del self.validators[operator]
+            
+    def validatorSetHash(self):
+        valHashes = []
+        for val in self.validators:
+            valHashes.append(val.hash)
+        return w3.solidityKeccak(["bytes32[]"], [sorted(valHashes)])
+            
 
 class BSCInterface(object):
     def __init__(self, rpc, MasterContractAddress, tokenAddress):
@@ -511,18 +521,23 @@ class Account(object):
         self.code = b""
         self.storage = {}
         self.tempStorage = {}
-        self.root = ""
+        self.hash = ""
+        self.calcHash()
         
-    def serializeEVMStorage(data):
+    def serializeEVMStorage(self):
         btarr = b""
-        for key, value in sorted(data.items()):
+        for key, value in sorted(self.storage.items()):
             if value > 0:
                 btarr = (btarr + int(key).to_bytes(32, "big") + int(key).to_bytes(32, "big"))
         return btarr
 
         
-    def calcRoot(self):
-        self.root = w3.solidityKeccak(["address", "uint256", "bytes"], [self.address, self.balance, self.serializeEVMStorage(self.storage)])
+    def calcHash(self):
+        storageHash = w3.keccak(self.serializeEVMStorage())
+        codeHash = w3.keccak(self.code)
+        historyHash = w3.solidityKeccak(["bytes32[]", "bytes32[]"], [self.transactions[1:], self.sent[1:]])
+        self.hash = w3.solidityKeccak(["address", "uint256", "bytes32", "bytes32", "bytes32", "string"], [self.address, self.balance, historyHash, codeHash, storageHash, self.bio])
+        return self.hash
     
     def makeChangesPermanent(self):
         self.storage = self.tempStorage.copy()
@@ -556,6 +571,7 @@ class State(object):
         self.lastIndex = 0
         self.accounts["0x0000000000000000000000000000000000000001"].code = bytes.fromhex("608060405234801561001057600080fd5b506004361061002b5760003560e01c806357ecc14714610030575b600080fd5b61003861004e565b60405161004591906100c4565b60405180910390f35b60606040518060400160405280600b81526020017f48656c6c6f20776f726c64000000000000000000000000000000000000000000815250905090565b6000610096826100e6565b6100a081856100f1565b93506100b0818560208601610102565b6100b981610135565b840191505092915050565b600060208201905081810360008301526100de818461008b565b905092915050565b600081519050919050565b600082825260208201905092915050565b60005b83811015610120578082015181840152602081019050610105565b8381111561012f576000848401525b50505050565b6000601f19601f830116905091905056fea2646970667358221220ad44bfb067953d1048acb02d7ee13b978ad64129db11c038ac3f4c82c858f71f64736f6c63430007060033")
         self.receipts = {}
+        self.hash = ""
         self.debug = False
 
     def formatAddress(self, _addr):
@@ -566,7 +582,18 @@ class State(object):
 
     def getAccount(self, _addr):
         chkaddr = self.formatAddress(_addr)
+        self.ensureExistence(chkaddr)
         return self.accounts.get(chkaddr, Account(chkaddr, self.initTxID))
+
+    def calcStateRoot(self):
+        accountHashes = []
+        for account in self.accounts:
+            accountHashes.append(account.hash)
+        accountingRoot = w3.solidityKeccak(["bytes32[]"], [sorted(accountHashes)])
+        masternodesRoot = self.beaconChain.validatorSetHash()
+        self.hash = w3.solidityKeccak(["bytes32", "bytes32"], [accountingRoot, masternodesRoot])
+        return self.hash
+        
 
     def getCurrentEpoch(self):
         return self.beaconChain.getLastBeacon().proof
