@@ -697,6 +697,7 @@ class State(object):
             self.accounts[depositInfo["depositor"]].transactions.append(f"0x{depositInfo['hash'].hex()}")
             self.processedL2Hashes.append(depositInfo["hash"])
             self.txChilds[f"0x{depositInfo['hash'].hex()}"] = []
+            self.accounts[depositInfo["depositor"]].calcHash()
             return (True, f"Deposited {depositInfo['amount']} to {depositInfo['depositor']}")
         else:
             return (False, "Already processed")
@@ -1046,6 +1047,11 @@ class State(object):
         # if _tx.message:
             # self.leaveMessage(_from, _to, msg, showMessage)
         self.checkDepositsTillIndex(_tx.indexToCheck)
+        
+        for acct in _tx.affectedAccounts:
+            self.getAccount(acct).calcHash()
+        self.calcStateRoot()
+        
         self.updateHolders()
         return feedback
 

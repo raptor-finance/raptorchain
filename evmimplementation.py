@@ -1204,7 +1204,7 @@ class PrecompiledContracts(object):
                 recovered = w3.eth.account.recoverHash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
             except:
                 recovered = "0x0000000000000000000000000000000000000000"
-            env.returnValue = int(recovered, 16).to_bytes(32, "big")
+            env.returnCall(int(recovered, 16).to_bytes(32, "big"))
     
     class crossChainBridge(object):
         def __init__(self, bridgeFallBack):
@@ -1215,8 +1215,41 @@ class PrecompiledContracts(object):
                 env.revert(b"DONT_WORK_IN_CHILD_CALL")
                 return
             self.fallback(env.tx)
-                
     
+    class accountBioManager(object):
+        def __init__(self):
+            self.selectors = {}
+            self.selectors[b'y\xe6"\x86'] = setAccountBio
+            self.selectors[b'^;\x04!'] = getAccountBio
+            
+        def fallback(self, env):
+            env.revert(b"")
+    
+        def setAccountBio(self, env):
+            try:
+                params = eth_abi.decode_abi(["string"], env.data[4:])
+                _bio = params[0]
+                env.getAccount(env.msgSender).bio = _bio
+            except:
+                env.revert(b"ERROR_PARSING_PARAMS")
+            else:
+                env.returnCall(b"")
+        
+        def getAccountBio(self, env):
+            try:
+                params = eth_abi.decode_abi(["address"], env.data[4:])
+                addr = params[0]
+                bio = env.getAccount(addr).bio
+                env.returnCall(eth_abi.encode_abi(["string"], [bio]))
+            except:
+                env.revert(b"ERROR_PARSING_PARAMS")
+                
+            
+        def call(self, env):
+            self.selectors[env.data[:4]](env)
+            
+            
+        
     
     def __init__(self, bridgeFallBack):
         self.contracts = {}
