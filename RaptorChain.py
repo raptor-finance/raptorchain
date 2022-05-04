@@ -351,6 +351,9 @@ class Masternode(object):
     def updateHash(self):
         self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
 
+    def JSONSerializable(self):
+        return {"owner": self.owner, "operator": self.operator, "collateral": self.collateral, "hash": self.hash.hex()}
+
 class BeaconChain(object):
     def __init__(self):
         self.difficulty = 1
@@ -474,10 +477,21 @@ class BeaconChain(object):
             
     def validatorSetHash(self):
         valHashes = []
-        for val in self.validators:
+        for op, val in self.validators.items():
             valHashes.append(val.hash)
         return w3.solidityKeccak(["bytes32[]"], [sorted(valHashes)])
-            
+    
+    def JSONSerializable(self):
+        blocksJSON = []
+        valsJSON = []
+        hashToHeight = {}
+        for block in self.blocks:
+            blocksJSON.append(block.exportJson())
+            hashToHeight[block.proof] = block.number
+        for op, val in self.validators.items():
+            valsJSON.append(val.JSONSerializable())
+        return {"blocks": blocksJSON, "hashToHeight": hashToHeight, "mempool": self.pendingMessages, "validators": valsJSON, "difficulty": self.difficulty, "miningTarget": self.miningTarget}
+        
 
 class BSCInterface(object):
     def __init__(self, rpc, MasterContractAddress, tokenAddress):
@@ -550,6 +564,9 @@ class Account(object):
     def addParent(self, txid):
         if (self.transactions[len(self.transactions)-1] != txid):
             self.transactions.append(txid)
+    
+    def JSONSerializable(self):
+        return {"balance": self.balance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "hash": self.hash.hex()}
 
 class State(object):
     def __init__(self, initTxID):
@@ -587,8 +604,8 @@ class State(object):
 
     def calcStateRoot(self):
         accountHashes = []
-        for account in self.accounts:
-            accountHashes.append(account.hash)
+        for (addr, acct) in self.accounts.items():
+            accountHashes.append(acct.hash)
         accountingRoot = w3.solidityKeccak(["bytes32[]"], [sorted(accountHashes)])
         masternodesRoot = self.beaconChain.validatorSetHash()
         self.hash = w3.solidityKeccak(["bytes32", "bytes32"], [accountingRoot, masternodesRoot])
@@ -1079,6 +1096,13 @@ class State(object):
         else:
             return None
     
+    def JSONSerializable(self):
+        accountsJSON = {}
+        for addr, acct in self.accounts.items():
+            accountsJSON[acct.address] = acct.JSONSerializable()
+        beaconChainJSON = self.beaconChain.JSONSerializable()
+        return {"accounts": accountsJSON, "beaconChain": beaconChainJSON, "totalSupply": self.totalSupply}
+    
 
 class Peer(object):
     def __init__(self, url):
@@ -1354,6 +1378,48 @@ class TxBuilder(object):
         self.checkTxs([tx])
         return (tx, playable)
 
+class Terminal(object):
+    def __init__(self, nodeClass):
+        self.node = nodeClass
+        self.commands = {}
+        self.commands["snapshot"] = self.snapshot
+        self.commands["balance"] = self.balance
+        self.commands["account"] = self.accountInfo
+    
+    def skip(self, keyInput):
+        pass
+    
+    def snapshot(self, keyInput):
+        file = open(keyInput[1], "w")
+        serializable = self.node.state.JSONSerializable()
+        serialized = json.dumps(serializable)
+        print(serialized)
+        file.write(serialized)
+        file.close()
+    
+    def balance(self, keyInput):
+        addr = keyInput[1]
+        acct = self.node.state.getAccount(addr)
+        print(f"Address : {acct.address}\nBalance : {acct.balance/(10**18)}")
+    
+    def accountInfo(self, keyInput):
+        addr = keyInput[1]
+        acct = self.node.state.getAccount(addr)
+        print(f"Address : {acct.address}\nBalance : {acct.balance/(10**18)}\nBio : {acct.bio}")
+        
+    
+    def execCommand(self, command):
+        keyInput = command.split(" ")
+        try:
+            self.commands.get(keyInput[0], self.skip)(keyInput)
+        except Exception as e:
+            raise
+    
+    def terminalLoop(self):
+        while True:
+            cmd = input("RaptorChain Terminal - $ ")
+            self.execCommand(cmd)
+
 if __name__ == "__main__":
     node = Node(config)
     print(node.config)
@@ -1610,7 +1676,11 @@ def handleWeb3Request():
         result = node.ethGetTransactionByHash(params[0])
     return flask.Response(json.dumps({"id": _id, "jsonrpc": "2.0", "result": result}), mimetype='application/json');
     
+def runFlask():
+    app.run(host="0.0.0.0", port=2022, ssl_context=ssl_context)
 
 if __name__ == "__main__":
     print(ssl_context or "No SSL context defined")
-    app.run(host="0.0.0.0", port=2022, ssl_context=ssl_context)
+    _thread = threading.Thread(target=runFlask)
+    _thread.start()
+    Terminal(node).terminalLoop()
