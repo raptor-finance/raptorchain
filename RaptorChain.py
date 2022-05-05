@@ -1385,6 +1385,7 @@ class Terminal(object):
         self.commands["snapshot"] = self.snapshot
         self.commands["balance"] = self.balance
         self.commands["account"] = self.accountInfo
+        self.commands["stats"] = self.stats
     
     def skip(self, keyInput):
         pass
@@ -1396,6 +1397,17 @@ class Terminal(object):
         print(serialized)
         file.write(serialized)
         file.close()
+    
+    def stats(self, keyInput):
+        totalSupply = self.node.state.totalSupply
+        holders = len(self.node.state.holders)
+        txsNumber = len(self.node.txsOrder)
+        lastBlockHash = self.node.state.beaconChain.getLastBeacon().proof
+        chainLength = len(self.node.state.beaconChain.blocks)
+        print(f"Coin stats\n    Total Supply : {totalSupply}\n    Holders : {holders}\n    Number of transactions : {txsNumber}")
+        print(f"Chain stats\n    Chain length : {chainLength}\n    Last block hash : {lastBlockHash}")
+        
+        
     
     def balance(self, keyInput):
         addr = keyInput[1]
