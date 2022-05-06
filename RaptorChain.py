@@ -229,6 +229,7 @@ class GenesisBeacon(object):
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.proof = self.proofOfWork()
         self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
+        self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
         self.transactions = []
         self.number = 0
         self.son = ""
@@ -263,7 +264,7 @@ class GenesisBeacon(object):
         # return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
 
     def txsRoot(self):
-        return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
+        return w3.solidityKeccak(["bytes32", "bytes32", "bytes32[]"], [self.proof, self.stateRoot, sorted(self.transactions)])
 
     def exportJson(self):
         return {"transactions": self.transactions, "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
@@ -280,7 +281,7 @@ class Beacon(object):
         # self.miningTarget = int((2**256)/self.difficulty)
         # self.proof = self.proofOfWork()
     
-    def __init__(self, data, difficulty):
+    def __init__(self, data, difficulty, stateRoot="0x0000000000000000000000000000000000000000000000000000000000000000"):
         miningData = data["miningData"]
         self.miner = w3.toChecksumAddress(miningData["miner"])
         self.parentTxRoot = data.get("parentTxRoot", "0x0000000000000000000000000000000000000000000000000000000000000000")
@@ -289,6 +290,7 @@ class Beacon(object):
         self.messages = bytes.fromhex(data['messages'].replace('0x', ''))
         self.decodedMessages = list(eth_abi.decode_abi(["bytes[]"], bytes.fromhex(data["messages"].replace("0x", "")))[0])
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        self.stateRoot = stateRoot
         self.timestamp = int(data["timestamp"])
         self.parent = data["parent"]
         self.transactions = []
@@ -331,7 +333,7 @@ class Beacon(object):
         return _msgs
 
     def txsRoot(self):
-        return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
+        return w3.solidityKeccak(["bytes32", "bytes32", "bytes32[]"], [self.proof, self.stateRoot, sorted(self.transactions)])
 
 
     # def ABIEncodableTuple(self):
@@ -481,6 +483,10 @@ class BeaconChain(object):
             valHashes.append(val.hash)
         return w3.solidityKeccak(["bytes32[]"], [sorted(valHashes)])
     
+    def updateStateRoot(self, newRoot):
+        self.stateRoot = newRoot
+        self.getLastBeacon().stateRoot = newRoot
+    
     def JSONSerializable(self):
         blocksJSON = []
         valsJSON = []
@@ -609,6 +615,7 @@ class State(object):
         accountingRoot = w3.solidityKeccak(["bytes32[]"], [sorted(accountHashes)])
         masternodesRoot = self.beaconChain.validatorSetHash()
         self.hash = w3.solidityKeccak(["bytes32", "bytes32"], [accountingRoot, masternodesRoot])
+        self.beaconChain.updateStateRoot(self.hash)
         return self.hash
         
 
