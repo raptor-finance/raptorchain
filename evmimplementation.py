@@ -1226,6 +1226,7 @@ class PrecompiledContracts(object):
             env.revert(b"")
     
         def setAccountBio(self, env):
+            env.consumeGas(2300)
             try:
                 params = eth_abi.decode_abi(["string"], env.data[4:])
                 _bio = params[0]
@@ -1236,6 +1237,7 @@ class PrecompiledContracts(object):
                 env.returnCall(b"")
         
         def getAccountBio(self, env):
+            env.consumeGas(2300)
             try:
                 params = eth_abi.decode_abi(["address"], env.data[4:])
                 addr = params[0]
@@ -1246,16 +1248,126 @@ class PrecompiledContracts(object):
                 
             
         def call(self, env):
-            self.selectors[env.data[:4]](env)
+            self.selectors.get(env.data[:4], self.fallback)(env)
             
+    class CrossChainToken(object):
+        def __init__(self, name, symbol, decimals, token):
+            self.methods = {}
+            self._name = name
+            self._symbol = symbol
+            self._decimals = decimals
+            self.address = token
+            self.supply = 0
             
+            self.balancesSlot = 0
+            self.allowancesSlot = 1
+            
+            self.methods[self.calcFunctionSelector("totalSupply()")] = self.totalSupply
+            self.methods[self.calcFunctionSelector("decimals()")] = self.decimals
+            self.methods[self.calcFunctionSelector("name()")] = self.name
+            self.methods[self.calcFunctionSelector("symbol()")] = self.symbol
+            self.methods[self.calcFunctionSelector("balanceOf(address)")] = self.balanceOf
+            self.methods[self.calcFunctionSelector("transfer(address,uint256)")] = self.transfer
+            self.methods[self.calcFunctionSelector("approve(address,uint256)")] = self.approve
+            self.methods[self.calcFunctionSelector("transferFrom(address,address,uint256)")] = self.transferFrom
+            
+        def calcBalanceAddress(self, tokenOwner):
+            return int.from_bytes(w3.solidityKeccak(["uint256", "address"], [int(self.balancesSlot), tokenOwner]), "big")
+            
+        def calcAllowanceAddress(self, tokenOwner, spender):
+            return int.from_bytes(w3.solidityKeccak(["uint256", "address", "address"], [int(self.allowancesSlot), tokenOwner, spender]), "big")
+            
+        def calcFunctionSelector(self, functionName):
+            return bytes(w3.keccak(str(functionName).encode()]))[0:4]
+        
+        def returnSingleType(self, env, _type, _arg):
+            env.returnCall(eth_abi.encode_abi(_type, _arg))
+        
+        def returnMultipleTypes(self, env, types, args):
+            env.returnCall(eth_abi.encode_abi(types, args))
+        
+        def totalSupply(self, env):
+            env.consumeGas(2300)
+            self.returnSingleType(env, "uint256", self.supply)
+        
+        def decimals(self, env):
+            env.consumeGas(2300)
+            self.returnSingleType(env, "uint8", self._decimals)
+        
+        def name(self, env):
+            env.consumeGas(2300)
+            self.returnSingleType(env, "string", self._name)
+    
+        def symbol(self, env):
+            env.consumeGas(2300)
+            self.returnSingleType(env, "string", self._symbol)
+        
+        
+        def _transfer(self, sender, recipient, tokens):
+            _from = self.calcBalanceAddress(sender)
+            _to = self.calcBalanceAddress(recipient)
+            _senderBalance = env.loadStorageKey(_from)
+            _recipientBalance = env.loadStorageKey(_to)
+            if (tokens > _senderBalance):
+                env.revert(b"INSUFFICIENT_BALANCE")
+                return
+            _senderBalance -= tokens
+            _recipientBalance += tokens
+            if (_senderBalance >= (2**256)) or (_recipientBalance >= (2**256))
+                env.revert(b"INTEGER_OVERFLOW_DETECTED")
+                return
+            env.writeStorageKey(_from, _senderBalance)
+            env.writeStorageKey(_to, _recipientBalance)
+                
+        def approve(self, env):
+            params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])
+            allowanceAddress = self.calcAllowanceAddress(env.msgSender, params[0])
+            env.consumeGas(16900)
+            self.returnSingleType(env, "bool", True)
+        
+        def transfer(self, env):
+            params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])
+            self._transfer(env.msgSender, params[0], params[1])
+            env.consumeGas(69000)
+            self.returnSingleType(env, "bool", True)
+
+        def transferFrom(self, env)
+            params = eth_abi.decode_abi(["address", "address", "uint256"], env.data[4:])
+            allowanceAddress = self.calcAllowanceAddress(params[0], env.msgSender)
+            _allowance = env.loadStorageKey(allowanceAddress)
+            if (_allowance < params[2]):
+                env.revert(b"INSUFFICIENT_ALLOWANCE")
+                return
+            _allowance -= params[2]
+            env.writeStorageKey(allowanceAddress, _allowance)
+            self._transfer(params[0], params[1], params[2])
+            env.consumeGas(69000)
+            self.returnSingleType(env, "bool", True)
+            
+        def balanceOf(self, env):
+            params = eth_abi.decode_abi(["address"], env.data[4:])
+            env.consumeGas(6900)
+            self.returnSingleType(env, "uint256", env.loadStorageKey(self.calcBalanceAddress(params[0])))
+        
+       def fallback(self, env):
+            env.revert(b"FALLBACK_NOT_DEFINED")
+        
+        def call(self, env):
+            self.selectors.get(env.data[:4], self.fallback)(env)
         
     
     def __init__(self, bridgeFallBack):
         self.contracts = {}
         self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
+        self.contracts["0x0000000000000000000000000000000000000002"] = self.accountBioManager()
         self.contracts["0x0000000000000000000000000000000000000097"] = self.crossChainBridge(bridgeFallBack)
     
+
+    def mintCrossChainToken(self, tokenAddress, to, tokens):
+        if not self.contracts.get(tokenAddress):
+            self.contracts[tokenAddress] = self.CrossChainToken("TEST", "TEST", 18, tokenAddress)
+        self.contracts[tokenAddress].mint(to, tokens)
+
 
 # CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
 class CallEnv(object):
