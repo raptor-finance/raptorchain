@@ -1251,12 +1251,13 @@ class PrecompiledContracts(object):
             self.selectors.get(env.data[:4], self.fallback)(env)
             
     class CrossChainToken(object):
-        def __init__(self, name, symbol, decimals, token):
+        def __init__(self, bsc, token):
+            self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
             self.methods = {}
-            self._name = name
-            self._symbol = symbol
-            self._decimals = decimals
-            self.address = token
+            self._name = self.BEP20Instance.function.name().call()
+            self._symbol = self.BEP20Instance.function.symbol().call()
+            self._decimals = self.BEP20Instance.function.decimals().call()
+            self.address = self.BEP20Instance.address
             self.supply = 0
             
             self.balancesSlot = 0
@@ -1348,16 +1349,23 @@ class PrecompiledContracts(object):
             params = eth_abi.decode_abi(["address"], env.data[4:])
             env.consumeGas(6900)
             self.returnSingleType(env, "uint256", env.loadStorageKey(self.calcBalanceAddress(params[0])))
+       
+       
+        def mint(self, env, to, tokens):
+            depositorAddr = self.calcBalanceAddress(w3.toChecksumAddress(to))
+            env.writeStorageKey(depositorAddr, (env.loadStorageKey(depositorAddr) + tokens))
+            print(f"Minted {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
         
-       def fallback(self, env):
+        def fallback(self, env):
             env.revert(b"FALLBACK_NOT_DEFINED")
         
         def call(self, env):
             self.selectors.get(env.data[:4], self.fallback)(env)
         
     
-    def __init__(self, bridgeFallBack):
+    def __init__(self, bridgeFallBack, bsc):
         self.contracts = {}
+        self.bsc = bsc
         self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
         self.contracts["0x0000000000000000000000000000000000000002"] = self.accountBioManager()
         self.contracts["0x0000000000000000000000000000000000000097"] = self.crossChainBridge(bridgeFallBack)
@@ -1365,7 +1373,7 @@ class PrecompiledContracts(object):
 
     def mintCrossChainToken(self, tokenAddress, to, tokens):
         if not self.contracts.get(tokenAddress):
-            self.contracts[tokenAddress] = self.CrossChainToken("TEST", "TEST", 18, tokenAddress)
+            self.contracts[tokenAddress] = self.CrossChainToken(self.bsc, tokenAddress)
         self.contracts[tokenAddress].mint(to, tokens)
 
 
