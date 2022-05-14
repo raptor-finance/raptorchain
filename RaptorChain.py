@@ -600,6 +600,8 @@ class State(object):
         self.precompiledContracts = self.precompiledContractsHandler.contracts
         self.hash = ""
         self.debug = False
+        self.chainID = 69420
+        self.version = "0.4-beta"
 
     def formatAddress(self, _addr):
         if (type(_addr) == int):
@@ -1674,7 +1676,7 @@ def handleWeb3Request():
     if method == "eth_getBalance":
         result = hex(int((node.state.accounts.get(w3.toChecksumAddress(params[0]), Account(w3.toChecksumAddress(params[0]), node.state.initTxID)).balance)))
     if method == "net_version":
-        result = str(69420)
+        result = str(node.state.chainID)
     if method == "eth_coinbase":
         result = node.state.beaconChain.getLastBeacon().miner
     if method == "eth_mining":
