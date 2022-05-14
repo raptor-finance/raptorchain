@@ -1251,7 +1251,7 @@ class PrecompiledContracts(object):
             self.selectors.get(env.data[:4], self.fallback)(env)
             
     class CrossChainToken(object):
-        def __init__(self, bsc, token):
+        def __init__(self, env, bsc, token):
             self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
             self.methods = {}
             self._name = self.BEP20Instance.function.name().call()
@@ -1260,8 +1260,9 @@ class PrecompiledContracts(object):
             self.address = self.BEP20Instance.address
             self.supply = 0
             
-            self.balancesSlot = 0
-            self.allowancesSlot = 1
+            self.supplySlot = 0
+            self.balancesSlot = 1
+            self.allowancesSlot = 2
             
             self.methods[self.calcFunctionSelector("totalSupply()")] = self.totalSupply
             self.methods[self.calcFunctionSelector("decimals()")] = self.decimals
@@ -1271,7 +1272,26 @@ class PrecompiledContracts(object):
             self.methods[self.calcFunctionSelector("transfer(address,uint256)")] = self.transfer
             self.methods[self.calcFunctionSelector("approve(address,uint256)")] = self.approve
             self.methods[self.calcFunctionSelector("transferFrom(address,address,uint256)")] = self.transferFrom
+        
+        
+        def safeIncrease(self, env, slot, value, errorMessage=b"INTEGER_OVERFLOW_DETECTED"):
+            _prevValue = env.loadStorageKey(slot)
+            _prevValue += value
+            if (_prevValue >= 2**256):
+                env.revert(errorMessage)
+                return False
+            env.writeStorageKey(slot, _prevValue)
+            return True
+        
+        def safeDecrease(self, env, slot, value, errorMessage=b"INTEGER_UNDERFLOW_DETECTED"):
+            _prevValue = env.loadStorageKey(slot)
+            if _prevValue < value:
+                env.revert(errorMessage)
+                return False
+            env.writeStorageKey(slot, _prevValue - value)
+            return True
             
+        
         def calcBalanceAddress(self, tokenOwner):
             return int.from_bytes(w3.solidityKeccak(["uint256", "address"], [int(self.balancesSlot), tokenOwner]), "big")
             
@@ -1289,7 +1309,7 @@ class PrecompiledContracts(object):
         
         def totalSupply(self, env):
             env.consumeGas(2300)
-            self.returnSingleType(env, "uint256", self.supply)
+            self.returnSingleType(env, "uint256", env.loadStorageKey(self.supplySlot))
         
         def decimals(self, env):
             env.consumeGas(2300)
@@ -1304,21 +1324,14 @@ class PrecompiledContracts(object):
             self.returnSingleType(env, "string", self._symbol)
         
         
-        def _transfer(self, sender, recipient, tokens):
+        def _transfer(self, env, sender, recipient, tokens):
             _from = self.calcBalanceAddress(sender)
             _to = self.calcBalanceAddress(recipient)
-            _senderBalance = env.loadStorageKey(_from)
-            _recipientBalance = env.loadStorageKey(_to)
-            if (tokens > _senderBalance):
-                env.revert(b"INSUFFICIENT_BALANCE")
-                return
-            _senderBalance -= tokens
-            _recipientBalance += tokens
-            if (_senderBalance >= (2**256)) or (_recipientBalance >= (2**256))
-                env.revert(b"INTEGER_OVERFLOW_DETECTED")
-                return
-            env.writeStorageKey(_from, _senderBalance)
-            env.writeStorageKey(_to, _recipientBalance)
+            _decrSuccess = env.safeDecrease(_from, tokens, b"INSUFFICIENT_BALANCE")
+            if not _decrSuccess:
+                return False
+            _incrSuccess = env.safeIncrease(_to, tokens)
+            return (_decrSuccess)
                 
         def approve(self, env):
             params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])
@@ -1328,21 +1341,22 @@ class PrecompiledContracts(object):
         
         def transfer(self, env):
             params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])
-            self._transfer(env.msgSender, params[0], params[1])
+            _success = self._transfer(env, env.msgSender, params[0], params[1])
             env.consumeGas(69000)
+            if _success:
+                return
             self.returnSingleType(env, "bool", True)
 
         def transferFrom(self, env)
             params = eth_abi.decode_abi(["address", "address", "uint256"], env.data[4:])
-            allowanceAddress = self.calcAllowanceAddress(params[0], env.msgSender)
-            _allowance = env.loadStorageKey(allowanceAddress)
-            if (_allowance < params[2]):
-                env.revert(b"INSUFFICIENT_ALLOWANCE")
-                return
-            _allowance -= params[2]
-            env.writeStorageKey(allowanceAddress, _allowance)
-            self._transfer(params[0], params[1], params[2])
             env.consumeGas(69000)
+            allowanceAddress = self.calcAllowanceAddress(params[0], env.msgSender)
+            apprSuccess = env.safeDecrease(allowanceAddress, params[2], b"INSUFFICIENT_ALLOWANCE")
+            if not apprSuccess:
+                return
+            transfSuccess = self._transfer(env, params[0], params[1], params[2])
+            if not transfSuccess:
+                return
             self.returnSingleType(env, "bool", True)
             
         def balanceOf(self, env):
@@ -1353,15 +1367,28 @@ class PrecompiledContracts(object):
        
         def mint(self, env, to, tokens):
             depositorAddr = self.calcBalanceAddress(w3.toChecksumAddress(to))
-            env.writeStorageKey(depositorAddr, (env.loadStorageKey(depositorAddr) + tokens))
-            print(f"Minted {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
+            env.safeIncrease(depositorAddr, tokens)
+            env.safeIncrease(self.supplySlot, tokens)
+            # env.writeStorageKey(depositorAddr, (env.loadStorageKey(depositorAddr) + tokens))
+            # env.writeStorageKey(env.supplySlot, (env.loadStorageKey(self.supplySlot) + tokens))
+            # print(f"Minted {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
+        
+        def burn(self, env, user, tokens):
+            depositorAddr = self.calcBalanceAddress(w3.toChecksumAddress(user))
+            env.writeStorageKey(depositorAddr, (env.loadStorageKey(depositorAddr) - tokens))
+            env.writeStorageKey(env.supplySlot, (env.loadStorageKey(self.supplySlot) - tokens))
+            print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
         
         def fallback(self, env):
             env.revert(b"FALLBACK_NOT_DEFINED")
         
         def call(self, env):
             self.selectors.get(env.data[:4], self.fallback)(env)
-        
+    
+    class Printer(object):
+        def call(self, env):
+            env.consumeGas(69)
+            print(f"Hi {env.msgSender}")
     
     def __init__(self, bridgeFallBack, bsc):
         self.contracts = {}
@@ -1369,12 +1396,13 @@ class PrecompiledContracts(object):
         self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
         self.contracts["0x0000000000000000000000000000000000000002"] = self.accountBioManager()
         self.contracts["0x0000000000000000000000000000000000000097"] = self.crossChainBridge(bridgeFallBack)
+        self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.printer()
     
 
-    def mintCrossChainToken(self, tokenAddress, to, tokens):
+    def mintCrossChainToken(self, env, tokenAddress, to, tokens):
         if not self.contracts.get(tokenAddress):
-            self.contracts[tokenAddress] = self.CrossChainToken(self.bsc, tokenAddress)
-        self.contracts[tokenAddress].mint(to, tokens)
+            self.contracts[tokenAddress] = self.CrossChainToken(env, self.bsc, tokenAddress)
+        self.contracts[tokenAddress].mint(env, to, tokens)
 
 
 # CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
@@ -1444,6 +1472,24 @@ class CallEnv(object):
             self.returnValue = b"STATICCALL_DONT_ALLOW_SSTORE"
         else:
             self.storage[key] = value
+    
+    def safeIncrease(self, slot, value, errorMessage=b"INTEGER_OVERFLOW_DETECTED"):
+        _prevValue = self.loadStorageKey(slot)
+        _prevValue += value
+        if (_prevValue >= 2**256):
+            self.revert(errorMessage)
+            return False
+        self.writeStorageKey(slot, _prevValue)
+        return True
+    
+    def safeDecrease(self, slot, value, errorMessage=b"INTEGER_UNDERFLOW_DETECTED"):
+        _prevValue = self.loadStorageKey(slot)
+        if _prevValue < value:
+            self.revert(errorMessage)
+            return False
+        self.writeStorageKey(slot, _prevValue - value)
+        return True
+            
     
     def getPushData(self, pc, length):
         _data = self.code[pc+1:pc+length+1]
