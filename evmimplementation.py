@@ -1220,8 +1220,8 @@ class PrecompiledContracts(object):
     class accountBioManager(object):
         def __init__(self):
             self.selectors = {}
-            self.selectors[b'y\xe6"\x86'] = setAccountBio
-            self.selectors[b'^;\x04!'] = getAccountBio
+            self.selectors[b'y\xe6"\x86'] = self.setAccountBio
+            self.selectors[b'^;\x04!'] = self.getAccountBio
             
         def fallback(self, env):
             env.revert(b"")
@@ -1249,6 +1249,7 @@ class PrecompiledContracts(object):
                 
             
         def call(self, env):
+            env.consumeGas(2300)
             self.selectors.get(env.data[:4], self.fallback)(env)
             
     class CrossChainToken(object):
@@ -1302,7 +1303,7 @@ class PrecompiledContracts(object):
             return int.from_bytes(w3.solidityKeccak(["uint256", "address", "address"], [int(self.allowancesSlot), tokenOwner, spender]), "big")
             
         def calcFunctionSelector(self, functionName):
-            return bytes(w3.keccak(str(functionName).encode()]))[0:4]
+            return bytes(w3.keccak(str(functionName).encode()))[0:4]
         
         def returnSingleType(self, env, _type, _arg):
             env.returnCall(eth_abi.encode_abi(_type, _arg))
@@ -1331,7 +1332,7 @@ class PrecompiledContracts(object):
             _decrSuccess = env.safeDecrease(self.supplySlot, tokens)
             if not _decrSuccess:
                 return False
-            env.messages.append(self.fallback(self.address, env.msgSender, tokens, len(env.runningAccount.transactions))
+            env.messages.append(self.fallback(self.address, env.msgSender, tokens, len(env.runningAccount.transactions)))
             return True
         
         def _transfer(self, env, sender, recipient, tokens):
@@ -1340,7 +1341,7 @@ class PrecompiledContracts(object):
             _decrSuccess = env.safeDecrease(_from, tokens, b"INSUFFICIENT_BALANCE")
             if not _decrSuccess:
                 return False
-            return (self._crossChain(env, tokens) if (_to == self.bridge.address) else _incrSuccess = env.safeIncrease(_to, tokens))
+            return (self._crossChain(env, tokens) if (_to == self.bridge.address) else env.safeIncrease(_to, tokens))
                 
         def approve(self, env):
             params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])
@@ -1356,7 +1357,7 @@ class PrecompiledContracts(object):
                 return
             self.returnSingleType(env, "bool", True)
 
-        def transferFrom(self, env)
+        def transferFrom(self, env):
             params = eth_abi.decode_abi(["address", "address", "uint256"], env.data[4:])
             env.consumeGas(69000)
             allowanceAddress = self.calcAllowanceAddress(params[0], env.msgSender)
@@ -1406,7 +1407,7 @@ class PrecompiledContracts(object):
         self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
         self.contracts["0x0000000000000000000000000000000000000002"] = self.accountBioManager()
         self.contracts[self.crossChainAddress] = self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc.token)
-        self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.printer()
+        self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.Printer()
     
 
     def mintCrossChainToken(self, env, tokenAddress, to, tokens):
