@@ -1207,14 +1207,15 @@ class PrecompiledContracts(object):
             env.returnCall(int(recovered, 16).to_bytes(32, "big"))
     
     class crossChainBridge(object):
-        def __init__(self, bridgeFallBack):
+        def __init__(self, bridgeFallBack, addr, defaultToken):
             self.fallback = bridgeFallBack
+            self.rptr = defaultToken
         
         def call(self, env):
-            if env.calltype: # shouldn't be in child call
-                env.revert(b"DONT_WORK_IN_CHILD_CALL")
-                return
-            self.fallback(env.tx)
+            # if env.calltype: # shouldn't be in child call
+                # env.revert(b"DONT_WORK_IN_CHILD_CALL")
+                # return
+            env.messages.append(self.fallback(self.rptr, env.msgSender, env.value, len(env.runningAccount.transactions)))
     
     class accountBioManager(object):
         def __init__(self):
@@ -1251,13 +1252,15 @@ class PrecompiledContracts(object):
             self.selectors.get(env.data[:4], self.fallback)(env)
             
     class CrossChainToken(object):
-        def __init__(self, env, bsc, token):
+        def __init__(self, env, bsc, token, _bridge):
             self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
+            self.bridge = _bridge
             self.methods = {}
             self._name = self.BEP20Instance.function.name().call()
             self._symbol = self.BEP20Instance.function.symbol().call()
             self._decimals = self.BEP20Instance.function.decimals().call()
-            self.address = self.BEP20Instance.address
+            self.address = w3.toChecksumAddress((int(self.BEP20Instance.address, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
+
             self.supply = 0
             
             self.supplySlot = 0
@@ -1324,14 +1327,20 @@ class PrecompiledContracts(object):
             self.returnSingleType(env, "string", self._symbol)
         
         
+        def _crossChain(self, env, tokens):
+            _decrSuccess = env.safeDecrease(self.supplySlot, tokens)
+            if not _decrSuccess:
+                return False
+            env.messages.append(self.fallback(self.address, env.msgSender, tokens, len(env.runningAccount.transactions))
+            return True
+        
         def _transfer(self, env, sender, recipient, tokens):
             _from = self.calcBalanceAddress(sender)
             _to = self.calcBalanceAddress(recipient)
             _decrSuccess = env.safeDecrease(_from, tokens, b"INSUFFICIENT_BALANCE")
             if not _decrSuccess:
                 return False
-            _incrSuccess = env.safeIncrease(_to, tokens)
-            return (_decrSuccess)
+            return (self._crossChain(env, tokens) if (_to == self.bridge.address) else _incrSuccess = env.safeIncrease(_to, tokens))
                 
         def approve(self, env):
             params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])
@@ -1393,15 +1402,16 @@ class PrecompiledContracts(object):
     def __init__(self, bridgeFallBack, bsc):
         self.contracts = {}
         self.bsc = bsc
+        self.crossChainAddress = "0x0000000000000000000000000000000000000097"
         self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
         self.contracts["0x0000000000000000000000000000000000000002"] = self.accountBioManager()
-        self.contracts["0x0000000000000000000000000000000000000097"] = self.crossChainBridge(bridgeFallBack)
+        self.contracts[self.crossChainAddress] = self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc.token)
         self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.printer()
     
 
     def mintCrossChainToken(self, env, tokenAddress, to, tokens):
         if not self.contracts.get(tokenAddress):
-            self.contracts[tokenAddress] = self.CrossChainToken(env, self.bsc, tokenAddress)
+            self.contracts[tokenAddress] = self.CrossChainToken(env, self.bsc, tokenAddress, self.contracts.get(self.crossChainAddress))
         self.contracts[tokenAddress].mint(env, to, tokens)
 
 
@@ -1442,7 +1452,7 @@ class CallEnv(object):
         self.tx.markAccountAffected(recipient)
         self.tx.markAccountAffected(runningAccount.address)
         self.contractDeployment = ((self.tx.contractDeployment) or calltype == 3)
-    
+        self.messages = []
 
     def getBlock(self, height):
         return self.chain.blocks[min(height, len(self.chain.blocks)-1)]
