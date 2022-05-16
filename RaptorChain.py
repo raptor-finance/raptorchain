@@ -839,7 +839,7 @@ class State(object):
     
     def postTxMessages(self, tx):
         for msg in tx.messages:
-            self.beaconChain.postMessage(msg)
+            self.beaconChain.postMessage(msg[0], msg[1])
 
     def executeTransfer(self, tx, showMessage):
         willSucceed = self.estimateTransferSuccess(tx)
@@ -1102,8 +1102,8 @@ class State(object):
         
         for acct in _tx.affectedAccounts:
             self.getAccount(acct).calcHash()
+        self.postTxMessages(_tx)
         self.calcStateRoot()
-        
         self.updateHolders()
         return feedback
 

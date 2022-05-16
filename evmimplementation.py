@@ -1209,15 +1209,15 @@ class PrecompiledContracts(object):
             env.returnCall(int(recovered, 16).to_bytes(32, "big"))
     
     class crossChainBridge(object):
-        def __init__(self, bridgeFallBack, addr, defaultToken):
+        def __init__(self, bridgeFallBack, addr, bsc):
             self.fallback = bridgeFallBack
-            self.rptr = defaultToken
+            self.rptr = bsc.token
         
         def call(self, env):
             # if env.calltype: # shouldn't be in child call
                 # env.revert(b"DONT_WORK_IN_CHILD_CALL")
                 # return
-            env.messages.append(self.fallback(self.rptr, env.msgSender, env.value, len(env.runningAccount.transactions)))
+            env.messages.append((self.bsc.custodyContract.address, self.fallback(self.bsc.token, env.msgSender, env.value, len(env.runningAccount.transactions))))
     
     class accountBioManager(object):
         def __init__(self):
@@ -1256,6 +1256,7 @@ class PrecompiledContracts(object):
             
     class CrossChainToken(object):
         def __init__(self, env, bsc, token, _bridge):
+            self.bsc = bsc
             self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
             self.bridge = _bridge
             self.methods = {}
@@ -1334,7 +1335,7 @@ class PrecompiledContracts(object):
             _decrSuccess = env.safeDecrease(self.supplySlot, tokens)
             if not _decrSuccess:
                 return False
-            env.messages.append(self.fallback(self.address, env.msgSender, tokens, len(env.runningAccount.transactions)))
+            env.messages.append((self.bsc.custodyContract.address, self.fallback(self.address, env.msgSender, tokens, len(env.runningAccount.transactions))))
             return True
         
         def _transfer(self, env, sender, recipient, tokens):
@@ -1420,7 +1421,7 @@ class PrecompiledContracts(object):
         self.contracts["0x0000000000000000000000000000000000000002"] = self.Sha256()
         self.contracts["0x0000000000000000000000000000000000000003"] = self.Ripemd160()
         self.contracts["0x0000000000000000000000000000000000000069"] = self.accountBioManager()
-        self.contracts[self.crossChainAddress] = self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc.token)
+        self.contracts[self.crossChainAddress] = self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc)
         self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.Printer()
     
 
