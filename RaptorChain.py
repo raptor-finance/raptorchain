@@ -1155,22 +1155,33 @@ class Node(object):
         def sendRequest(self, path):
             return requests.get(f"{self.node}{path}")
         
-        def refresh(self):
+        def refreshOkayNess(self):
             try:
                 self.isOkay = self.sendRequest("/ping").json().get("success")
             except:
                 self.isOkay = False
+            return self.isOkay
+        
+        def refresh(self):
+            self.refreshOkayNess()
             if not self.isOkay:
                 return
+            _previousRoot = self.systemRoot()
             self.lastBlock = self.sendRequest("/chain/getlastblock").json().get("result")
+            if _previousRoot != self.systemRoot():
+                self.changed = True
+            else:
+                pass
+        
+        def systemRoot(self):
+            return self.lastBlock.get("txsRoot", "0x0000000000000000000000000000000000000000000000000000000000000000")
         
         def getBlockByNumber(self, number):
-            if not self.isOkay:
-                raise PeerNotOkayException()
             try:
                 return self.sendRequest(f"/chain/block/{number}").json()
             except:
-                
+                raise PeerNotOkayException("Error loading data from peer")
+    
     def __init__(self, config):
         self.transactions = {}
         self.txsOrder = []
@@ -1183,6 +1194,12 @@ class Node(object):
         self.goodPeers = []
         self.checkGuys()
         self.initNode()
+
+    def stringifyBatchOfPeers(self, peers):
+        stringified = []
+        for peer in peers:
+            stringified.append(str(peer))
+        return stringified
 
     def loadBatchOfPeers(self, urls):
         _peers = []
@@ -1277,15 +1294,15 @@ class Node(object):
             try:
                 obtainedPeers = requests.get(f"{peer}/net/getOnlinePeers")
                 for _peer in obtainedPeers:
-                    if not (peer in self.peers):
-                        self.peers.append(peer)
+                    if not (((peer if peer[len(peer)-1] == "/") else (peer + "/")) in self.stringifyBatchOfPeers(self.peers)):
+                        self.peers.append(Peer(peer))
             except:
                 pass
     
     def checkGuys(self):
         self.goodPeers = []
         for peer in self.peers:
-            peer.refresh()
+            peer.refreshOkayNess()
             if peer.isOkay:
                 self.goodPeers.append(peer)
         self.askForMorePeers()
@@ -1304,7 +1321,7 @@ class Node(object):
             if not localTx:
                 for peer in self.goodPeers:
                     try:
-                        tx = requests.get(f"{peer}/get/transactions/{txid}").json()["result"][0]
+                        tx = peer.sendRequest(f"/get/transactions/{txid}").json()["result"][0]
                         txs.append(tx)
                         break
                     except Exception as e:
@@ -1485,7 +1502,7 @@ class Terminal(object):
         
     
     def execCommand(self, command):
-        keyInput = command.split(" ")
+        keyInput = list(filter(("").__ne__, command.split(" ")))
         try:
             self.commands.get(keyInput[0], self.skip)(keyInput)
         except Exception as e:
@@ -1697,11 +1714,11 @@ def getMempool():
 # SHARE PEERS (from `Node` class)
 @app.route("/net/getPeers")
 def shareMyPeers():
-    return flask.jsonify(result=node.peers, success=True)
+    return flask.jsonify(result=node.stringifyBatchOfPeers(node.peers), success=True)
     
 @app.route("/net/getOnlinePeers")
 def shareOnlinePeers():
-    return flask.jsonify(result=node.goodPeers, success=True)
+    return flask.jsonify(result=node.stringifyBatchOfPeers(node.goodPeers), success=True)
 
 
 
