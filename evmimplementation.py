@@ -1,6 +1,6 @@
 from web3.auto import w3
-import itertools, rlp
-
+import itertools, rlp, hashlib
+from Crypto.Hash import RIPEMD160
 
 class CallMemory(object):
     def __init__(self):
@@ -1404,12 +1404,19 @@ class PrecompiledContracts(object):
         def call(self, env):
             env.returnCall(hashlib.sha256(env.data).digest())
     
+    class Ripemd160(object):
+        def call(self, env):
+            hasher = RIPEMD160.new()
+            hasher.update(env.data)
+            env.returnCall(hasher.digest())
+    
     def __init__(self, bridgeFallBack, bsc):
         self.contracts = {}
         self.bsc = bsc
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
         self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
         self.contracts["0x0000000000000000000000000000000000000002"] = self.Sha256()
+        self.contracts["0x0000000000000000000000000000000000000003"] = self.Ripemd160()
         self.contracts["0x0000000000000000000000000000000000000069"] = self.accountBioManager()
         self.contracts[self.crossChainAddress] = self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc.token)
         self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.Printer()
