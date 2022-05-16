@@ -1144,6 +1144,7 @@ class Node(object):
         
         def __init__(self, url):
             self.node = url if url[len(url)-1] == "/" else url + "/"
+            self.lastBlock = {} # needs to be declared
             self.refresh()
         
         def __str__(self):
@@ -1294,7 +1295,7 @@ class Node(object):
             try:
                 obtainedPeers = requests.get(f"{peer}/net/getOnlinePeers")
                 for _peer in obtainedPeers:
-                    if not (((peer if peer[len(peer)-1] == "/") else (peer + "/")) in self.stringifyBatchOfPeers(self.peers)):
+                    if not ((peer if peer[len(peer)-1] == "/" else (peer + "/")) in self.stringifyBatchOfPeers(self.peers)):
                         self.peers.append(Peer(peer))
             except:
                 pass
