@@ -1109,6 +1109,8 @@ class Opcodes(object):
         retValue = result[1]
         env.lastCallReturn = retValue
         env.stack.append(int(result[0]))
+        if result[0]:
+            env.messages = env.messages + _childEnv.messages
         env.memory.write_bytes(retOffset, retLength, retValue)
         env.consumeGas(_childEnv.gasUsed + 5000)
         env.pc += 1
