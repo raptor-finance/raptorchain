@@ -1135,13 +1135,42 @@ class State(object):
             accountsJSON[acct.address] = acct.JSONSerializable()
         beaconChainJSON = self.beaconChain.JSONSerializable()
         return {"accounts": accountsJSON, "beaconChain": beaconChainJSON, "totalSupply": self.totalSupply}
-    
-
-class Peer(object):
-    def __init__(self, url):
-        self.url = url
 
 class Node(object):
+    class Peer(object):
+        class PeerNotOkayException(Exception):
+            pass
+        
+        
+        def __init__(self, url):
+            self.node = url if url[len(url)-1] == "/" else url + "/"
+            self.refresh()
+        
+        def __str__(self):
+            return self.node
+            
+        def __repr__(self):
+            return f"Peer({self.node})"
+        
+        def sendRequest(self, path):
+            return requests.get(f"{self.node}{path}")
+        
+        def refresh(self):
+            try:
+                self.isOkay = self.sendRequest("/ping").json().get("success")
+            except:
+                self.isOkay = False
+            if not self.isOkay:
+                return
+            self.lastBlock = self.sendRequest("/chain/getlastblock").json().get("result")
+        
+        def getBlockByNumber(self, number):
+            if not self.isOkay:
+                raise PeerNotOkayException()
+            try:
+                return self.sendRequest(f"/chain/block/{number}").json()
+            except:
+                
     def __init__(self, config):
         self.transactions = {}
         self.txsOrder = []
@@ -1149,12 +1178,17 @@ class Node(object):
         self.sigmanager = SignatureManager()
         self.state = State(config["InitTxID"])
         self.config = config
-        self.peers = config["peers"]
+        self.peers = self.loadBatchOfPeers(config["peers"])
         self.bestBlockChecked = 0
         self.goodPeers = []
         self.checkGuys()
         self.initNode()
 
+    def loadBatchOfPeers(self, urls):
+        _peers = []
+        for url in urls:
+            _peers.append(self.Peer(url))
+        return _peers
 
     def canBePlayed(self, tx):
         sigVerified = False
@@ -1178,7 +1212,7 @@ class Node(object):
             print("Successfully loaded node DB !")
         except:
             print("Error loading DB, starting from zero :/")
-        self.upgradeTxs()
+        # self.upgradeTxs()
         for txHash in self.txsOrder:
             tx = self.transactions[txHash]
             if self.canBePlayed(tx)[0]:
@@ -1251,11 +1285,9 @@ class Node(object):
     def checkGuys(self):
         self.goodPeers = []
         for peer in self.peers:
-            try:
-                if (requests.get(f"{peer}/ping").json()["success"]):
-                    self.goodPeers.append(peer)
-            except:
-                pass
+            peer.refresh()
+            if peer.isOkay:
+                self.goodPeers.append(peer)
         self.askForMorePeers()
         self.goodPeers = []
         for peer in self.peers:
@@ -1336,7 +1368,6 @@ class Node(object):
         length = 0
         for peer in self.goodPeers:
             length = max(requests.get(f"{peer}/chain/length").json()["result"], length)
-        print(length)
         return length
     
     def syncByBlock(self):
