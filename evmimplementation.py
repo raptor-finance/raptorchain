@@ -1400,11 +1400,16 @@ class PrecompiledContracts(object):
             env.consumeGas(69)
             print(f"Hi {env.msgSender}")
     
+    class Sha256(object):
+        def call(self, env):
+            env.returnCall(hashlib.sha256(env.data).digest())
+    
     def __init__(self, bridgeFallBack, bsc):
         self.contracts = {}
         self.bsc = bsc
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
         self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
+        self.contracts["0x0000000000000000000000000000000000000002"] = self.Sha256()
         self.contracts["0x0000000000000000000000000000000000000002"] = self.accountBioManager()
         self.contracts[self.crossChainAddress] = self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc.token)
         self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.Printer()
