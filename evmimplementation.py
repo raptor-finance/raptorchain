@@ -1410,7 +1410,7 @@ class PrecompiledContracts(object):
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
         self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
         self.contracts["0x0000000000000000000000000000000000000002"] = self.Sha256()
-        self.contracts["0x0000000000000000000000000000000000000002"] = self.accountBioManager()
+        self.contracts["0x0000000000000000000000000000000000000069"] = self.accountBioManager()
         self.contracts[self.crossChainAddress] = self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc.token)
         self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.Printer()
     
