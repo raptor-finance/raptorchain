@@ -1071,10 +1071,10 @@ class State(object):
         feedback = False
         if _tx.txtype == 0:
             # feedback = self.executeTransfer(_tx, showMessage)
-            if (_tx.recipient == self.crossChainAddress):
-                feedback = self.executeTransfer(_tx, showMessage)
-            else:
-                feedback = self.executeContractCall(_tx, showMessage)
+            # if (_tx.recipient == self.crossChainAddress):
+                # feedback = self.executeTransfer(_tx, showMessage)
+            # else:
+            feedback = self.executeContractCall(_tx, showMessage)
         if _tx.txtype == 1:
             feedback = self.mineBlock(_tx)
         if _tx.txtype == 2:
@@ -1240,6 +1240,7 @@ class Node(object):
             # self.propagateTransactions([tx])
         self.saveDB()
         self.syncDB()
+        self.syncByBlock()
         self.saveDB()
 
     def checkTxs(self, txs):
