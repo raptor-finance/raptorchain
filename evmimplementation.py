@@ -1211,13 +1211,13 @@ class PrecompiledContracts(object):
     class crossChainBridge(object):
         def __init__(self, bridgeFallBack, addr, bsc):
             self.fallback = bridgeFallBack
-            self.rptr = bsc.token
+            self.bsc = bsc
         
         def call(self, env):
             # if env.calltype: # shouldn't be in child call
                 # env.revert(b"DONT_WORK_IN_CHILD_CALL")
                 # return
-            env.messages.append((self.bsc.custodyContract.address, self.fallback(self.bsc.token, env.msgSender, env.value, len(env.runningAccount.transactions))))
+            env.messages.append(self.fallback(self.bsc.custodyContract.address, self.bsc.token, env.msgSender, env.value, len(env.runningAccount.transactions)))
     
     class accountBioManager(object):
         def __init__(self):

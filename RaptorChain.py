@@ -435,7 +435,7 @@ class BeaconChain(object):
         try:
             _beacon = Beacon(block, self.difficulty)
         except Exception as e:
-            print(e)
+            print(f"Exception submitting a block : {e}")
             return False
         beaconValidity = self.isBeaconValid(_beacon)
         # print(beaconValidity)
@@ -601,6 +601,7 @@ class State(object):
         self.precompiledContracts = self.precompiledContractsHandler.contracts
         self.hash = ""
         self.debug = False
+        self.shouldLog = True
         self.chainID = 69420
         self.version = "0.4-beta"
 
@@ -625,6 +626,10 @@ class State(object):
         self.beaconChain.updateStateRoot(self.hash)
         return self.hash
         
+
+    def log(self, data):
+        if self.shouldLog:
+            print(data)
 
     def getCurrentEpoch(self):
         return self.beaconChain.getLastBeacon().proof
@@ -826,9 +831,9 @@ class State(object):
         self.accounts[tx.recipient].received.append(tx.txid)
 
 
-    def crossChainFallback(self, token, user, value, nonce):
+    def crossChainFallback(self, recipient, token, user, value, nonce):
         encodedData = eth_abi.encode_abi(["address", "address", "uint256", "uint256"], [token, user, value, nonce]) # decoder on solidity side : (address token, address withdrawer, uint256 amount, uint256 nonce) = abi.decode(_data, (address, address, uint256, uint256));
-        recipient = self.beaconChain.bsc.custodyContract.address
+        recipient = recipient
         return (recipient, encodedData)
         
 
@@ -990,6 +995,7 @@ class State(object):
                 self.getAccount(_addr).cancelChanges()
         return (env.gasUsed)
 
+
     def executeContractCall(self, tx, showMessage):
         self.applyParentStuff(tx)
         if (tx.value > self.getAccount(tx.sender).balance):
@@ -1006,28 +1012,29 @@ class State(object):
         
         senderAcct.tempBalance -= tx.value
         recipientAcct.tempBalance += tx.value
-        if len(env.code):
-            self.execEVMCall(env)
-            tx.returnValue = env.returnValue
-            if showMessage:
-                print(f"Success : {env.getSuccess()}\nReturnValue : {env.returnValue}")
-            if env.getSuccess():
-                self.getAccount(env.recipient).tempStorage = env.storage.copy()
-                for _addr in tx.affectedAccounts:
-                    self.getAccount(_addr).makeChangesPermanent()
-                    self.getAccount(_addr).addParent(tx.txid)
-                tx.messages = tx.messages + env.messages
-                self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
-                return (True, tx.returnValue.hex())
-            else:
-                for _addr in tx.affectedAccounts:
-                    self.getAccount(_addr).cancelChanges()
-                self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
-                return (False, tx.returnValue.hex())
-        else:
+        # if len(env.code):
+        self.execEVMCall(env)
+        tx.returnValue = env.returnValue
+        if showMessage:
+            print(f"Success : {env.getSuccess()}\nReturnValue : {env.returnValue}")
+        if env.getSuccess():
+            self.getAccount(env.recipient).tempStorage = env.storage.copy()
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).makeChangesPermanent()
                 self.getAccount(_addr).addParent(tx.txid)
+            tx.messages = tx.messages + env.messages
+            self.log(f"Tx messages : {tx.messages}")
+            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
+            return (True, tx.returnValue.hex())
+        else:
+            for _addr in tx.affectedAccounts:
+                self.getAccount(_addr).cancelChanges()
+            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
+            return (False, tx.returnValue.hex())
+        # else:
+            # for _addr in tx.affectedAccounts:
+                # self.getAccount(_addr).makeChangesPermanent()
+                # self.getAccount(_addr).addParent(tx.txid)
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
             return (True, b"")
         
@@ -1078,13 +1085,13 @@ class State(object):
         if _tx.txtype == 1:
             feedback = self.mineBlock(_tx)
         if _tx.txtype == 2:
-            if (_tx.recipient == self.crossChainAddress):
-                feedback = self.executeTransfer(_tx, showMessage)
+            # if (_tx.recipient == self.crossChainAddress):
+                # feedback = self.executeTransfer(_tx, showMessage)
+            # else:
+            if _tx.contractDeployment:
+                feedback = self.deployContract(_tx)
             else:
-                if _tx.contractDeployment:
-                    feedback = self.deployContract(_tx)
-                else:
-                    feedback = self.executeContractCall(_tx, showMessage)
+                feedback = self.executeContractCall(_tx, showMessage)
         if _tx.txtype == 3:
             # feedback = self.checkOutDeposit(_tx)
             pass # deprecated
@@ -1329,7 +1336,7 @@ class Node(object):
                         txs.append(tx)
                         break
                     except Exception as e:
-                        print(txid, e)
+                        print("Exception pulling tx:", txid, e)
             else:
                 txs.append(localTx)
         return txs
