@@ -124,7 +124,6 @@ class Transaction(object):
             self.fee = 0
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.blockData = txData.get("blockData")
-            # print(self.blockData)
             self.recipient = "0x0000000000000000000000000000000000000000"
             self.value = 0
             self.affectedAccounts = [self.sender]
@@ -197,6 +196,7 @@ class CallBlankTransaction(object):
         if (self.recipient == "0x0000000000000000000000000000000000000000"):
             self.contractDeployment = True
         self.value = call.get("value", 0)
+        self.value = self.value if type(self.value) == int else ((int(self.value, 16) if "0x" in self.value else int(self.value)) if type(self.value == str) else 0)
         try:
             self.data = bytes.fromhex(call.get("data", "0x")[2:])
         except:
@@ -317,8 +317,6 @@ class Beacon(object):
         return proof.hex()
 
     def difficultyMatched(self):
-#        print(self.proofOfWork())
-#        print(self.miningTarget)
         return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
 
     def signatureMatched(self):
@@ -438,7 +436,6 @@ class BeaconChain(object):
             print(f"Exception submitting a block : {e}")
             return False
         beaconValidity = self.isBeaconValid(_beacon)
-        # print(beaconValidity)
         if beaconValidity[0]:
             self.addBeaconToChain(_beacon)
             return _beacon.miner
@@ -507,7 +504,7 @@ class BSCInterface(object):
         StakingContractABI = """[{"inputs": [{"internalType": "address","name": "_stakingToken","type": "address"}],"stateMutability": "nonpayable","type": "constructor"},{"inputs": [],"name": "beaconChain","outputs": [{"internalType": "contract BeaconChainHandler","name": "","type": "address"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "claimMNRewards","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "createMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "destroyMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "disableMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "enableMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "","type": "address"}],"name": "masternodes","outputs": [{"internalType": "address","name": "owner","type": "address"},{"internalType": "address","name": "operator","type": "address"},{"internalType": "uint256","name": "collateral","type": "uint256"},{"internalType": "uint256","name": "rewards","type": "uint256"},{"internalType": "bool","name": "operating","type": "bool"}],"stateMutability": "view","type": "function"},{"inputs": [{"components": [{"internalType": "address","name": "miner","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "bytes[]","name": "messages","type": "bytes[]"},{"internalType": "uint256","name": "difficulty","type": "uint256"},{"internalType": "bytes32","name": "miningTarget","type": "bytes32"},{"internalType": "uint256","name": "timestamp","type": "uint256"},{"internalType": "bytes32","name": "parent","type": "bytes32"},{"internalType": "bytes32","name": "proof","type": "bytes32"},{"internalType": "uint256","name": "height","type": "uint256"},{"internalType": "bytes32","name": "son","type": "bytes32"},{"internalType": "uint8","name": "v","type": "uint8"},{"internalType": "bytes32","name": "r","type": "bytes32"},{"internalType": "bytes32","name": "s","type": "bytes32"}],"internalType": "struct BeaconChainHandler.Beacon","name": "_block","type": "tuple"}],"name": "sendL2Block","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "contract BeaconChainHandler","name": "_handler","type": "address"}],"name": "setBeaconHandler","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [],"name": "stakingToken","outputs": [{"internalType": "contract ERC20Interface","name": "","type": "address"}],"stateMutability": "view","type": "function"}]"""
         CustodyContractABI = """[{"inputs": [{"internalType": "address","name": "_withdrawalsOperator","type": "address"}],"stateMutability": "nonpayable","type": "constructor"},{"anonymous": false,"inputs": [{"indexed": true,"internalType": "address","name": "user","type": "address"},{"indexed": true,"internalType": "address","name": "token","type": "address"},{"indexed": false,"internalType": "uint256","name": "amount","type": "uint256"},{"indexed": false,"internalType": "uint256","name": "nonce","type": "uint256"},{"indexed": false,"internalType": "bytes32","name": "hash","type": "bytes32"}],"name": "Deposited","type": "event"},{"anonymous": false,"inputs": [{"indexed": true,"internalType": "address","name": "oldOperator","type": "address"},{"indexed": true,"internalType": "address","name": "newOperator","type": "address"}],"name": "WithdrawalOperatorChanged","type": "event"},{"anonymous": false,"inputs": [{"indexed": true,"internalType": "address","name": "user","type": "address"},{"indexed": true,"internalType": "address","name": "token","type": "address"},{"indexed": false,"internalType": "uint256","name": "amount","type": "uint256"},{"indexed": false,"internalType": "uint256","name": "nonce","type": "uint256"},{"indexed": false,"internalType": "bytes32","name": "hash","type": "bytes32"}],"name": "Withdrawn","type": "event"},{"inputs": [{"internalType": "uint256","name": "","type": "uint256"}],"name": "__deposits","outputs": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "depositor","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes","name": "data","type": "bytes"},{"internalType": "bytes32","name": "hash","type": "bytes32"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "uint256","name": "","type": "uint256"}],"name": "__withdrawals","outputs": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "withdrawer","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes32","name": "hash","type": "bytes32"},{"internalType": "bool","name": "claimed","type": "bool"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "bytes32","name": "","type": "bytes32"}],"name": "_deposits","outputs": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "depositor","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes","name": "data","type": "bytes"},{"internalType": "bytes32","name": "hash","type": "bytes32"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "bytes32","name": "","type": "bytes32"}],"name": "_withdrawals","outputs": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "withdrawer","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes32","name": "hash","type": "bytes32"},{"internalType": "bool","name": "claimed","type": "bool"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "bytes","name": "_data","type": "bytes"}],"name": "bridgeFallBack","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "_newOperator","type": "address"}],"name": "changeWithdrawalOperator","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "token","type": "address"},{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "bytes","name": "data","type": "bytes"}],"name": "deposit","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "bytes32","name": "_hash","type": "bytes32"}],"name": "deposits","outputs": [{"components": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "depositor","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes","name": "data","type": "bytes"},{"internalType": "bytes32","name": "hash","type": "bytes32"}],"internalType": "struct CustodyManager.Deposit","name": "","type": "tuple"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "uint256","name": "_index","type": "uint256"}],"name": "deposits","outputs": [{"components": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "depositor","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes","name": "data","type": "bytes"},{"internalType": "bytes32","name": "hash","type": "bytes32"}],"internalType": "struct CustodyManager.Deposit","name": "","type": "tuple"}],"stateMutability": "view","type": "function"},{"inputs": [],"name": "depositsLength","outputs": [{"internalType": "uint256","name": "","type": "uint256"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "address","name": "spender","type": "address"},{"internalType": "uint256","name": "_amount","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes","name": "_data","type": "bytes"}],"name": "receiveApproval","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [],"name": "totalDeposited","outputs": [{"internalType": "uint256","name": "","type": "uint256"}],"stateMutability": "view","type": "function"},{"inputs": [],"name": "transferNonce","outputs": [{"internalType": "uint256","name": "","type": "uint256"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "uint256","name": "_index","type": "uint256"}],"name": "withdrawals","outputs": [{"components": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "withdrawer","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes32","name": "hash","type": "bytes32"},{"internalType": "bool","name": "claimed","type": "bool"}],"internalType": "struct CustodyManager.Withdrawal","name": "","type": "tuple"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "bytes32","name": "_hash","type": "bytes32"}],"name": "withdrawals","outputs": [{"components": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "withdrawer","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes32","name": "hash","type": "bytes32"},{"internalType": "bool","name": "claimed","type": "bool"}],"internalType": "struct CustodyManager.Withdrawal","name": "","type": "tuple"}],"stateMutability": "view","type": "function"}]"""
         BeaconChainContractABI = """[{"inputs": [{"components": [{"internalType": "address","name": "miner","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "bytes[]","name": "messages","type": "bytes[]"},{"internalType": "uint256","name": "difficulty","type": "uint256"},{"internalType": "bytes32","name": "miningTarget","type": "bytes32"},{"internalType": "uint256","name": "timestamp","type": "uint256"},{"internalType": "bytes32","name": "parent","type": "bytes32"},{"internalType": "bytes32","name": "proof","type": "bytes32"},{"internalType": "uint256","name": "height","type": "uint256"},{"internalType": "bytes32","name": "son","type": "bytes32"},{"internalType": "uint8","name": "v","type": "uint8"},{"internalType": "bytes32","name": "r","type": "bytes32"},{"internalType": "bytes32","name": "s","type": "bytes32"}],"internalType": "struct BeaconChainHandler.Beacon","name": "_genesisBeacon","type": "tuple"},{"internalType": "contract StakeManager","name": "_stakingContract","type": "address"}],"stateMutability": "nonpayable","type": "constructor"},{"inputs": [{"components": [{"internalType": "address","name": "miner","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "bytes[]","name": "messages","type": "bytes[]"},{"internalType": "uint256","name": "difficulty","type": "uint256"},{"internalType": "bytes32","name": "miningTarget","type": "bytes32"},{"internalType": "uint256","name": "timestamp","type": "uint256"},{"internalType": "bytes32","name": "parent","type": "bytes32"},{"internalType": "bytes32","name": "proof","type": "bytes32"},{"internalType": "uint256","name": "height","type": "uint256"},{"internalType": "bytes32","name": "son","type": "bytes32"},{"internalType": "uint8","name": "v","type": "uint8"},{"internalType": "bytes32","name": "r","type": "bytes32"},{"internalType": "bytes32","name": "s","type": "bytes32"}],"internalType": "struct BeaconChainHandler.Beacon","name": "_beacon","type": "tuple"}],"name": "beaconHash","outputs": [{"internalType": "bytes32","name": "beaconRoot","type": "bytes32"}],"stateMutability": "pure","type": "function"},{"inputs": [{"internalType": "uint256","name": "","type": "uint256"}],"name": "beacons","outputs": [{"internalType": "address","name": "miner","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "uint256","name": "difficulty","type": "uint256"},{"internalType": "bytes32","name": "miningTarget","type": "bytes32"},{"internalType": "uint256","name": "timestamp","type": "uint256"},{"internalType": "bytes32","name": "parent","type": "bytes32"},{"internalType": "bytes32","name": "proof","type": "bytes32"},{"internalType": "uint256","name": "height","type": "uint256"},{"internalType": "bytes32","name": "son","type": "bytes32"},{"internalType": "uint8","name": "v","type": "uint8"},{"internalType": "bytes32","name": "r","type": "bytes32"},{"internalType": "bytes32","name": "s","type": "bytes32"}],"stateMutability": "view","type": "function"},{"inputs": [],"name": "chainLength","outputs": [{"internalType": "uint256","name": "","type": "uint256"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "address","name": "validator","type": "address"}],"name": "disableValidator","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "validator","type": "address"}],"name": "enableValidator","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "uint256","name": "blockNumber","type": "uint256"}],"name": "getValidatorsAtBlock","outputs": [{"internalType": "address[]","name": "","type": "address[]"}],"stateMutability": "view","type": "function"},{"inputs": [{"components": [{"internalType": "address","name": "miner","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "bytes[]","name": "messages","type": "bytes[]"},{"internalType": "uint256","name": "difficulty","type": "uint256"},{"internalType": "bytes32","name": "miningTarget","type": "bytes32"},{"internalType": "uint256","name": "timestamp","type": "uint256"},{"internalType": "bytes32","name": "parent","type": "bytes32"},{"internalType": "bytes32","name": "proof","type": "bytes32"},{"internalType": "uint256","name": "height","type": "uint256"},{"internalType": "bytes32","name": "son","type": "bytes32"},{"internalType": "uint8","name": "v","type": "uint8"},{"internalType": "bytes32","name": "r","type": "bytes32"},{"internalType": "bytes32","name": "s","type": "bytes32"}],"internalType": "struct BeaconChainHandler.Beacon","name": "_beacon","type": "tuple"}],"name": "isBeaconValid","outputs": [{"internalType": "bool","name": "valid","type": "bool"},{"internalType": "string","name": "reason","type": "string"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "uint256","name": "blockNumber","type": "uint256"},{"internalType": "address","name": "valoper","type": "address"}],"name": "isValidatorAtBlock","outputs": [{"internalType": "bool","name": "","type": "bool"}],"stateMutability": "view","type": "function"},{"inputs": [{"components": [{"internalType": "address","name": "miner","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "bytes[]","name": "messages","type": "bytes[]"},{"internalType": "uint256","name": "difficulty","type": "uint256"},{"internalType": "bytes32","name": "miningTarget","type": "bytes32"},{"internalType": "uint256","name": "timestamp","type": "uint256"},{"internalType": "bytes32","name": "parent","type": "bytes32"},{"internalType": "bytes32","name": "proof","type": "bytes32"},{"internalType": "uint256","name": "height","type": "uint256"},{"internalType": "bytes32","name": "son","type": "bytes32"},{"internalType": "uint8","name": "v","type": "uint8"},{"internalType": "bytes32","name": "r","type": "bytes32"},{"internalType": "bytes32","name": "s","type": "bytes32"}],"internalType": "struct BeaconChainHandler.Beacon","name": "_beacon","type": "tuple"}],"name": "pushBeacon","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [],"name": "stakingContract","outputs": [{"internalType": "contract StakeManager","name": "","type": "address"}],"stateMutability": "view","type": "function"}]"""
-        BEP20ABI = """[{"constant": true,"inputs": [],"name": "name","outputs": [{"name": "","type": "string"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": false,"inputs": [{"name": "_spender","type": "address"},{"name": "_value","type": "uint256"}],"name": "approve","outputs": [{"name": "","type": "bool"}],"payable": false,"stateMutability": "nonpayable","type": "function"},{"constant": true,"inputs": [],"name": "totalSupply","outputs": [{"name": "","type": "uint256"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": false,"inputs": [{"name": "_from","type": "address"},{"name": "_to","type": "address"},{"name": "_value","type": "uint256"}],"name": "transferFrom","outputs": [{"name": "","type": "bool"}],"payable": false,"stateMutability": "nonpayable","type": "function"},{"constant": true,"inputs": [],"name": "decimals","outputs": [{"name": "","type": "uint8"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": true,"inputs": [{"name": "_owner","type": "address"}],"name": "balanceOf","outputs": [{"name": "balance","type": "uint256"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": true,"inputs": [],"name": "symbol","outputs": [{"name": "","type": "string"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": false,"inputs": [{"name": "_to","type": "address"},{"name": "_value","type": "uint256"}],"name": "transfer","outputs": [{"name": "","type": "bool"}],"payable": false,"stateMutability": "nonpayable","type": "function"},{"constant": true,"inputs": [{"name": "_owner","type": "address"},{"name": "_spender","type": "address"}],"name": "allowance","outputs": [{"name": "","type": "uint256"}],"payable": false,"stateMutability": "view","type": "function"},{"payable": true,"stateMutability": "payable","type": "fallback"},{"anonymous": false,"inputs": [{"indexed": true,"name": "owner","type": "address"},{"indexed": true,"name": "spender","type": "address"},{"indexed": false,"name": "value","type": "uint256"}],"name": "Approval","type": "event"},{"anonymous": false,"inputs": [{"indexed": true,"name": "from","type": "address"},{"indexed": true,"name": "to","type": "address"},{"indexed": false,"name": "value","type": "uint256"}],"name": "Transfer","type": "event"}]"""
+        self.BEP20ABI = """[{"constant": true,"inputs": [],"name": "name","outputs": [{"name": "","type": "string"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": false,"inputs": [{"name": "_spender","type": "address"},{"name": "_value","type": "uint256"}],"name": "approve","outputs": [{"name": "","type": "bool"}],"payable": false,"stateMutability": "nonpayable","type": "function"},{"constant": true,"inputs": [],"name": "totalSupply","outputs": [{"name": "","type": "uint256"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": false,"inputs": [{"name": "_from","type": "address"},{"name": "_to","type": "address"},{"name": "_value","type": "uint256"}],"name": "transferFrom","outputs": [{"name": "","type": "bool"}],"payable": false,"stateMutability": "nonpayable","type": "function"},{"constant": true,"inputs": [],"name": "decimals","outputs": [{"name": "","type": "uint8"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": true,"inputs": [{"name": "_owner","type": "address"}],"name": "balanceOf","outputs": [{"name": "balance","type": "uint256"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": true,"inputs": [],"name": "symbol","outputs": [{"name": "","type": "string"}],"payable": false,"stateMutability": "view","type": "function"},{"constant": false,"inputs": [{"name": "_to","type": "address"},{"name": "_value","type": "uint256"}],"name": "transfer","outputs": [{"name": "","type": "bool"}],"payable": false,"stateMutability": "nonpayable","type": "function"},{"constant": true,"inputs": [{"name": "_owner","type": "address"},{"name": "_spender","type": "address"}],"name": "allowance","outputs": [{"name": "","type": "uint256"}],"payable": false,"stateMutability": "view","type": "function"},{"payable": true,"stateMutability": "payable","type": "fallback"},{"anonymous": false,"inputs": [{"indexed": true,"name": "owner","type": "address"},{"indexed": true,"name": "spender","type": "address"},{"indexed": false,"name": "value","type": "uint256"}],"name": "Approval","type": "event"},{"anonymous": false,"inputs": [{"indexed": true,"name": "from","type": "address"},{"indexed": true,"name": "to","type": "address"},{"indexed": false,"name": "value","type": "uint256"}],"name": "Transfer","type": "event"}]"""
         
         self.rpcurl = rpc
         self.chainID = 97
@@ -525,12 +522,12 @@ class BSCInterface(object):
     def getDepositDetails(self, _hash):
         returnValue = {}
         (returnValue["amount"], returnValue["depositor"], returnValue["nonce"], returnValue["token"], returnValue["data"], returnValue["hash"]) = self.custodyContract.functions.deposits(_hash).call()
-        if (w3.toChecksumAddress(self.token) != w3.toChecksumAddress(returnValue["token"])):
-            returnValue["amount"] = 0
+        # if (w3.toChecksumAddress(self.token) != w3.toChecksumAddress(returnValue["token"])):
+            # returnValue["amount"] = 0
         return returnValue
         
     def getBEP20At(self, addr):
-        return self.chain.eth.contract(address=Web3.toChecksumAddress(addr), abi=BEP20ABI)
+        return self.chain.eth.contract(address=Web3.toChecksumAddress(addr), abi=self.BEP20ABI)
 
 class Account(object):
     def __init__(self, address, initTxID):
@@ -720,23 +717,27 @@ class State(object):
         # else:
             # return (False, "Already processed")
 
+    def calcBridgedTokenAddress(self, chainID, token):
+        return w3.toChecksumAddress(hex(int(token, 16) + chainID))
+
     def checkOutDepositByIndex(self, tx, _index):
         depositInfo = self.beaconChain.bsc.getDepositDetails(int(_index))
         if not depositInfo["hash"] in self.processedL2Hashes:
             self.ensureExistence(depositInfo["depositor"])
             
-            
+            print(depositInfo)
             if (depositInfo["token"] == self.beaconChain.bsc.token):
                 self.accounts[depositInfo["depositor"]].balance += depositInfo["amount"]
                 self.accounts[depositInfo["depositor"]].tempBalance += depositInfo["amount"]
                 print(f"Depositing {depositInfo['amount']} to {depositInfo['depositor']}")
                 self.totalSupply += depositInfo["amount"]
             else:
-                env = CallEnv(env.getAccount, self.crossChainAddress, env.getAccount(depositInfo["token"]), depositInfo["token"], env.chain, 0, 21000, tx, b"", env.callFallback, b"", False, calltype=1)
+                _calculatedAddress = self.precompiledContractsHandler.calcBridgedAddress(depositInfo["token"])
+                env = EVM.CallEnv(self.getAccount, self.crossChainAddress, self.getAccount(_calculatedAddress), _calculatedAddress, self.beaconChain, 0, 69000, tx, b"", self.executeChildCall, b"", False, calltype=1)
                 self.precompiledContractsHandler.mintCrossChainToken(env, depositInfo["token"], depositInfo['depositor'], depositInfo["amount"])
                 if env.getSuccess():
-                    env.env.getAccount(depositInfo["token"]).tempStorage = env.storage.copy()
-                    env.env.getAccount(depositInfo["token"]).makeChangesPermanent()
+                    env.getAccount(_calculatedAddress).tempStorage = env.storage.copy()
+                    env.getAccount(_calculatedAddress).makeChangesPermanent()
             # if tx.sender != depositInfo["depositor"]:
                 # transactions[depositInfo["depositor"]].append(tx.txid)
             self.accounts[depositInfo["depositor"]].transactions.append(f"0x{depositInfo['hash'].hex()}")
@@ -753,7 +754,8 @@ class State(object):
         for i in range(_lastindex, maxIndex+1):
             try:
                 self.checkOutDepositByIndex(tx, i)
-            except:
+            except Exception as e:
+                print(e)
                 pass
             self.lastIndex = i+1
 
@@ -786,7 +788,6 @@ class State(object):
             underlyingOperationSuccess = self.estimateCreateMNSuccess(_tx)
         if _tx.txtype == 5:
             underlyingOperationSuccess = self.estimateDestroyMNSuccess(_tx)
-        print(underlyingOperationSuccess, correctBeacon, correctParent)
         return (underlyingOperationSuccess[0] and correctBeacon and correctParent)
         
 
@@ -870,9 +871,7 @@ class State(object):
             self.ensureExistence(tx.sender)
             feedback = self.beaconChain.submitBlock(tx.blockData);
             self.applyParentStuff(tx)
-            # print(feedback)
             if feedback:
-#                self.ensureExistence(feedback)
                 self.accounts[feedback].balance += self.beaconChain.blockReward
                 self.totalSupply += self.beaconChain.blockReward
                 return True
@@ -912,9 +911,8 @@ class State(object):
                 else:
                     self.opcodes[env.code[env.pc]](env)
             except Exception as e:
-                print(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}")
+                self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}")
                 raise
-        print(f"ReturnValue : {env.returnValue}")
 
     def deployContract(self, tx):
         self.applyParentStuff(tx)
@@ -1067,8 +1065,7 @@ class State(object):
             env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
         else:
             env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
-            if len(self.getAccount(tx.recipient).code):
-                self.execEVMCall(env)
+            self.execEVMCall(env)
         for _addr in tx.affectedAccounts:
             self.getAccount(_addr).cancelChanges()
         return env
@@ -1387,7 +1384,6 @@ class Node(object):
     def syncDB(self):
         self.checkGuys()
         toCheck = self.pullChildsOfATx(self.config["InitTxID"])
-#        print(toCheck)
         for txid in toCheck:
             _childs = self.execTxAndRetryWithChilds(txid)
     
@@ -1465,7 +1461,6 @@ class TxBuilder(object):
         data = json.dumps({"from": from_, "to": to_, "tokens": tokens, "parent": self.state.getLastSentTx(_from), "type": 0})
         tx = {"data": data}
         tx = self.signer.signTransaction(priv_key, tx)
-#        print(tx)
         playable = self.node.canBePlayed(tx)
         self.checkTxs([tx])
         return (tx, playable)
@@ -1486,7 +1481,6 @@ class Terminal(object):
         file = open(keyInput[1], "w")
         serializable = self.node.state.JSONSerializable()
         serialized = json.dumps(serializable)
-        print(serialized)
         file.write(serialized)
         file.close()
     
@@ -1711,7 +1705,6 @@ def getlastblock():
 @app.route("/chain/miningInfo")
 def getMiningInfo():
     _result = {"difficulty" : node.state.beaconChain.difficulty, "target": node.state.beaconChain.miningTarget, "lastBlockHash": node.state.beaconChain.getLastBeacon().proof}
-    # print(_result)
     return flask.jsonify(result=_result, success=True)
 
 @app.route("/chain/length")
@@ -1738,7 +1731,6 @@ def shareOnlinePeers():
 def handleWeb3Request():
     data = flask.request.get_json()
     _id = data.get("_id")
-    # print(data)
     method = data.get("method")
     params = data.get("params")
     result = hex(69420)
@@ -1769,7 +1761,6 @@ def handleWeb3Request():
         result = []
     if method == "eth_sendRawTransaction":
         result = node.integrateETHTransaction(params[0])
-        # print(result)
     if method == "eth_getTransactionReceipt":
         result = node.txReceipt(params[0])
     if method == "eth_getCode":

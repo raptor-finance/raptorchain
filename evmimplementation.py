@@ -1,5 +1,5 @@
 from web3.auto import w3
-import itertools, rlp, hashlib
+import itertools, rlp, hashlib, eth_abi
 from Crypto.Hash import RIPEMD160
 
 class CallMemory(object):
@@ -1260,9 +1260,9 @@ class PrecompiledContracts(object):
             self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
             self.bridge = _bridge
             self.methods = {}
-            self._name = self.BEP20Instance.function.name().call()
-            self._symbol = self.BEP20Instance.function.symbol().call()
-            self._decimals = self.BEP20Instance.function.decimals().call()
+            self._name = self.BEP20Instance.functions.name().call()
+            self._symbol = self.BEP20Instance.functions.symbol().call()
+            self._decimals = self.BEP20Instance.functions.decimals().call()
             self.address = w3.toChecksumAddress((int(self.BEP20Instance.address, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
             self.supply = 0
@@ -1279,6 +1279,7 @@ class PrecompiledContracts(object):
             self.methods[self.calcFunctionSelector("transfer(address,uint256)")] = self.transfer
             self.methods[self.calcFunctionSelector("approve(address,uint256)")] = self.approve
             self.methods[self.calcFunctionSelector("transferFrom(address,address,uint256)")] = self.transferFrom
+            print(f"Token name : {self._name}\nToken Symbol : {self._symbol}\nToken decimals : {self._decimals}")
         
         
         def safeIncrease(self, env, slot, value, errorMessage=b"INTEGER_OVERFLOW_DETECTED"):
@@ -1300,23 +1301,27 @@ class PrecompiledContracts(object):
             
         
         def calcBalanceAddress(self, tokenOwner):
-            return int.from_bytes(w3.solidityKeccak(["uint256", "address"], [int(self.balancesSlot), tokenOwner]), "big")
+            return int.from_bytes(w3.solidityKeccak(["uint256", "address"], [int(self.balancesSlot), w3.toChecksumAddress(tokenOwner)]), "big")
             
         def calcAllowanceAddress(self, tokenOwner, spender):
-            return int.from_bytes(w3.solidityKeccak(["uint256", "address", "address"], [int(self.allowancesSlot), tokenOwner, spender]), "big")
+            return int.from_bytes(w3.solidityKeccak(["uint256", "address", "address"], [int(self.allowancesSlot), w3.toChecksumAddress(tokenOwner), w3.toChecksumAddress(spender)]), "big")
             
         def calcFunctionSelector(self, functionName):
             return bytes(w3.keccak(str(functionName).encode()))[0:4]
         
         def returnSingleType(self, env, _type, _arg):
-            env.returnCall(eth_abi.encode_abi(_type, _arg))
+            env.returnCall(eth_abi.encode_abi([_type], [_arg]))
         
         def returnMultipleTypes(self, env, types, args):
             env.returnCall(eth_abi.encode_abi(types, args))
         
+        def printCalledFunction(self, functionName, args):
+            print(f"{functionName}({', '.join(args)})")
+        
         def totalSupply(self, env):
             env.consumeGas(2300)
             self.returnSingleType(env, "uint256", env.loadStorageKey(self.supplySlot))
+        
         
         def decimals(self, env):
             env.consumeGas(2300)
@@ -1348,21 +1353,24 @@ class PrecompiledContracts(object):
                 
         def approve(self, env):
             params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])
+            self.printCalledFunction("approve", params)
             allowanceAddress = self.calcAllowanceAddress(env.msgSender, params[0])
             env.consumeGas(16900)
             self.returnSingleType(env, "bool", True)
         
         def transfer(self, env):
             params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])
+            self.printCalledFunction("transfer", params)
             _success = self._transfer(env, env.msgSender, params[0], params[1])
             env.consumeGas(69000)
-            if _success:
+            if not _success:
                 return
             self.returnSingleType(env, "bool", True)
 
         def transferFrom(self, env):
             params = eth_abi.decode_abi(["address", "address", "uint256"], env.data[4:])
             env.consumeGas(69000)
+            self.printCalledFunction("transferFrom", params)
             allowanceAddress = self.calcAllowanceAddress(params[0], env.msgSender)
             apprSuccess = env.safeDecrease(allowanceAddress, params[2], b"INSUFFICIENT_ALLOWANCE")
             if not apprSuccess:
@@ -1374,11 +1382,13 @@ class PrecompiledContracts(object):
             
         def balanceOf(self, env):
             params = eth_abi.decode_abi(["address"], env.data[4:])
+            self.printCalledFunction("balanceOf", params)
             env.consumeGas(6900)
             self.returnSingleType(env, "uint256", env.loadStorageKey(self.calcBalanceAddress(params[0])))
        
        
         def mint(self, env, to, tokens):
+            print(f"Cross-chain depositing {tokens} to {to}")
             depositorAddr = self.calcBalanceAddress(w3.toChecksumAddress(to))
             env.safeIncrease(depositorAddr, tokens)
             env.safeIncrease(self.supplySlot, tokens)
@@ -1396,7 +1406,7 @@ class PrecompiledContracts(object):
             env.revert(b"FALLBACK_NOT_DEFINED")
         
         def call(self, env):
-            self.selectors.get(env.data[:4], self.fallback)(env)
+            self.methods.get(env.data[:4], self.fallback)(env)
     
     class Printer(object):
         def call(self, env):
@@ -1424,11 +1434,16 @@ class PrecompiledContracts(object):
         self.contracts[self.crossChainAddress] = self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc)
         self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.Printer()
     
+    
+    def calcBridgedAddress(self, addr):
+        return w3.toChecksumAddress((int(addr, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
     def mintCrossChainToken(self, env, tokenAddress, to, tokens):
         if not self.contracts.get(tokenAddress):
-            self.contracts[tokenAddress] = self.CrossChainToken(env, self.bsc, tokenAddress, self.contracts.get(self.crossChainAddress))
-        self.contracts[tokenAddress].mint(env, to, tokens)
+            _token = self.CrossChainToken(env, self.bsc, tokenAddress, self.contracts.get(self.crossChainAddress))
+            self.contracts[_token.address] = _token
+            print(f"Deployed cross-chain token {tokenAddress} to address {_token.address}")
+        self.contracts[self.calcBridgedAddress(tokenAddress)].mint(env, to, tokens)
 
 
 # CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
