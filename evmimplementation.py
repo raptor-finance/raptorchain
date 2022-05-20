@@ -1403,7 +1403,7 @@ class PrecompiledContracts(object):
             print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
         
         def fallback(self, env):
-            env.revert(b"FALLBACK_NOT_DEFINED")
+            env.revert(b"")
         
         def call(self, env):
             self.methods.get(env.data[:4], self.fallback)(env)
@@ -1552,6 +1552,7 @@ class CallEnv(object):
         self.halt = True
         self.success = False
         self.returnValue = data
+        # self.returnValue = eth_abi.encode_abi(["bytes"], [data]) if type(data) == bytes else eth_abi.encode_abi(["string"], [data])
     
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))
