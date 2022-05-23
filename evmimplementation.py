@@ -1210,6 +1210,7 @@ class PrecompiledContracts(object):
     
     class crossChainBridge(object):
         def __init__(self, bridgeFallBack, addr, bsc):
+            self.address = addr
             self.fallback = bridgeFallBack
             self.bsc = bsc
         
@@ -1382,7 +1383,7 @@ class PrecompiledContracts(object):
             
         def balanceOf(self, env):
             params = eth_abi.decode_abi(["address"], env.data[4:])
-            self.printCalledFunction("balanceOf", params)
+            # self.printCalledFunction("balanceOf", params)
             env.consumeGas(6900)
             self.returnSingleType(env, "uint256", env.loadStorageKey(self.calcBalanceAddress(params[0])))
        
@@ -1406,7 +1407,10 @@ class PrecompiledContracts(object):
             env.revert(b"")
         
         def call(self, env):
-            self.methods.get(env.data[:4], self.fallback)(env)
+            try:
+                self.methods.get(env.data[:4], self.fallback)(env)
+            except Exception as e:
+                print(f"Exception {e.__repr__()} caught calling {self.address} with calldata {env.data}")
     
     class Printer(object):
         def call(self, env):
