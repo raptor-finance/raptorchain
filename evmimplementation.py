@@ -1284,7 +1284,7 @@ class PrecompiledContracts(object):
         
         
         def safeIncrease(self, env, slot, value, errorMessage=b"INTEGER_OVERFLOW_DETECTED"):
-            _prevValue = env.loadStorageKey(slot)
+            _prevValue = int(env.loadStorageKey(slot))
             _prevValue += value
             if (_prevValue >= 2**256):
                 env.revert(errorMessage)
@@ -1317,7 +1317,7 @@ class PrecompiledContracts(object):
             env.returnCall(eth_abi.encode_abi(types, args))
         
         def printCalledFunction(self, functionName, args):
-            print(f"{functionName}({', '.join(args)})")
+            print(f"{functionName}({', '.join(str(i) for i in args)})")
         
         def totalSupply(self, env):
             env.consumeGas(2300)
@@ -1341,16 +1341,16 @@ class PrecompiledContracts(object):
             _decrSuccess = env.safeDecrease(self.supplySlot, tokens)
             if not _decrSuccess:
                 return False
-            env.messages.append((self.bsc.custodyContract.address, self.fallback(self.address, env.msgSender, tokens, len(env.runningAccount.transactions))))
+            env.messages.append(self.bridge.fallback(self.bsc.custodyContract.address, self.BEP20Instance.address, env.msgSender, tokens, len(env.runningAccount.transactions)))
             return True
         
         def _transfer(self, env, sender, recipient, tokens):
             _from = self.calcBalanceAddress(sender)
             _to = self.calcBalanceAddress(recipient)
-            _decrSuccess = env.safeDecrease(_from, tokens, b"INSUFFICIENT_BALANCE")
+            _decrSuccess = env.safeDecrease(_from, int(tokens), b"INSUFFICIENT_BALANCE")
             if not _decrSuccess:
                 return False
-            return (self._crossChain(env, tokens) if (_to == self.bridge.address) else env.safeIncrease(_to, tokens))
+            return (self._crossChain(env, tokens) if (recipient == self.bridge.address) else env.safeIncrease(_to, int(tokens)))
                 
         def approve(self, env):
             params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])

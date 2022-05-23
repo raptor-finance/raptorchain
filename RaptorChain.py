@@ -1731,7 +1731,7 @@ def shareOnlinePeers():
 def handleWeb3Request():
     data = flask.request.get_json()
     print(f"/web3 POST received, data : {data}")
-    _id = data.get("_id")
+    _id = data.get("id")
     method = data.get("method")
     params = data.get("params")
     result = hex(69420)
@@ -1770,8 +1770,9 @@ def handleWeb3Request():
         result = hex(int(node.state.getAccount(params[0]).storage[int(params[1])]))
     if method == "eth_getTransactionByHash":
         result = node.ethGetTransactionByHash(params[0])
-    print(f"Flask request finished, returnValue : {result}")
-    return flask.Response(json.dumps({"id": _id, "jsonrpc": "2.0", "result": result}), mimetype='application/json');
+    _respdict = {"id": _id, "jsonrpc": "2.0", "result": result}
+    print(f"/web3 POST request completed, response : {_respdict}")
+    return flask.Response(json.dumps(_respdict), mimetype='application/json');
     
 def runFlask():
     app.run(host="0.0.0.0", port=2022, ssl_context=ssl_context)
