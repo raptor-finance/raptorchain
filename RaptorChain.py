@@ -17,7 +17,7 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "raptorchain-testnet-3.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["https://rptr-testnet-1.dynamic-dns.net/"], "InitTxID": "RPTRTESTNET-TRYING0.4", "netLogFile": "rptrnetlog.log"}
+    config = {"dataBaseFile": "raptorchain-testnet-0.4_TEST.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET-TRYING0.4", "netLogFile": "rptrnetlog.log"}
 
 try:
     ssl_context = tuple(config["ssl"])
