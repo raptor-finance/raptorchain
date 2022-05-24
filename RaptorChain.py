@@ -166,6 +166,11 @@ class Transaction(object):
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.affectedAccounts = [self.sender, self.recipient]
+        elif self.txtype == 6:
+            self.fee = 0
+            self.sender = "0x0000000000000000000000000000000000000000"
+            self.recipient = "0x0000000000000000000000000000000000000000"
+            self.value = 0
         
         self.epoch = txData.get("epoch")
         self.bio = txData.get("bio")
@@ -641,6 +646,8 @@ class State(object):
 
     def checkParent(self, tx):
         lastTx = self.getLastUserTx(tx.sender)
+        if tx.txtype == 6:
+            return True
         if tx.epoch != self.beaconChain.blocks[len(self.beaconChain.blocks)-1].proof:
             return False
         if tx.txtype == 2:
@@ -788,6 +795,9 @@ class State(object):
             underlyingOperationSuccess = self.estimateCreateMNSuccess(_tx)
         if _tx.txtype == 5:
             underlyingOperationSuccess = self.estimateDestroyMNSuccess(_tx)
+        if _tx.txtype == 6:
+            underlyingOperationSuccess = (True, None)
+        print(correctBeacon, correctParent, underlyingOperationSuccess)
         return (underlyingOperationSuccess[0] and correctBeacon and correctParent)
         
 
@@ -1217,7 +1227,7 @@ class Node(object):
     def canBePlayed(self, tx):
         sigVerified = False
         playableByState = False
-        if not (json.loads(tx.get("data")).get("type") in [1,2]):
+        if not (json.loads(tx.get("data")).get("type") in [1,2, 6]):
             sigVerified = self.sigmanager.verifyTransaction(tx)
         else:
             sigVerified = True
@@ -1245,14 +1255,16 @@ class Node(object):
         self.saveDB()
         self.syncDB()
         self.syncByBlock()
+        self.createRefreshTx()
         self.saveDB()
 
-    def checkTxs(self, txs):
+    def checkTxs(self, txs, shouldPropagate=False):
         # print("Pulling DUCO txs...")
         # txs = requests.get(self.config["endpoint"]).json()["result"]
         # print("Successfully pulled transactions !")
 #        print("Saving transactions to DB...")
         _counter = 0
+        _toPropagate = []
         for tx in txs:
             playable = self.canBePlayed(tx)
             # print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
@@ -1261,7 +1273,11 @@ class Node(object):
                 self.txsOrder.append(tx["hash"])
                 self.state.playTransaction(tx, True)
                 _counter += 1
+                if shouldPropagate:
+                    _toPropagate.append(tx)
                 print(f"Successfully saved transaction {tx['hash']}")
+        if (shouldPropagate and (len(_toPropagate))):
+            self.propagateTransactions(_toPropagate)
         if _counter > 0:
             print(f"Successfully saved {_counter} transactions !")
         self.saveDB()
@@ -1416,6 +1432,7 @@ class Node(object):
     def networkBackgroundRoutine(self):
         while True:
 #            print("Refreshing transactions from other nodes")
+            self.createRefreshTx()
             self.checkGuys()
             self.syncByBlock()
             time.sleep(60)
@@ -1440,10 +1457,18 @@ class Node(object):
         except:
             return "0x"
 
+    def createRefreshTx(self):
+        _index = self.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
+        if self.state.lastIndex >= _index:
+            return
+        data = json.dumps({"epoch": self.state.getCurrentEpoch(), "indexToCheck": _index, "type": 6})
+        _txid_ = w3.soliditySha3(["string"], [data]).hex()
+        self.checkTxs([{"data": data, "hash": _txid_}], True)
+
     def integrateETHTransaction(self, ethTx):
         data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "indexToCheck": self.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 2})
         _txid_ = w3.soliditySha3(["string"], [data]).hex()
-        self.checkTxs([{"data": data, "hash": _txid_}])
+        self.checkTxs([{"data": data, "hash": _txid_}], True)
         return _txid_
 
 
@@ -1672,7 +1697,7 @@ def sendRawTransactions():
             tx["indexToCheck"] = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
         txs.append(tx)
         hashes.append(tx["hash"])
-    node.checkTxs(txs)
+    node.checkTxs(txs, True)
     return flask.jsonify(result=hashes, success=True)
 
 @app.route("/send/buildtransaction/")
