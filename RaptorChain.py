@@ -203,7 +203,8 @@ class CallBlankTransaction(object):
         self.value = call.get("value", 0)
         self.value = self.value if type(self.value) == int else ((int(self.value, 16) if "0x" in self.value else int(self.value)) if type(self.value == str) else 0)
         try:
-            self.data = bytes.fromhex(call.get("data", "0x")[2:])
+            _data = call.get("data", "0x")
+            self.data = _data if type(_data) == bytes else bytes.fromhex(_data.replace("0x", ""))
         except:
             self.data = b""
         self.gasprice = call.get("gasprice", 0)
@@ -1496,9 +1497,25 @@ class Terminal(object):
         self.commands = {}
         self.commands["snapshot"] = self.snapshot
         self.commands["balance"] = self.balance
+        self.commands["tokenBalance"] = self.tokenBalance
         self.commands["account"] = self.accountInfo
         self.commands["stats"] = self.stats
     
+    def _encodeWithSelector(self, functionName, params):
+        selector = bytes(w3.keccak(str(functionName).encode()))[0:4]
+        argTypes = list(filter(("").__ne__, functionName.replace(")", "").split("(")[1].split(",")))
+        encodedParams = eth_abi.encode_abi(argTypes, params)
+        return (selector + encodedParams)
+        
+    def encodeWithSelector(self, keyInput):
+        encoded = self._encodeWithSelector(keyInput[1], keyInput[2:])
+        print(encoded)
+        
+    def callContract(self, to, function, params, returnTypes):
+        callData = self._encodeWithSelector(function, params)
+        rawRetValue = self.node.state.eth_Call({"to": to, "data": callData}).returnValue
+        return eth_abi.decode_abi(returnTypes, rawRetValue)
+
     def skip(self, keyInput):
         pass
     
@@ -1525,6 +1542,15 @@ class Terminal(object):
         acct = self.node.state.getAccount(addr)
         print(f"Address : {acct.address}\nBalance : {acct.balance/(10**18)}")
     
+    def tokenBalance(self, keyInput):
+        tokenaddr = self.node.state.formatAddress(keyInput[1])
+        addr = self.node.state.formatAddress(keyInput[2])
+        balance = self.callContract(tokenaddr, "balanceOf(address)", [addr], ["uint256"])[0]
+        symbol = self.callContract(tokenaddr, "symbol()", [], ["string"])[0]
+        decimals = self.callContract(tokenaddr, "decimals()", [], ["uint8"])[0]
+        print(f"Address : {addr} owns {balance/(10**decimals)} {symbol}")
+        
+    
     def accountInfo(self, keyInput):
         addr = keyInput[1]
         acct = self.node.state.getAccount(addr)
@@ -1532,7 +1558,7 @@ class Terminal(object):
         
     
     def execCommand(self, command):
-        keyInput = list(filter(("").__ne__, command.split(" ")))
+        keyInput = list(filter(("").__ne__, command.split(" "))) or [""]
         try:
             self.commands.get(keyInput[0], self.skip)(keyInput)
         except Exception as e:
