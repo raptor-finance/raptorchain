@@ -1782,7 +1782,7 @@ def handleWeb3Request():
     # if method == "eth_sign":
         # result = w3.eth.account.sign_message(encode_defunct(text=), private_key="").signature.hex()
     if method == "eth_call":
-        result = node.state.eth_Call(params[0]).returnValue.hex()
+        result = f"0x{node.state.eth_Call(params[0]).returnValue.hex()}"
     if method == "eth_getCompilers":
         result = []
     if method == "eth_sendRawTransaction":
