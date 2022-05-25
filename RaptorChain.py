@@ -1204,6 +1204,7 @@ class Node(object):
         self.transactions = {}
         self.txsOrder = []
         self.mempool = []
+        self.listenPort = 6969
         self.sigmanager = SignatureManager()
         self.state = State(config["InitTxID"])
         self.config = config
@@ -1589,7 +1590,7 @@ CORS(app)
 
 @app.route("/")
 def basicInfoHttp():
-    return "RaptorChain testnet node running on port 2022"
+    return f"RaptorChain testnet node running on port {node.listenPort}"
 
 @app.route("/ping")
 def getping():
@@ -1826,7 +1827,7 @@ def handleWeb3Request():
     return flask.Response(json.dumps(_respdict), mimetype='application/json');
     
 def runFlask():
-    app.run(host="0.0.0.0", port=2022, ssl_context=ssl_context)
+    app.run(host="0.0.0.0", port=node.listenPort, ssl_context=ssl_context)
 
 if __name__ == "__main__":
     print(ssl_context or "No SSL context defined")
