@@ -399,7 +399,6 @@ contract BeaconChainHandler {
 	function executeMessages(Beacon memory _beacon) private {
 		for (uint256 n = 0; n<_beacon.messages.length; n++) {
 			executeCall(_beacon.messages[n]);
-			n += 1;
 		}
 	}
 	
