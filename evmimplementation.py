@@ -1468,7 +1468,7 @@ class CallEnv(object):
         else:
             self.storage = runningAccount.tempStorage.copy()
         self.value = value
-        self.chainid = 69420
+        self.chainid = 499597202514
         try:
             self.gaslimit = int(gaslimit)
         except:

@@ -605,7 +605,7 @@ class State(object):
         self.hash = ""
         self.debug = False
         self.shouldLog = True
-        self.chainID = 69420
+        self.chainID = 499597202514
         self.version = "0.4-beta"
 
     def formatAddress(self, _addr):
@@ -1785,7 +1785,7 @@ def handleWeb3Request():
     _id = data.get("id")
     method = data.get("method")
     params = data.get("params")
-    result = hex(69420)
+    result = hex(node.state.chainID)
     if method == "eth_getBalance":
         result = hex(int((node.state.accounts.get(w3.toChecksumAddress(params[0]), Account(w3.toChecksumAddress(params[0]), node.state.initTxID)).balance)))
     if method == "net_version":
