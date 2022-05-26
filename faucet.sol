@@ -7,7 +7,7 @@ contract RaptorTestnetFaucet {
 	
 	modifier claimDelay {
 		require((block.timestamp - lastClaim[msg.sender]) >= claimTime, "Can only claim once in 24hrs");
-		claimTime = block.timestamp;
+		lastClaim[msg.sender] = block.timestamp;
 		_;
 	}
 	
