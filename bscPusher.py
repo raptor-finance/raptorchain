@@ -60,7 +60,7 @@ class BSCPusher(object):
                 _data.append(x)
         print(_data)
 
-        tx = self.bsc.beaconInstance.functions.pushBeacon(data).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.acct.address),'chainId': self.bsc.chainID, 'gasPrice': int(11*(10**9)), "gas": 1000000, 'from':self.acct.address})
+        tx = self.bsc.beaconInstance.functions.pushBeacon(data).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.acct.address),'chainId': self.bsc.chainID, 'gasPrice': int(11*(10**9)), 'from':self.acct.address})
         # tx = self.bsc.stakingContract.functions.sendL2Block(self.acct.address, int(0), eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"])), 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), bytes.fromhex(block["parent"].replace("0x", "")), bytes.fromhex(block["miningData"]["proof"].replace("0x", "")), int(block["height"]), bytes.fromhex(block["son"].replace("0x", "")), int(block["signature"]["v"]), bytes.fromhex(hex(block["signature"]["r"])[2:]), bytes.fromhex(hex(block["signature"]["s"])[2:])).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.acct.address),'chainId': self.bsc.chainID, 'gasPrice': 10, 'from':self.acct.address})
         signedtx = self.acct.signTransaction(tx)
         self.bsc.chain.eth.send_raw_transaction(signedtx.rawTransaction)
@@ -76,7 +76,7 @@ class BSCPusher(object):
             self.pushBlockOnBSC(_block)
 
 privkey = input("Enter private key : ")
-relayer = BSCPusher("http://localhost:2022/", privkey, BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", 97, "0x1695dbda89982aCbEE279C01bA81ADcB7505c60a")) # Beacon instance to deploy
+relayer = BSCPusher("http://localhost:6969/", privkey, BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", 97, "0x9A193F0421622426594263c4b46f91a0829395F4")) # Beacon instance to deploy
 
 while True:
     try:
