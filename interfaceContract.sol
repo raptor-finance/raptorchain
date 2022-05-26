@@ -515,8 +515,9 @@ contract MasterContract {
 	
 	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, ERC20Interface stakingToken) {
 		// staking = new StakeManager(stakingToken);
-		custody = new CustodyManager(msg.sender); // to change after deployment
+		custody = new CustodyManager(address(this)); // to change after deployment
         chainInstances = new ChainsImplementationHandler(_genesisBeacon, stakingToken);
+		custody.changeWithdrawalOperator(address(chainInstances));
 		// beaconchain = new BeaconChainHandler(_genesisBeacon, staking);
 		// staking.setBeaconHandler(beaconchain);
 	}
