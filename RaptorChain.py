@@ -759,7 +759,7 @@ class State(object):
     def checkDepositsTillIndex(self, tx):
         maxIndex = tx.indexToCheck
         _lastindex = self.lastIndex
-        for i in range(_lastindex, maxIndex+1):
+        for i in range(_lastindex, maxIndex):
             try:
                 self.checkOutDepositByIndex(tx, i)
             except Exception as e:
