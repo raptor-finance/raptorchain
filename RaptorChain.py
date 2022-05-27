@@ -1608,18 +1608,18 @@ def getTransactions():
 
 @app.route("/get/nFirstTxs/<n>", methods=["GET"]) # GET N first transactions
 def nFirstTxs(n):
-    _n = min(len(node.txsOrder), n)
+    _n = min(len(node.txsOrder), int(n))
     txs = []
-    for txid in txsOrder[0,n-1]:
+    for txid in txsOrder[0:int(n)-1]:
         txs.append(node.transactions.get(txid))
     return flask.jsonify(result=txs, success=True)
     
 @app.route("/get/nLastTxs/<n>", methods=["GET"]) # GET N last transactions
 def nLastTxs(n):
-    _n = min(len(node.txsOrder), n)
-    _n = len(node.txsOrder)-_n
+    _n = min(len(node.txsOrder), int(n))
+    _n = len(node.txsOrder)-int(_n)
     txs = []
-    for txid in txsOrder[_n,len(node.txsOrder)]:
+    for txid in node.txsOrder[_n:len(node.txsOrder)]:
         txs.append(node.transactions.get(txid))
         
     return flask.jsonify(result=txs, success=True)
@@ -1628,7 +1628,7 @@ def nLastTxs(n):
 def getTxsByBound(upperBound, lowerBound):
     upperBound = min(upperBound, len(node.txsOrder)-1)
     lowerBound = max(lowerBound, 0)
-    for txid in txsOrder[lowerBound,upperBound]:
+    for txid in node.txsOrder[lowerBound:upperBound]:
         txs.append(node.transactions.get(txid))
     return flask.jsonify(result=txs, success=True)
 
