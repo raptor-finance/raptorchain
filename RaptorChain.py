@@ -240,6 +240,7 @@ class GenesisBeacon(object):
         self.transactions = []
         self.number = 0
         self.son = ""
+        self.nextBlockTx = None
         self.v = 0
         self.r = "0x0000000000000000000000000000000000000000000000000000000000000000"
         self.s = "0x0000000000000000000000000000000000000000000000000000000000000000"
