@@ -17,7 +17,19 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "raptorchain-testnet-v0.4_TEST.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["https://rpc-testnet.raptorchain.io/"], "InitTxID": "RPTRTESTNET-TRYING0.4", "netLogFile": "rptrnetlog.log"}
+    config = {"dataBaseFile": "raptorchain-testnet-v0.4_TEST.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET-TRYING0.4", "netLogFile": "rptrnetlog.log"}
+
+
+def isNotComment(line):
+    return (not "#" in line)
+
+try:
+    peersFile = open("peers.txt", "r")
+    _peersFromFile = filter(isNotComment, peersFile.read().splitlines())
+    peersFile.close()
+    config["peers"] = config["peers"] + _peersFromFile
+except:
+    raise
 
 try:
     ssl_context = tuple(config["ssl"])
@@ -1505,6 +1517,7 @@ class Terminal(object):
         self.commands["tokenBalance"] = self.tokenBalance
         self.commands["account"] = self.accountInfo
         self.commands["stats"] = self.stats
+    
     
     def _encodeWithSelector(self, functionName, params):
         selector = bytes(w3.keccak(str(functionName).encode()))[0:4]
