@@ -17,19 +17,20 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "raptorchain-testnet-v0.4_TEST.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET-TRYING0.4", "netLogFile": "rptrnetlog.log"}
+    config = {"dataBaseFile": "raptorchain-testnet-v0.4_TEST.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["https://rpc-testnet.raptorchain.io/"], "InitTxID": "RPTRTESTNET-TRYING0.4", "netLogFile": "rptrnetlog.log"}
 
 
 def isNotComment(line):
-    return (not "#" in line)
+    return ((not "#" in line) and (line != "DISMISSCONFIG"))
 
 try:
     peersFile = open("peers.txt", "r")
-    _peersFromFile = filter(isNotComment, peersFile.read().splitlines())
+    _splittedLines = peersFile.read().splitlines()
+    _peersFromFile = list(filter(isNotComment, _splittedLines))
     peersFile.close()
-    config["peers"] = config["peers"] + _peersFromFile
+    config["peers"] = _peersFromFile if "DISMISSCONFIG" in _splittedLines else config["peers"] + _peersFromFile # dismisses config if keyword "DISMISSCONFIG"
 except:
-    raise
+    pass # peers.txt not mandatory
 
 try:
     ssl_context = tuple(config["ssl"])
@@ -681,7 +682,7 @@ class State(object):
 
     def isBeaconCorrect(self, tx):
         # print(tx.epoch)
-        return (not tx.epoch) or (tx.epoch == self.getCurrentEpoch())
+        return (tx.epoch == self.getCurrentEpoch())
 
 
 
