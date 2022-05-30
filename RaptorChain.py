@@ -238,6 +238,7 @@ class GenesisBeacon(object):
         self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
         self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
         self.transactions = []
+        self.depCheckerTxs = []
         self.number = 0
         self.son = ""
         self.nextBlockTx = None
@@ -275,7 +276,7 @@ class GenesisBeacon(object):
         return w3.solidityKeccak(["bytes32", "bytes32", "bytes32[]"], [self.proof, self.stateRoot, sorted(self.transactions)])
 
     def exportJson(self):
-        return {"transactions": self.transactions + [self.nextBlockTx], "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
+        return {"transactions": (self.depCheckerTxs + self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
 
 class Beacon(object):
     # def __init__(self, parent, difficulty, timestamp, miner, logsBloom):
@@ -291,6 +292,7 @@ class Beacon(object):
     
     def __init__(self, data, difficulty, stateRoot="0x0000000000000000000000000000000000000000000000000000000000000000"):
         miningData = data["miningData"]
+        self.depCheckerTxs = []
         self.miner = w3.toChecksumAddress(miningData["miner"])
         self.parentTxRoot = data.get("parentTxRoot", "0x0000000000000000000000000000000000000000000000000000000000000000")
         self.nonce = miningData["nonce"]
@@ -347,7 +349,7 @@ class Beacon(object):
 
     def exportJson(self):
         # return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
-        return {"transactions": (self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}}
+        return {"transactions": (self.depCheckerTxs + self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}}
 
 class Masternode(object):
     def __init__(self, owner, operator):
@@ -1108,7 +1110,8 @@ class State(object):
             feedback = self.createMN(_tx)
         if _tx.txtype == 5:
             feedback = self.destroyMN(_tx)
-            
+        if _tx.txtype == 6:
+            self.beaconChain.getLastBeacon().depCheckerTxs.append(_tx.txid)
         
         if (_tx.bio):
             self.accounts[_tx.sender].bio = _tx.bio.replace("%20", " ")
