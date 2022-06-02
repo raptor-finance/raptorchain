@@ -121,6 +121,11 @@ class Transaction(object):
         self.txtype = (txData.get("type") or 0)
         self.messages = []
         self.affectedAccounts = []
+        self.nonce = 0
+        _sig = tx.get("sig")
+        self.sig = bytes.fromhex(_sig.replace("0x", "")) if _sig else b""
+        if _sig:
+            (self.v, self.r, self.s) = (self.sig[64], self.sig[0:32], self.sig[32:64])
         if (self.txtype == 0): # legacy transfer
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
@@ -205,6 +210,9 @@ class Transaction(object):
         _addr = self.formatAddress(addr)
         if not _addr in self.affectedAccounts:
             self.affectedAccounts.append(_addr)
+
+    def web3Returnable(self):
+        return {"hash": self.txid, "nonce": hex(self.nonce), "blockHash": self.txid, "transactionIndex": "0x0", "from": self.sender, "to": (None if self.contractDeployment else self.recipient), "value": hex(self.value), "gasPrice": hex(self.gasprice), "gas": hex(self.gasLimit), "input": self.data.hex(), "v": self.v, "r": self.r.hex(), "s": self.s.hex()}
 
 class CallBlankTransaction(object):
     def __init__(self, call):
@@ -1473,8 +1481,9 @@ class Node(object):
     
     def ethGetTransactionByHash(self, txid):
         try:
-            tx = self.transactions[txid]
-            return {"hash": tx.txid, "nonce": tx.nonce, "blockHash": tx.txid, "transactionIndex": "0x0", "from": tx.sender, "to": (None if tx.contractDeployment else tx.recipient), "value": tx.value, "gasPrice": tx.gasprice, "gas": tx.gasLimit, "input": tx.data, "v": tx.v, "r": tx.r, "s": tx.s}
+            tx = Transaction(self.transactions[txid])
+            return tx.web3Returnable()
+            # return {"hash": tx.txid, "nonce": hex(tx.nonce), "blockHash": tx.txid, "transactionIndex": "0x0", "from": tx.sender, "to": (None if tx.contractDeployment else tx.recipient), "value": hex(tx.value), "gasPrice": hex(tx.gasprice), "gas": hex(tx.gasLimit), "input": tx.data, "v": tx.v, "r": tx.r, "s": tx.s}
         except:
             return "0x"
 
