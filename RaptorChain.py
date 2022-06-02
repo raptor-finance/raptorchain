@@ -1619,6 +1619,10 @@ def getStats():
     _stats_ = {"coin": {"transactions": len(node.txsOrder), "supply": node.state.totalSupply, "holders": len(node.state.holders)}, "chain" : {"length": len(node.state.beaconChain.blocks), "difficulty" : node.state.beaconChain.difficulty, "target": node.state.beaconChain.miningTarget, "lastBlockHash": node.state.beaconChain.getLastBeacon().proof}}
     return flask.jsonify(result=_stats_, success=True)
 
+@app.route("/VMRoot")
+def getVMRoot():
+    return node.state.beaconChain.getLastBeacon().txsRoot().hex()
+
 # HTTP GENERAL GETTERS - pulled from `Node` class
 @app.route("/get/transactions", methods=["GET"]) # get all transactions in node
 def getTransactions():
