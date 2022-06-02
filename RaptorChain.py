@@ -1174,7 +1174,7 @@ class State(object):
 
 class Node(object):
     class Peer(object):
-        class PeerNotOkayException(Exception):
+        class PeerError(Exception):
             pass
         
         
@@ -1217,7 +1217,7 @@ class Node(object):
             try:
                 return self.sendRequest(f"/chain/block/{number}").json()
             except:
-                raise PeerNotOkayException("Error loading data from peer")
+                raise PeerError("Error loading data from peer")
     
     def __init__(self, config):
         self.transactions = {}
