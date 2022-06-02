@@ -1098,6 +1098,7 @@ class State(object):
         return env
 
     def playTransaction(self, tx, showMessage):
+        _begin_ = time.time()
         _tx = Transaction(tx)
         feedback = False
         if _tx.txtype == 0:
@@ -1137,6 +1138,7 @@ class State(object):
         self.postTxMessages(_tx)
         self.calcStateRoot()
         self.updateHolders()
+        print(f"Transaction {_tx.txid} completed in {round((time.time()-_begin_)*1000, 3)}ms")
         return feedback
 
     def getLastUserTx(self, _user):
@@ -1803,6 +1805,7 @@ def shareOnlinePeers():
 # WEB3 COMPATIBLE RPC
 @app.route("/web3", methods=["POST"])
 def handleWeb3Request():
+    _begin = time.time()
     data = flask.request.get_json()
     print(f"/web3 POST received, data : {data}")
     _id = data.get("id")
@@ -1845,7 +1848,7 @@ def handleWeb3Request():
     if method == "eth_getTransactionByHash":
         result = node.ethGetTransactionByHash(params[0])
     _respdict = {"id": _id, "jsonrpc": "2.0", "result": result}
-    print(f"/web3 POST request completed, response : {_respdict}")
+    print(f"{data.get('method')} request completed in {round((time.time() - _begin)*1000, 3)}ms")
     return flask.Response(json.dumps(_respdict), mimetype='application/json');
     
 def runFlask():
