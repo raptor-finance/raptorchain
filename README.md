@@ -17,7 +17,7 @@ A chain for RPTR (Raptor Token), but still under development !!!
 
 ## Wanna try it ?
 ### Testnet/devnet address
-Node ip : `https://rptr-testnet-1.dynamic-dns.net/web3` (note it's http and not https, else it won't work)
+Node ip : `https://rpc-testnet.raptorchain.io/web3`
 
 chainID : `0x7452505452`
 
