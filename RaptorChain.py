@@ -560,7 +560,7 @@ class BSCInterface(object):
         return self.chain.eth.contract(address=Web3.toChecksumAddress(addr), abi=self.BEP20ABI)
 
 class Account(object):
-    def __init__(self, address, initTxID):
+    def __init__(self, address, initTxID, accountGetter, callfallback, chainAccess):
         self.address = w3.toChecksumAddress(address)
         self.balance = 0
         self.tempBalance = 0 # allows reverting calls
@@ -574,6 +574,10 @@ class Account(object):
         self.tempStorage = {}
         self.hash = ""
         self.calcHash()
+        self.precompiledContract = None
+        self.accountGetter = accountGetter
+        self.callfallback = callfallback
+        self.chainAccess = chainAccess
         
     def serializeEVMStorage(self):
         btarr = b""
@@ -582,6 +586,8 @@ class Account(object):
                 btarr = (btarr + int(key).to_bytes(32, "big") + int(key).to_bytes(32, "big"))
         return btarr
 
+    def setPrecompiledContract(self, contract):
+        self.precompiledContract = contract
         
     def calcHash(self):
         storageHash = w3.keccak(self.serializeEVMStorage())
@@ -602,6 +608,42 @@ class Account(object):
         if (self.transactions[len(self.transactions)-1] != txid):
             self.transactions.append(txid)
     
+    def _prepareCallEnv(self, msg):
+        return EVM.CallEnv(self.accountGetter, caller=msg.sender, runningAccount=self, recipient=self.address, beaconchain=self.chainAccess, value=msg.value, gaslimit=msg.gas, tx=msg.tx, data=msg.data, callfallback=self.callfallback, code=b"", static=False, storage=None, calltype=msg.calltype, calledFromAcctClass=True)
+    
+    def _execStandardCall(self, env):
+        if not len(self.code):
+            return
+        while True and (not env.halt):
+            try:
+                if self.debug:
+                    op = self.code[env.pc]
+                    history.append(hex(op))
+                    self.opcodes[op](env)
+                    debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {env.stack} - lastRetValue : {env.lastCallReturn} - memory : {bytes(env.memory.data)} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
+                else:
+                    self.opcodes[self.code[env.pc]](env)
+            except Exception as e:
+                self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {self.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}")
+                raise
+        if (env.calltype == 3) or (env.tx.contractDeployment):
+            self.makeChangesPermanent()
+            self.code = msg.returnValue
+    
+    
+    def call(self, msg):
+        env = self._prepareCallEnv(msg)
+        history = []
+        if self.precompiledContract:
+            print("Executing call as precompiled")
+            self.precompiledContract.call(env)
+        else:
+            print("Executing call as standard")
+            self._execStandardCall(env)
+        if msg.persistStorage:
+            self.tempStorage = msg.storage
+        return env
+    
     def JSONSerializable(self):
         return {"balance": self.balance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "hash": self.hash.hex()}
 
@@ -619,12 +661,12 @@ class State(object):
         self.type2ToType0Hash = {}
         self.type0ToType2Hash = {}
         self.processedL2Hashes = []
-        self.accounts = {"0x0000000000000000000000000000000000000000": Account("0x0000000000000000000000000000000000000000", self.initTxID), "0x0000000000000000000000000000000000000001": Account("0x0000000000000000000000000000000000000001", self.initTxID)}
+        self.accounts = {"0x0000000000000000000000000000000000000000": Account("0x0000000000000000000000000000000000000000", self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain), "0x0000000000000000000000000000000000000001": Account("0x0000000000000000000000000000000000000001", self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)}
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
         self.lastIndex = 0
         self.accounts["0x0000000000000000000000000000000000000001"].code = bytes.fromhex("608060405234801561001057600080fd5b506004361061002b5760003560e01c806357ecc14714610030575b600080fd5b61003861004e565b60405161004591906100c4565b60405180910390f35b60606040518060400160405280600b81526020017f48656c6c6f20776f726c64000000000000000000000000000000000000000000815250905090565b6000610096826100e6565b6100a081856100f1565b93506100b0818560208601610102565b6100b981610135565b840191505092915050565b600060208201905081810360008301526100de818461008b565b905092915050565b600081519050919050565b600082825260208201905092915050565b60005b83811015610120578082015181840152602081019050610105565b8381111561012f576000848401525b50505050565b6000601f19601f830116905091905056fea2646970667358221220ad44bfb067953d1048acb02d7ee13b978ad64129db11c038ac3f4c82c858f71f64736f6c63430007060033")
         self.receipts = {}
-        self.precompiledContractsHandler = EVM.PrecompiledContracts(self.crossChainFallback, self.beaconChain.bsc)
+        self.precompiledContractsHandler = EVM.PrecompiledContracts(self.crossChainFallback, self.beaconChain.bsc, self.getAccount)
         self.precompiledContracts = self.precompiledContractsHandler.contracts
         self.hash = ""
         self.debug = False
@@ -641,7 +683,7 @@ class State(object):
     def getAccount(self, _addr):
         chkaddr = self.formatAddress(_addr)
         self.ensureExistence(chkaddr)
-        return self.accounts.get(chkaddr, Account(chkaddr, self.initTxID))
+        return self.accounts.get(chkaddr, Account(chkaddr, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain))
 
     def calcStateRoot(self):
         accountHashes = []
@@ -667,7 +709,7 @@ class State(object):
     def ensureExistence(self, _user):
         user = self.formatAddress(_user)
         if not self.accounts.get(user):
-            self.accounts[user] = Account(user, self.initTxID)
+            self.accounts[user] = Account(user, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)
 
     def checkParent(self, tx):
         lastTx = self.getLastUserTx(tx.sender)
@@ -677,16 +719,16 @@ class State(object):
             return False
         if tx.txtype == 2:
             try:
-                tx.parent = self.accounts.get(tx.sender, Account(tx.sender, self.initTxID)).sent[tx.nonce - 1]
+                tx.parent = self.getAccount(tx.sender).sent[tx.nonce - 1]
             except:
                 pass
 #                raise
-            return (tx.nonce == len(self.accounts.get(tx.sender, Account(tx.sender, self.initTxID)).sent))
+            return (tx.nonce == len(self.getAccount(tx.sender).sent))
         else:
             return (tx.parent == lastTx)
 
     def checkBalance(self, tx):
-        return (tx.value+tx.fee) > (self.accounts.get(tx.sender, Account(tx.sender, self.initTxID)).balance)
+        return (tx.value+tx.fee) > (self.getAccount(tx.sender).balance)
 
     def isBeaconCorrect(self, tx):
         # print(tx.epoch)
@@ -834,7 +876,7 @@ class State(object):
     def applyParentStuff(self, tx):
         self.txChilds[tx.txid] = []
         if tx.txtype == 2:
-            tx.parent = self.accounts.get(tx.sender, Account(tx.sender, self.initTxID)).sent[tx.nonce - 1]
+            tx.parent = self.getAccount(tx.sender).sent[tx.nonce - 1]
             self.type2ToType0Hash[tx.ethTxid] = tx.txid
             self.type0ToType2Hash[tx.txid] = tx.ethTxid
             # print(tx.parent)
@@ -1096,11 +1138,13 @@ class State(object):
 
     def eth_Call(self, call):
         tx = CallBlankTransaction(call)
-        if tx.contractDeployment:
-            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
-        else:
-            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
-            self.execEVMCall(env)
+        msg = EVM.Msg(sender=tx.sender, recipient=tx.recipient, value=tx.value, gas=tx.gasLimit, data=tx.data, tx=tx, calltype=0, shallSaveData=False)
+        # if tx.contractDeployment:
+            # env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
+        # else:
+            # env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
+            # self.execEVMCall(env)
+        env = self.getAccount(msg.recipient).call(msg)
         for _addr in tx.affectedAccounts:
             self.getAccount(_addr).cancelChanges()
         return env
@@ -1705,23 +1749,23 @@ def accountInfo(account):
     _address = w3.toChecksumAddress(account)
     balance = 0
     try:
-        balance = node.state.accounts.get(_address).balance
+        balance = node.state.getAccount(_address).balance
     except:
         balance = 0
-    transactions = node.state.accounts.get(_address, Account(_address, node.config["InitTxID"])).transactions
+    transactions = node.state.getAccount(_address).transactions
     try:
-        bio = node.state.accounts.get(_address).bio
+        bio = node.state.getAccount(_address).bio
     except:
         bio = ""
     code = node.state.getAccount(_address).code.hex()
     storage = node.state.getAccount(_address).storage
-    nonce = len(node.state.accounts.get(w3.toChecksumAddress(_address), Account(w3.toChecksumAddress(_address), node.state.initTxID)).sent)
+    nonce = len(node.state.getAccount(_address).sent)
     return flask.jsonify(result={"balance": (balance or 0), "tempBalance": node.state.getAccount(account).tempBalance, "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
 
 @app.route("/accounts/sent/<account>")
 def sentByAccount(account):
     _address = w3.toChecksumAddress(account)    
-    return flask.jsonify(result=node.state.accounts.get(w3.toChecksumAddress(_address), Account(w3.toChecksumAddress(_address), node.state.initTxID)).sent, success= True)
+    return flask.jsonify(result=node.state.getAccount(_address).sent, success=True)
 
 @app.route("/accounts/accountBalance/<account>")
 def accountBalance(account):
@@ -1822,7 +1866,7 @@ def handleWeb3Request():
     params = data.get("params")
     result = hex(node.state.chainID)
     if method == "eth_getBalance":
-        result = hex(int((node.state.accounts.get(w3.toChecksumAddress(params[0]), Account(w3.toChecksumAddress(params[0]), node.state.initTxID)).balance)))
+        result = hex(int((node.state.getAccount(w3.toChecksumAddress(params[0])).balance)))
     if method == "net_version":
         result = str(node.state.chainID)
     if method == "eth_coinbase":
@@ -1835,7 +1879,7 @@ def handleWeb3Request():
         # result = hex(len(node.state.beaconChain.blocks) - 1)
         result = hex(len(node.transactions) - 1)
     if method == "eth_getTransactionCount":
-        result = hex(len(node.state.accounts.get(w3.toChecksumAddress(params[0]), Account(w3.toChecksumAddress(params[0]), node.state.initTxID)).sent))
+        result = hex(len(node.state.getAccount(w3.toChecksumAddress(params[0])).sent))
     if method == "eth_getCode":
         result = "0x"
     if method == "eth_estimateGas":

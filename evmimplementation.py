@@ -1427,32 +1427,49 @@ class PrecompiledContracts(object):
             hasher.update(env.data)
             env.returnCall(hasher.digest())
     
-    def __init__(self, bridgeFallBack, bsc):
+    
+    def __init__(self, bridgeFallBack, bsc, getAccount):
         self.contracts = {}
         self.bsc = bsc
+        self.getAccount = getAccount
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
-        self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
-        self.contracts["0x0000000000000000000000000000000000000002"] = self.Sha256()
-        self.contracts["0x0000000000000000000000000000000000000003"] = self.Ripemd160()
-        self.contracts["0x0000000000000000000000000000000000000069"] = self.accountBioManager()
-        self.contracts[self.crossChainAddress] = self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc)
-        self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.Printer()
+        self.setContract("0x0000000000000000000000000000000000000001", self.ecRecover())
+        self.setContract("0x0000000000000000000000000000000000000002", self.Sha256())
+        self.setContract("0x0000000000000000000000000000000000000003", self.Ripemd160())
+        self.setContract("0x0000000000000000000000000000000000000069", self.accountBioManager())
+        self.setContract(self.crossChainAddress, self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc))
+        self.setContract("0x0000000000000000000000000000000d0ed622a3", self.Printer())
     
-    
+    def setContract(self, address, contract):
+        self.contracts[address] = contract
+        self.getAccount(address).setPrecompiledContract(contract)
+        
     def calcBridgedAddress(self, addr):
         return w3.toChecksumAddress((int(addr, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
     def mintCrossChainToken(self, env, tokenAddress, to, tokens):
         if not self.contracts.get(tokenAddress):
             _token = self.CrossChainToken(env, self.bsc, tokenAddress, self.contracts.get(self.crossChainAddress))
-            self.contracts[_token.address] = _token
+            self.setContract(_token.address, _token)
             print(f"Deployed cross-chain token {tokenAddress} to address {_token.address}")
         self.contracts[self.calcBridgedAddress(tokenAddress)].mint(env, to, tokens)
 
 
+
+class Msg(object):
+    def __init__(self, sender, recipient, value, gas, tx, data=b"", calltype=0, shallSaveData=False):
+        self.sender = sender
+        self.recipient = recipient
+        self.value = int(value)
+        self.gas = int(gas)
+        self.tx = tx
+        self.data = data
+        self.calltype = calltype
+        self.persistStorage = shallSaveData
+        
 # CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
 class CallEnv(object):
-    def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, code, static,*, storage=None, calltype=0):
+    def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, code, static,*, storage=None, calltype=0, calledFromAcctClass=False):
         self.stack = []
         self.getAccount = accountGetter
         self.memory = CallMemory()
@@ -1477,7 +1494,7 @@ class CallEnv(object):
         self.pc = 0
         self.tx = tx
         self.data = data
-        self.code = code
+        self.code = (b"" if calledFromAcctClass else code)
         self.halt = False
         self.returnValue = b""
         self.success = True
