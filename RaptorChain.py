@@ -214,36 +214,6 @@ class Transaction(object):
     def web3Returnable(self):
         return {"hash": self.txid, "nonce": hex(self.nonce), "blockHash": self.txid, "transactionIndex": "0x0", "from": self.sender, "to": (None if self.contractDeployment else self.recipient), "value": hex(self.value), "gasPrice": hex(self.gasprice), "gas": hex(self.gasLimit), "input": self.data.hex(), "v": self.v, "r": self.r.hex(), "s": self.s.hex()}
 
-class CallBlankTransaction(object):
-    def __init__(self, call):
-        self.contractDeployment = False
-        self.sender = w3.toChecksumAddress(call.get("from", "0x0000000000000000000000000000000000000000"))
-        self.recipient = w3.toChecksumAddress(call.get("to", "0x0000000000000000000000000000000000000000"))
-        if (self.recipient == "0x0000000000000000000000000000000000000000"):
-            self.contractDeployment = True
-        self.value = call.get("value", 0)
-        self.value = self.value if type(self.value) == int else ((int(self.value, 16) if "0x" in self.value else int(self.value)) if type(self.value == str) else 0)
-        try:
-            _data = call.get("data", "0x")
-            self.data = _data if type(_data) == bytes else bytes.fromhex(_data.replace("0x", ""))
-        except:
-            self.data = b""
-        self.gasprice = call.get("gasprice", 0)
-        self.gasLimit = call.get("gas", 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
-        self.txid = "0x8c7e29b8d1ee82f7d7399a7d9aabd93fb07b5bb0274d2b564ce42afa73560524"
-        self.affectedAccounts = [self.sender, self.recipient]
-
-    def formatAddress(self, _addr):
-        if (type(_addr) == int):
-            hexfmt = hex(_addr)[2:]
-            return w3.toChecksumAddress("0x" + ("0" * (40-len(hexfmt))) + hexfmt)
-        return w3.toChecksumAddress(_addr)
-
-    def markAccountAffected(self, addr):
-        _addr = self.formatAddress(addr)
-        if not _addr in self.affectedAccounts:
-            self.affectedAccounts.append(_addr)
-
 
 class BeaconChain(object):
     class Masternode(object):
@@ -661,6 +631,37 @@ class State(object):
         
         def JSONSerializable(self):
             return {"balance": self.balance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "hash": self.hash.hex(), "initialized": self.initialized}
+
+    class CallBlankTransaction(object):
+        def __init__(self, call):
+            self.contractDeployment = False
+            self.sender = w3.toChecksumAddress(call.get("from", "0x0000000000000000000000000000000000000000"))
+            self.recipient = w3.toChecksumAddress(call.get("to", "0x0000000000000000000000000000000000000000"))
+            if (self.recipient == "0x0000000000000000000000000000000000000000"):
+                self.contractDeployment = True
+            self.value = call.get("value", 0)
+            self.value = self.value if type(self.value) == int else ((int(self.value, 16) if "0x" in self.value else int(self.value)) if type(self.value == str) else 0)
+            try:
+                _data = call.get("data", "0x")
+                self.data = _data if type(_data) == bytes else bytes.fromhex(_data.replace("0x", ""))
+            except:
+                self.data = b""
+            self.gasprice = call.get("gasprice", 0)
+            self.gasLimit = call.get("gas", 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+            self.txid = "0x8c7e29b8d1ee82f7d7399a7d9aabd93fb07b5bb0274d2b564ce42afa73560524"
+            self.affectedAccounts = [self.sender, self.recipient]
+
+        def formatAddress(self, _addr):
+            if (type(_addr) == int):
+                hexfmt = hex(_addr)[2:]
+                return w3.toChecksumAddress("0x" + ("0" * (40-len(hexfmt))) + hexfmt)
+            return w3.toChecksumAddress(_addr)
+
+        def markAccountAffected(self, addr):
+            _addr = self.formatAddress(addr)
+            if not _addr in self.affectedAccounts:
+                self.affectedAccounts.append(_addr)
+
 
     def __init__(self, initTxID):
         self.messages = {}
@@ -1126,7 +1127,7 @@ class State(object):
         return (msg.getSuccess(), msg.returnValue)
 
     def eth_Call(self, call):
-        tx = CallBlankTransaction(call)
+        tx = self.CallBlankTransaction(call)
         msg = EVM.Msg(sender=tx.sender, recipient=tx.recipient, value=tx.value, gas=tx.gasLimit, data=tx.data, tx=tx, calltype=0, shallSaveData=False)
         # if tx.contractDeployment:
             # env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
