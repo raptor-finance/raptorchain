@@ -559,95 +559,96 @@ class BSCInterface(object):
     def getBEP20At(self, addr):
         return self.chain.eth.contract(address=Web3.toChecksumAddress(addr), abi=self.BEP20ABI)
 
-class Account(object):
-    def __init__(self, address, initTxID, accountGetter, callfallback, chainAccess):
-        self.address = w3.toChecksumAddress(address)
-        self.balance = 0
-        self.tempBalance = 0 # allows reverting calls
-        self.transactions = [initTxID]
-        self.sent = [initTxID]
-        self.received = []
-        self.mined = []
-        self.bio = ""
-        self.code = b""
-        self.storage = {}
-        self.tempStorage = {}
-        self.hash = ""
-        self.calcHash()
-        self.precompiledContract = None
-        self.accountGetter = accountGetter
-        self.callfallback = callfallback
-        self.chainAccess = chainAccess
-        
-    def serializeEVMStorage(self):
-        btarr = b""
-        for key, value in sorted(self.storage.items()):
-            if value > 0:
-                btarr = (btarr + int(key).to_bytes(32, "big") + int(key).to_bytes(32, "big"))
-        return btarr
-
-    def setPrecompiledContract(self, contract):
-        self.precompiledContract = contract
-        
-    def calcHash(self):
-        storageHash = w3.keccak(self.serializeEVMStorage())
-        codeHash = w3.keccak(self.code)
-        historyHash = w3.solidityKeccak(["bytes32[]", "bytes32[]"], [self.transactions[1:], self.sent[1:]])
-        self.hash = w3.solidityKeccak(["address", "uint256", "bytes32", "bytes32", "bytes32", "string"], [self.address, self.balance, historyHash, codeHash, storageHash, self.bio])
-        return self.hash
-    
-    def makeChangesPermanent(self):
-        self.storage = self.tempStorage.copy()
-        self.balance = self.tempBalance
-    
-    def cancelChanges(self):
-        self.tempStorage = self.storage.copy()
-        self.tempBalance = self.balance
-
-    def addParent(self, txid):
-        if (self.transactions[len(self.transactions)-1] != txid):
-            self.transactions.append(txid)
-    
-    def _prepareCallEnv(self, msg):
-        return EVM.CallEnv(self.accountGetter, caller=msg.sender, runningAccount=self, recipient=self.address, beaconchain=self.chainAccess, value=msg.value, gaslimit=msg.gas, tx=msg.tx, data=msg.data, callfallback=self.callfallback, code=b"", static=False, storage=None, calltype=msg.calltype, calledFromAcctClass=True)
-    
-    def _execStandardCall(self, env):
-        if not len(self.code):
-            return
-        while True and (not env.halt):
-            try:
-                if self.debug:
-                    op = self.code[env.pc]
-                    history.append(hex(op))
-                    self.opcodes[op](env)
-                    debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {env.stack} - lastRetValue : {env.lastCallReturn} - memory : {bytes(env.memory.data)} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
-                else:
-                    self.opcodes[self.code[env.pc]](env)
-            except Exception as e:
-                self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {self.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}")
-                raise
-        if (env.calltype == 3) or (env.tx.contractDeployment):
-            self.makeChangesPermanent()
-            self.code = msg.returnValue
-    
-    
-    def call(self, msg):
-        env = self._prepareCallEnv(msg)
-        history = []
-        if self.precompiledContract:
-            print("Executing call as precompiled")
-            self.precompiledContract.call(env)
-        else:
-            print("Executing call as standard")
-            self._execStandardCall(env)
-        if msg.persistStorage:
-            self.tempStorage = msg.storage
-        return env
-    
-    def JSONSerializable(self):
-        return {"balance": self.balance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "hash": self.hash.hex()}
 
 class State(object):
+    class Account(object):
+        def __init__(self, address, initTxID, accountGetter, callfallback, chainAccess):
+            self.address = w3.toChecksumAddress(address)
+            self.balance = 0
+            self.tempBalance = 0 # allows reverting calls
+            self.transactions = [initTxID]
+            self.sent = [initTxID]
+            self.received = []
+            self.mined = []
+            self.bio = ""
+            self.code = b""
+            self.storage = {}
+            self.tempStorage = {}
+            self.hash = ""
+            self.calcHash()
+            self.precompiledContract = None
+            self.accountGetter = accountGetter
+            self.callfallback = callfallback
+            self.chainAccess = chainAccess
+            
+        def serializeEVMStorage(self):
+            btarr = b""
+            for key, value in sorted(self.storage.items()):
+                if value > 0:
+                    btarr = (btarr + int(key).to_bytes(32, "big") + int(key).to_bytes(32, "big"))
+            return btarr
+
+        def setPrecompiledContract(self, contract):
+            self.precompiledContract = contract
+            
+        def calcHash(self):
+            storageHash = w3.keccak(self.serializeEVMStorage())
+            codeHash = w3.keccak(self.code)
+            historyHash = w3.solidityKeccak(["bytes32[]", "bytes32[]"], [self.transactions[1:], self.sent[1:]])
+            self.hash = w3.solidityKeccak(["address", "uint256", "bytes32", "bytes32", "bytes32", "string"], [self.address, self.balance, historyHash, codeHash, storageHash, self.bio])
+            return self.hash
+        
+        def makeChangesPermanent(self):
+            self.storage = self.tempStorage.copy()
+            self.balance = self.tempBalance
+        
+        def cancelChanges(self):
+            self.tempStorage = self.storage.copy()
+            self.tempBalance = self.balance
+
+        def addParent(self, txid):
+            if (self.transactions[len(self.transactions)-1] != txid):
+                self.transactions.append(txid)
+        
+        def _prepareCallEnv(self, msg):
+            return EVM.CallEnv(self.accountGetter, caller=msg.sender, runningAccount=self, recipient=self.address, beaconchain=self.chainAccess, value=msg.value, gaslimit=msg.gas, tx=msg.tx, data=msg.data, callfallback=self.callfallback, code=b"", static=False, storage=None, calltype=msg.calltype, calledFromAcctClass=True)
+        
+        def _execStandardCall(self, env):
+            if not len(self.code):
+                return
+            while True and (not env.halt):
+                try:
+                    if self.debug:
+                        op = self.code[env.pc]
+                        history.append(hex(op))
+                        self.opcodes[op](env)
+                        debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {env.stack} - lastRetValue : {env.lastCallReturn} - memory : {bytes(env.memory.data)} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
+                    else:
+                        self.opcodes[self.code[env.pc]](env)
+                except Exception as e:
+                    self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {self.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}")
+                    raise
+            if (env.calltype == 3) or (env.tx.contractDeployment):
+                self.makeChangesPermanent()
+                self.code = msg.returnValue
+        
+        
+        def call(self, msg):
+            env = self._prepareCallEnv(msg)
+            history = []
+            if self.precompiledContract:
+                print("Executing call as precompiled")
+                self.precompiledContract.call(env)
+            else:
+                print("Executing call as standard")
+                self._execStandardCall(env)
+            if msg.persistStorage:
+                self.tempStorage = msg.storage
+            return env
+        
+        def JSONSerializable(self):
+            return {"balance": self.balance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "hash": self.hash.hex()}
+
     def __init__(self, initTxID):
         self.messages = {}
         self.opcodes = EVM.Opcodes().opcodes
@@ -661,7 +662,7 @@ class State(object):
         self.type2ToType0Hash = {}
         self.type0ToType2Hash = {}
         self.processedL2Hashes = []
-        self.accounts = {"0x0000000000000000000000000000000000000000": Account("0x0000000000000000000000000000000000000000", self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain), "0x0000000000000000000000000000000000000001": Account("0x0000000000000000000000000000000000000001", self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)}
+        self.accounts = {"0x0000000000000000000000000000000000000000": self.Account("0x0000000000000000000000000000000000000000", self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain), "0x0000000000000000000000000000000000000001": self.Account("0x0000000000000000000000000000000000000001", self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)}
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
         self.lastIndex = 0
         self.accounts["0x0000000000000000000000000000000000000001"].code = bytes.fromhex("608060405234801561001057600080fd5b506004361061002b5760003560e01c806357ecc14714610030575b600080fd5b61003861004e565b60405161004591906100c4565b60405180910390f35b60606040518060400160405280600b81526020017f48656c6c6f20776f726c64000000000000000000000000000000000000000000815250905090565b6000610096826100e6565b6100a081856100f1565b93506100b0818560208601610102565b6100b981610135565b840191505092915050565b600060208201905081810360008301526100de818461008b565b905092915050565b600081519050919050565b600082825260208201905092915050565b60005b83811015610120578082015181840152602081019050610105565b8381111561012f576000848401525b50505050565b6000601f19601f830116905091905056fea2646970667358221220ad44bfb067953d1048acb02d7ee13b978ad64129db11c038ac3f4c82c858f71f64736f6c63430007060033")
@@ -683,7 +684,7 @@ class State(object):
     def getAccount(self, _addr):
         chkaddr = self.formatAddress(_addr)
         self.ensureExistence(chkaddr)
-        return self.accounts.get(chkaddr, Account(chkaddr, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain))
+        return self.accounts.get(chkaddr, self.Account(chkaddr, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain))
 
     def calcStateRoot(self):
         accountHashes = []
@@ -709,7 +710,7 @@ class State(object):
     def ensureExistence(self, _user):
         user = self.formatAddress(_user)
         if not self.accounts.get(user):
-            self.accounts[user] = Account(user, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)
+            self.accounts[user] = self.Account(user, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)
 
     def checkParent(self, tx):
         lastTx = self.getLastUserTx(tx.sender)
