@@ -1433,7 +1433,7 @@ class PrecompiledContracts(object):
         self.bsc = bsc
         self.getAccount = getAccount
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
-        self.setContract("0x0000000000000000000000000000000000000001", self.ecRecover(), False)
+        self.setContract("0x0000000000000000000000000000000000000001", self.ecRecover(), True)
         self.setContract("0x0000000000000000000000000000000000000002", self.Sha256(), False)
         self.setContract("0x0000000000000000000000000000000000000003", self.Ripemd160(), False)
         self.setContract("0x0000000000000000000000000000000000000069", self.accountBioManager(), False)
@@ -1450,7 +1450,7 @@ class PrecompiledContracts(object):
 
     def mintCrossChainToken(self, env, tokenAddress, to, tokens):
         if not self.contracts.get(tokenAddress):
-            _token = self.CrossChainToken(env, self.bsc, tokenAddress, self.contracts.get(self.crossChainAddress), True)
+            _token = self.CrossChainToken(env, self.bsc, tokenAddress, self.contracts.get(self.crossChainAddress))
             self.setContract(_token.address, _token)
             print(f"Deployed cross-chain token {tokenAddress} to address {_token.address}")
         self.contracts[self.calcBridgedAddress(tokenAddress)].mint(env, to, tokens)

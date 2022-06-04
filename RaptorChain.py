@@ -524,7 +524,7 @@ class BeaconChain(object):
             hashToHeight[block.proof] = block.number
         for op, val in self.validators.items():
             valsJSON.append(val.JSONSerializable())
-        return {"blocks": blocksJSON, "hashToHeight": hashToHeight, "mempool": self.pendingMessages, "validators": valsJSON, "difficulty": self.difficulty, "miningTarget": self.miningTarget}
+        return {"blocks": blocksJSON, "hashToHeight": hashToHeight, "mempool": [m.hex() for m in self.pendingMessages], "validators": valsJSON, "difficulty": self.difficulty, "miningTarget": self.miningTarget}
         
 
 class BSCInterface(object):
@@ -657,7 +657,7 @@ class State(object):
             return env
         
         def JSONSerializable(self):
-            return {"balance": self.balance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "hash": self.hash.hex()}
+            return {"balance": self.balance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "hash": self.hash.hex(), "initialized": self.initialized}
 
     def __init__(self, initTxID):
         self.messages = {}
@@ -1024,42 +1024,37 @@ class State(object):
 
 
     def tryContractCall(self, tx):
-        # if tx.contractDeployment:
-            # env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
-        # else:
-            # env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
-        # if (tx.value > self.getAccount(tx.sender).balance):
-            # return (False, b"")
-        # self.ensureExistence(tx.sender)
-        # self.ensureExistence(tx.recipient)
-        # senderAcct = self.getAccount(tx.sender)
-        # recipientAcct = self.getAccount(tx.recipient)
+        if tx.contractDeployment:
+            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
+        else:
+            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
+        if (tx.value > self.getAccount(tx.sender).balance):
+            return (False, b"")
+        self.ensureExistence(tx.sender)
+        self.ensureExistence(tx.recipient)
+        senderAcct = self.getAccount(tx.sender)
+        recipientAcct = self.getAccount(tx.recipient)
         
-        # senderAcct.cancelChanges()
-        # recipientAcct.cancelChanges()
+        senderAcct.cancelChanges()
+        recipientAcct.cancelChanges()
         
-        # senderAcct.tempBalance -= tx.value
-        # recipientAcct.tempBalance += tx.value
-        # if len(env.code):
-            # self.execEVMCall(env)
-            # tx.returnValue = env.returnValue
-            # if env.getSuccess():
-                # for _addr in tx.affectedAccounts:
-                    # self.getAccount(_addr).cancelChanges()
-                # return (True, tx.returnValue.hex())
-            # else:
-                # for _addr in tx.affectedAccounts:
-                    # self.getAccount(_addr).cancelChanges()
-                # return (False, tx.returnValue.hex())
-        # else:
-            # for _addr in tx.affectedAccounts:
-                # self.getAccount(_addr).cancelChanges()
-            # return (True, b"")
-        msg = EVM.Msg(sender=tx.sender, recipient=tx.recipient, value=tx.value, gas=tx.gasLimit, data=tx.data, tx=tx, calltype=0, shallSaveData=False)
-        env = self.getAccount(tx.recipient).call(msg)
-        for _addr in tx.affectedAccounts:
-            self.getAccount(_addr).cancelChanges()
-        return (env.getSuccess(), env.returnValue)
+        senderAcct.tempBalance -= tx.value
+        recipientAcct.tempBalance += tx.value
+        if len(env.code):
+            self.execEVMCall(env)
+            tx.returnValue = env.returnValue
+            if env.getSuccess():
+                for _addr in tx.affectedAccounts:
+                    self.getAccount(_addr).cancelChanges()
+                return (True, tx.returnValue.hex())
+            else:
+                for _addr in tx.affectedAccounts:
+                    self.getAccount(_addr).cancelChanges()
+                return (False, tx.returnValue.hex())
+        else:
+            for _addr in tx.affectedAccounts:
+                self.getAccount(_addr).cancelChanges()
+            return (True, b"")
 
     def estimateGas(self, tx):
         env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
@@ -1345,7 +1340,7 @@ class Node(object):
                 self.state.playTransaction(tx, False)
             # self.propagateTransactions([tx])
         self.saveDB()
-        self.syncDB()
+        # self.syncDB()
         self.syncByBlock()
         self.createRefreshTx()
         self.saveDB()
