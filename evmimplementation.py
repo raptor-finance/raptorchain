@@ -1433,23 +1433,24 @@ class PrecompiledContracts(object):
         self.bsc = bsc
         self.getAccount = getAccount
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
-        self.setContract("0x0000000000000000000000000000000000000001", self.ecRecover())
-        self.setContract("0x0000000000000000000000000000000000000002", self.Sha256())
-        self.setContract("0x0000000000000000000000000000000000000003", self.Ripemd160())
-        self.setContract("0x0000000000000000000000000000000000000069", self.accountBioManager())
-        self.setContract(self.crossChainAddress, self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc))
-        self.setContract("0x0000000000000000000000000000000d0ed622a3", self.Printer())
+        self.setContract("0x0000000000000000000000000000000000000001", self.ecRecover(), False)
+        self.setContract("0x0000000000000000000000000000000000000002", self.Sha256(), False)
+        self.setContract("0x0000000000000000000000000000000000000003", self.Ripemd160(), False)
+        self.setContract("0x0000000000000000000000000000000000000069", self.accountBioManager(), False)
+        self.setContract(self.crossChainAddress, self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc), False)
+        # self.setContract("0x0000000000000000000000000000000d0ed622a3", self.Printer())
     
-    def setContract(self, address, contract):
+    def setContract(self, address, contract, initialize=False):
         self.contracts[address] = contract
-        self.getAccount(address).setPrecompiledContract(contract)
+        _acct = self.getAccount(address)
+        _acct.setPrecompiledContract(contract, initialize)
         
     def calcBridgedAddress(self, addr):
         return w3.toChecksumAddress((int(addr, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
     def mintCrossChainToken(self, env, tokenAddress, to, tokens):
         if not self.contracts.get(tokenAddress):
-            _token = self.CrossChainToken(env, self.bsc, tokenAddress, self.contracts.get(self.crossChainAddress))
+            _token = self.CrossChainToken(env, self.bsc, tokenAddress, self.contracts.get(self.crossChainAddress), True)
             self.setContract(_token.address, _token)
             print(f"Deployed cross-chain token {tokenAddress} to address {_token.address}")
         self.contracts[self.calcBridgedAddress(tokenAddress)].mint(env, to, tokens)

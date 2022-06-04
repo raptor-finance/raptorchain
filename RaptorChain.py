@@ -564,6 +564,7 @@ class State(object):
     class Account(object):
         def __init__(self, address, initTxID, accountGetter, callfallback, chainAccess):
             self.address = w3.toChecksumAddress(address)
+            self.initialized = False
             self.balance = 0
             self.tempBalance = 0 # allows reverting calls
             self.transactions = [initTxID]
@@ -575,11 +576,13 @@ class State(object):
             self.storage = {}
             self.tempStorage = {}
             self.hash = ""
-            self.calcHash()
+            self.calcHash(True)
             self.precompiledContract = None
             self.accountGetter = accountGetter
             self.callfallback = callfallback
             self.chainAccess = chainAccess
+            self.opcodes = EVM.Opcodes().opcodes
+            self.debug = False
             
         def serializeEVMStorage(self):
             btarr = b""
@@ -588,10 +591,14 @@ class State(object):
                     btarr = (btarr + int(key).to_bytes(32, "big") + int(key).to_bytes(32, "big"))
             return btarr
 
-        def setPrecompiledContract(self, contract):
+        def setPrecompiledContract(self, contract, initialize):
             self.precompiledContract = contract
+            if not initialize:
+                self.initialized = False
             
-        def calcHash(self):
+        def calcHash(self, init=True):
+            if init:
+                self.initialized = True
             storageHash = w3.keccak(self.serializeEVMStorage())
             codeHash = w3.keccak(self.code)
             historyHash = w3.solidityKeccak(["bytes32[]", "bytes32[]"], [self.transactions[1:], self.sent[1:]])
@@ -610,10 +617,13 @@ class State(object):
             if (self.transactions[len(self.transactions)-1] != txid):
                 self.transactions.append(txid)
         
+        def isInitialized(self):
+            (not self.precompiledContract) or len(self.transactions > 1)
+        
         def _prepareCallEnv(self, msg):
             return EVM.CallEnv(self.accountGetter, caller=msg.sender, runningAccount=self, recipient=self.address, beaconchain=self.chainAccess, value=msg.value, gaslimit=msg.gas, tx=msg.tx, data=msg.data, callfallback=self.callfallback, code=b"", static=False, storage=None, calltype=msg.calltype, calledFromAcctClass=True)
         
-        def _execStandardCall(self, env):
+        def _execStandardCall(self, env, persist=False):
             if not len(self.code):
                 return
             while True and (not env.halt):
@@ -626,11 +636,11 @@ class State(object):
                     else:
                         self.opcodes[self.code[env.pc]](env)
                 except Exception as e:
-                    self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {self.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}")
                     raise
             if (env.calltype == 3) or (env.tx.contractDeployment):
                 self.makeChangesPermanent()
-                self.code = msg.returnValue
+                if persist:
+                    self.code = env.returnValue
         
         
         def call(self, msg):
@@ -641,7 +651,7 @@ class State(object):
                 self.precompiledContract.call(env)
             else:
                 print("Executing call as standard")
-                self._execStandardCall(env)
+                self._execStandardCall(env, msg.persistStorage)
             if msg.persistStorage:
                 self.tempStorage = msg.storage
             return env
@@ -681,15 +691,17 @@ class State(object):
             return w3.toChecksumAddress("0x" + ("0" * (40-len(hexfmt))) + hexfmt)
         return w3.toChecksumAddress(_addr)
 
-    def getAccount(self, _addr):
+    def getAccount(self, _addr, skipInit=False):
         chkaddr = self.formatAddress(_addr)
-        self.ensureExistence(chkaddr)
+        if not skipInit:
+            self.ensureExistence(chkaddr)
         return self.accounts.get(chkaddr, self.Account(chkaddr, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain))
 
     def calcStateRoot(self):
         accountHashes = []
         for (addr, acct) in self.accounts.items():
-            accountHashes.append(acct.hash)
+            if acct.initialized:
+                accountHashes.append(acct.hash)
         accountingRoot = w3.solidityKeccak(["bytes32[]"], [sorted(accountHashes)])
         masternodesRoot = self.beaconChain.validatorSetHash()
         self.hash = w3.solidityKeccak(["bytes32", "bytes32"], [accountingRoot, masternodesRoot])
@@ -710,6 +722,7 @@ class State(object):
     def ensureExistence(self, _user):
         user = self.formatAddress(_user)
         if not self.accounts.get(user):
+            print(f"Created account {user}")
             self.accounts[user] = self.Account(user, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)
 
     def checkParent(self, tx):
@@ -1011,37 +1024,42 @@ class State(object):
 
 
     def tryContractCall(self, tx):
-        if tx.contractDeployment:
-            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
-        else:
-            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
-        if (tx.value > self.getAccount(tx.sender).balance):
-            return (False, b"")
-        self.ensureExistence(tx.sender)
-        self.ensureExistence(tx.recipient)
-        senderAcct = self.getAccount(tx.sender)
-        recipientAcct = self.getAccount(tx.recipient)
+        # if tx.contractDeployment:
+            # env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
+        # else:
+            # env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
+        # if (tx.value > self.getAccount(tx.sender).balance):
+            # return (False, b"")
+        # self.ensureExistence(tx.sender)
+        # self.ensureExistence(tx.recipient)
+        # senderAcct = self.getAccount(tx.sender)
+        # recipientAcct = self.getAccount(tx.recipient)
         
-        senderAcct.cancelChanges()
-        recipientAcct.cancelChanges()
+        # senderAcct.cancelChanges()
+        # recipientAcct.cancelChanges()
         
-        senderAcct.tempBalance -= tx.value
-        recipientAcct.tempBalance += tx.value
-        if len(env.code):
-            self.execEVMCall(env)
-            tx.returnValue = env.returnValue
-            if env.getSuccess():
-                for _addr in tx.affectedAccounts:
-                    self.getAccount(_addr).cancelChanges()
-                return (True, tx.returnValue.hex())
-            else:
-                for _addr in tx.affectedAccounts:
-                    self.getAccount(_addr).cancelChanges()
-                return (False, tx.returnValue.hex())
-        else:
-            for _addr in tx.affectedAccounts:
-                self.getAccount(_addr).cancelChanges()
-            return (True, b"")
+        # senderAcct.tempBalance -= tx.value
+        # recipientAcct.tempBalance += tx.value
+        # if len(env.code):
+            # self.execEVMCall(env)
+            # tx.returnValue = env.returnValue
+            # if env.getSuccess():
+                # for _addr in tx.affectedAccounts:
+                    # self.getAccount(_addr).cancelChanges()
+                # return (True, tx.returnValue.hex())
+            # else:
+                # for _addr in tx.affectedAccounts:
+                    # self.getAccount(_addr).cancelChanges()
+                # return (False, tx.returnValue.hex())
+        # else:
+            # for _addr in tx.affectedAccounts:
+                # self.getAccount(_addr).cancelChanges()
+            # return (True, b"")
+        msg = EVM.Msg(sender=tx.sender, recipient=tx.recipient, value=tx.value, gas=tx.gasLimit, data=tx.data, tx=tx, calltype=0, shallSaveData=False)
+        env = self.getAccount(tx.recipient).call(msg)
+        for _addr in tx.affectedAccounts:
+            self.getAccount(_addr).cancelChanges()
+        return (env.getSuccess(), env.returnValue)
 
     def estimateGas(self, tx):
         env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
@@ -1049,8 +1067,8 @@ class State(object):
             return (False, b"")
         self.ensureExistence(tx.sender)
         self.ensureExistence(tx.recipient)
-        senderAcct = self.getAccount(tx.sender)
-        recipientAcct = self.getAccount(tx.recipient)
+        senderAcct = self.getAccount(tx.sender, True)
+        recipientAcct = self.getAccount(tx.recipient, True)
         
         senderAcct.cancelChanges()
         recipientAcct.cancelChanges()
@@ -1062,13 +1080,13 @@ class State(object):
             tx.returnValue = env.returnValue
             if env.getSuccess():
                 for _addr in tx.affectedAccounts:
-                    self.getAccount(_addr).cancelChanges()
+                    self.getAccount(_addr, True).cancelChanges()
             else:
                 for _addr in tx.affectedAccounts:
-                    self.getAccount(_addr).cancelChanges()
+                    self.getAccount(_addr, True).cancelChanges()
         else:
             for _addr in tx.affectedAccounts:
-                self.getAccount(_addr).cancelChanges()
+                self.getAccount(_addr, True).cancelChanges()
         return (env.gasUsed)
 
 
@@ -1145,9 +1163,9 @@ class State(object):
         # else:
             # env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
             # self.execEVMCall(env)
-        env = self.getAccount(msg.recipient).call(msg)
+        env = self.getAccount(msg.recipient, True).call(msg)
         for _addr in tx.affectedAccounts:
-            self.getAccount(_addr).cancelChanges()
+            self.getAccount(_addr, True).cancelChanges()
         return env
 
     def playTransaction(self, tx, showMessage):
@@ -1748,25 +1766,22 @@ def numberOfTxs():
 @app.route("/accounts/accountInfo/<account>") # Get account info (balance and transaction hashes)
 def accountInfo(account):
     _address = w3.toChecksumAddress(account)
-    balance = 0
+    acct = node.state.getAccount(_address, True)
+    balance = acct.balance
+    transactions = acct.transactions
     try:
-        balance = node.state.getAccount(_address).balance
-    except:
-        balance = 0
-    transactions = node.state.getAccount(_address).transactions
-    try:
-        bio = node.state.getAccount(_address).bio
+        bio = acct.bio
     except:
         bio = ""
-    code = node.state.getAccount(_address).code.hex()
-    storage = node.state.getAccount(_address).storage
-    nonce = len(node.state.getAccount(_address).sent)
-    return flask.jsonify(result={"balance": (balance or 0), "tempBalance": node.state.getAccount(account).tempBalance, "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
+    code = acct.code.hex()
+    storage = acct.storage
+    nonce = len(acct.sent)
+    return flask.jsonify(result={"balance": (balance or 0), "tempBalance": acct.tempBalance, "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
 
 @app.route("/accounts/sent/<account>")
 def sentByAccount(account):
     _address = w3.toChecksumAddress(account)    
-    return flask.jsonify(result=node.state.getAccount(_address).sent, success=True)
+    return flask.jsonify(result=node.state.getAccount(_address, True).sent, success=True)
 
 @app.route("/accounts/accountBalance/<account>")
 def accountBalance(account):
@@ -1867,7 +1882,7 @@ def handleWeb3Request():
     params = data.get("params")
     result = hex(node.state.chainID)
     if method == "eth_getBalance":
-        result = hex(int((node.state.getAccount(w3.toChecksumAddress(params[0])).balance)))
+        result = hex(int((node.state.getAccount(w3.toChecksumAddress(params[0]),True).balance)))
     if method == "net_version":
         result = str(node.state.chainID)
     if method == "eth_coinbase":
@@ -1880,7 +1895,7 @@ def handleWeb3Request():
         # result = hex(len(node.state.beaconChain.blocks) - 1)
         result = hex(len(node.transactions) - 1)
     if method == "eth_getTransactionCount":
-        result = hex(len(node.state.getAccount(w3.toChecksumAddress(params[0])).sent))
+        result = hex(len(node.state.getAccount(w3.toChecksumAddress(params[0]), True).sent))
     if method == "eth_getCode":
         result = "0x"
     if method == "eth_estimateGas":
@@ -1896,9 +1911,9 @@ def handleWeb3Request():
     if method == "eth_getTransactionReceipt":
         result = node.txReceipt(params[0])
     if method == "eth_getCode":
-        result = f"0x{node.state.getAccount(params[0]).code.hex()}"
+        result = f"0x{node.state.getAccount(params[0], True).code.hex()}"
     if method == "eth_getStorageAt":
-        result = hex(int(node.state.getAccount(params[0]).storage[int(params[1])]))
+        result = hex(int(node.state.getAccount(params[0], True).storage[int(params[1])]))
     if method == "eth_getTransactionByHash":
         result = node.ethGetTransactionByHash(params[0])
     _respdict = {"id": _id, "jsonrpc": "2.0", "result": result}
