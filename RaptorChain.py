@@ -1539,21 +1539,6 @@ class Node(object):
 # thread = threading.Thread(target=node.backgroundRoutine)
 # thread.start()
 
-class TxBuilder(object):
-    def __init__(self, node):
-        self.signer = SignatureManager()
-        self.node = node
-
-    def buildTransaction(self, priv_key, _from, _to, tokens):
-        from_ = w3.toChecksumAddress(_from)
-        to_ = w3.toChecksumAddress(_to)
-        data = json.dumps({"from": from_, "to": to_, "tokens": tokens, "parent": self.state.getLastSentTx(_from), "type": 0})
-        tx = {"data": data}
-        tx = self.signer.signTransaction(priv_key, tx)
-        playable = self.node.canBePlayed(tx)
-        self.checkTxs([tx])
-        return (tx, playable)
-
 class Terminal(object):
     def __init__(self, nodeClass):
         self.node = nodeClass
@@ -1636,7 +1621,6 @@ class Terminal(object):
 if __name__ == "__main__":
     node = Node(config)
     print(node.config)
-    maker = TxBuilder(node)
     thread = threading.Thread(target=node.networkBackgroundRoutine)
     thread.start()
 
