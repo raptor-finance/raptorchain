@@ -244,20 +244,22 @@ class CallBlankTransaction(object):
         if not _addr in self.affectedAccounts:
             self.affectedAccounts.append(_addr)
 
-class Masternode(object):
-    def __init__(self, owner, operator):
-        self.owner = w3.toChecksumAddress(owner)
-        self.operator = w3.toChecksumAddress(operator)
-        self.collateral = 1000000000000000000000000
-        self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
-    
-    def updateHash(self):
-        self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
-
-    def JSONSerializable(self):
-        return {"owner": self.owner, "operator": self.operator, "collateral": self.collateral, "hash": self.hash.hex()}
 
 class BeaconChain(object):
+    class Masternode(object):
+        def __init__(self, owner, operator):
+            self.owner = w3.toChecksumAddress(owner)
+            self.operator = w3.toChecksumAddress(operator)
+            self.collateral = 1000000000000000000000000
+            self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
+        
+        def updateHash(self):
+            self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
+
+        def JSONSerializable(self):
+            return {"owner": self.owner, "operator": self.operator, "collateral": self.collateral, "hash": self.hash.hex()}
+
+
     class GenesisBeacon(object):
         def __init__(self):
             self.timestamp = 1645457628
@@ -395,7 +397,7 @@ class BeaconChain(object):
         self.pendingMessages = []
         self.blockReward = 0
         self.blockTime = 600 # in seconds
-        self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
+        self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": self.Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x723b074d5f653CbFCe78752DEC34301a3EA8326F", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.STIUpgradeBlock = 1
@@ -500,7 +502,7 @@ class BeaconChain(object):
     
     def createValidator(self, owner, operator):
         if not self.validators.get(operator):
-            self.validators[operator] = Masternode(owner, operator)
+            self.validators[operator] = self.Masternode(owner, operator)
     
     def destroyValidator(self, operator):
         if self.validators.get(operator):
