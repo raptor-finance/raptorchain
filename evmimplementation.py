@@ -1261,9 +1261,9 @@ class PrecompiledContracts(object):
             self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
             self.bridge = _bridge
             self.methods = {}
-            self._name = self.BEP20Instance.functions.name().call()
-            self._symbol = self.BEP20Instance.functions.symbol().call()
-            self._decimals = self.BEP20Instance.functions.decimals().call()
+            self._name = self.BEP20Instance.name
+            self._symbol = self.BEP20Instance.symbol
+            self._decimals = self.BEP20Instance.decimals
             self.address = w3.toChecksumAddress((int(self.BEP20Instance.address, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
             self.supply = 0
