@@ -344,27 +344,49 @@ class BeaconChain(object):
 
 
     class GenesisBeacon(object):
-        def __init__(self):
-            self.timestamp = 1645457628
-            self.miner = "0x0000000000000000000000000000000000000000"
-            self.parent = "Initializing the RaptorChain...".encode()
-            self.difficulty = 1
-            self.decodedMessages = ["Hey guys, just trying to implement a kind of raptor chain, feel free to have a look".encode()]
-            self.messages = eth_abi.encode_abi(["bytes[]"], [self.decodedMessages])
-            self.nonce = 0
-            self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-            self.proof = self.proofOfWork()
-            self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
-            self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
-            self.transactions = []
-            self.depCheckerTxs = []
-            self.number = 0
-            self.son = ""
-            self.nextBlockTx = None
-            self.v = 0
-            self.r = "0x0000000000000000000000000000000000000000000000000000000000000000"
-            self.s = "0x0000000000000000000000000000000000000000000000000000000000000000"
-            self.sig = "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        def __init__(self, testnet=True):
+            if testnet:
+                self.timestamp = 1645457628
+                self.miner = "0x0000000000000000000000000000000000000000"
+                self.parent = "Initializing the RaptorChain...".encode()
+                self.difficulty = 1
+                self.decodedMessages = ["Hey guys, just trying to implement a kind of raptor chain, feel free to have a look".encode()]
+                self.messages = eth_abi.encode_abi(["bytes[]"], [self.decodedMessages])
+                self.nonce = 0
+                self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                self.proof = self.proofOfWork()
+                self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
+                self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
+                self.transactions = []
+                self.depCheckerTxs = []
+                self.number = 0
+                self.son = ""
+                self.nextBlockTx = None
+                self.v = 0
+                self.r = "0x0000000000000000000000000000000000000000000000000000000000000000"
+                self.s = "0x0000000000000000000000000000000000000000000000000000000000000000"
+                self.sig = "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+        else:
+                self.timestamp = 1654884714
+                self.miner = "0x0000000000000000000000000000000000000000"
+                self.parent = b"RaptorChain Mainnet almost ready"
+                self.difficulty = 1
+                self.decodedMessages = [b"Hey guys, I'm working on RaptorChain and expecting it to work very soon !!! - 10/06/2022"]
+                self.messages = eth_abi.encode_abi(["bytes[]"], [self.decodedMessages])
+                self.nonce = 0
+                self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                self.proof = self.proofOfWork()
+                self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
+                self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
+                self.transactions = []
+                self.depCheckerTxs = []
+                self.number = 0
+                self.son = ""
+                self.nextBlockTx = None
+                self.v = 0
+                self.r = "0x0000000000000000000000000000000000000000000000000000000000000000"
+                self.s = "0x0000000000000000000000000000000000000000000000000000000000000000"
+                self.sig = "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
             
         def beaconRoot(self):
             messagesHash = w3.keccak(eth_abi.encode_abi(["bytes[]"], [self.decodedMessages]))
