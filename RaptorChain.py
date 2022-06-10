@@ -231,18 +231,36 @@ class BeaconChain(object):
 
     class BSCInterface(object):
         class CachedToken(object):
-            def __init__(self, instance):
+            def __init__(self, instance, cacheValue={}):
                 self.BEP20Instance = instance
-                self.name = self.BEP20Instance.functions.name().call()
-                self.symbol = self.BEP20Instance.functions.symbol().call()
-                self.decimals = self.BEP20Instance.functions.decimals().call()
+                self.name = cacheValue.get("name") if cacheValue.get("name") else self.BEP20Instance.functions.name().call()
+                self.symbol = cacheValue.get("symbol") if cacheValue.get("symbol") else self.BEP20Instance.functions.symbol().call()
+                self.decimals = cacheValue.get("decimals") if cacheValue.get("decimals") else self.BEP20Instance.functions.decimals().call()
                 self.address = self.BEP20Instance.address
                 
             def JSONSerializable(self):
                 return {"name": self.name, "symbol": self.symbol, "decimals": self.decimals}
     
+        class CachedDeposit(object):
+            class CachedDepositException(Exception):
+                def __init__(self):
+                    pass
+                
+                
+            def __init__(self, depositData=None, cacheData=None):
+                if (depositData and cacheData) or (not (depositData or cacheData)):
+                    raise CachedDepositException("Error with inputs")
+                if depositData:
+                    (self.amount, self.depositor, self.nonce, self.token, self.data, self.hash) = depositData
+                elif cacheData:
+                    (self.amount, self.depositor, self.nonce, self.token, self.data, self.hash) = (cacheData.get("amount"), cacheData.get("depositor"), cacheData.get("nonce"), cacheData.get("token"), bytes.fromhex(cacheData.get("data").replace("0x", "")), bytes.fromhex(cacheData.get("hash").replace("0x", "")))
+                
+                self.legacyFormat = {"amount": self.amount, "depositor": self.depositor, "nonce": self.nonce, "token": self.token, "data": self.data, "hash": self.hash}
+                
+            def JSONSerializable(self):
+                return {"amount": self.amount, "depositor": self.depositor, "nonce": self.nonce, "token": self.token, "data": self.data.hex(), "hash": self.hash.hex()}
     
-        def __init__(self, rpc, MasterContractAddress, tokenAddress, cacheFile=None):
+        def __init__(self, rpc, MasterContractAddress, tokenAddress, cacheFile="BSCcache.json"):
             self.token = tokenAddress
             MasterContractABI = """[{"inputs": [{"internalType": "address","name": "stakingToken","type": "address"},{"components": [{"internalType": "address","name": "miner","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "bytes[]","name": "messages","type": "bytes[]"},{"internalType": "uint256","name": "difficulty","type": "uint256"},{"internalType": "bytes32","name": "miningTarget","type": "bytes32"},{"internalType": "uint256","name": "timestamp","type": "uint256"},{"internalType": "bytes32","name": "parent","type": "bytes32"},{"internalType": "bytes32","name": "proof","type": "bytes32"},{"internalType": "uint256","name": "height","type": "uint256"},{"internalType": "bytes32","name": "son","type": "bytes32"},{"internalType": "uint8","name": "v","type": "uint8"},{"internalType": "bytes32","name": "r","type": "bytes32"},{"internalType": "bytes32","name": "s","type": "bytes32"}],"internalType": "struct BeaconChainHandler.Beacon","name": "_genesisBeacon","type": "tuple"}],"stateMutability": "nonpayable","type": "constructor"},{"inputs": [],"name": "beaconchain","outputs": [{"internalType": "contract BeaconChainHandler","name": "","type": "address"}],"stateMutability": "view","type": "function"},{"inputs": [],"name": "custody","outputs": [{"internalType": "contract CustodyManager","name": "","type": "address"}],"stateMutability": "view","type": "function"},{"inputs": [],"name": "staking","outputs": [{"internalType": "contract StakeManager","name": "","type": "address"}],"stateMutability": "view","type": "function"}]"""
             StakingContractABI = """[{"inputs": [{"internalType": "address","name": "_stakingToken","type": "address"}],"stateMutability": "nonpayable","type": "constructor"},{"inputs": [],"name": "beaconChain","outputs": [{"internalType": "contract BeaconChainHandler","name": "","type": "address"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "claimMNRewards","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "createMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "destroyMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "disableMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "enableMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "","type": "address"}],"name": "masternodes","outputs": [{"internalType": "address","name": "owner","type": "address"},{"internalType": "address","name": "operator","type": "address"},{"internalType": "uint256","name": "collateral","type": "uint256"},{"internalType": "uint256","name": "rewards","type": "uint256"},{"internalType": "bool","name": "operating","type": "bool"}],"stateMutability": "view","type": "function"},{"inputs": [{"components": [{"internalType": "address","name": "miner","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "bytes[]","name": "messages","type": "bytes[]"},{"internalType": "uint256","name": "difficulty","type": "uint256"},{"internalType": "bytes32","name": "miningTarget","type": "bytes32"},{"internalType": "uint256","name": "timestamp","type": "uint256"},{"internalType": "bytes32","name": "parent","type": "bytes32"},{"internalType": "bytes32","name": "proof","type": "bytes32"},{"internalType": "uint256","name": "height","type": "uint256"},{"internalType": "bytes32","name": "son","type": "bytes32"},{"internalType": "uint8","name": "v","type": "uint8"},{"internalType": "bytes32","name": "r","type": "bytes32"},{"internalType": "bytes32","name": "s","type": "bytes32"}],"internalType": "struct BeaconChainHandler.Beacon","name": "_block","type": "tuple"}],"name": "sendL2Block","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "contract BeaconChainHandler","name": "_handler","type": "address"}],"name": "setBeaconHandler","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [],"name": "stakingToken","outputs": [{"internalType": "contract ERC20Interface","name": "","type": "address"}],"stateMutability": "view","type": "function"}]"""
@@ -263,36 +281,65 @@ class BeaconChain(object):
             # self.stakingContract = self.chain.eth.contract(address=self.masterContract.functions.staking().call(), abi=StakingContractABI)
             self.custodyContract = self.chain.eth.contract(address=self.masterContract.functions.custody().call(), abi=CustodyContractABI)
             # self.beaconChainContract = self.chain.eth.contract(address=self.masterContract.functions.beaconchain().call(), abi=BeaconChainContractABI)
+            self.loadCacheFile()
             
             
         def getDepositDetails(self, _hash):
             if self.cachedDeposits.get(_hash):
-                return self.cachedDeposits.get(_hash)
-            returnValue = {}
-            (returnValue["amount"], returnValue["depositor"], returnValue["nonce"], returnValue["token"], returnValue["data"], returnValue["hash"]) = self.custodyContract.functions.deposits(_hash).call()
+                print(f"Deposit {_hash} pulled from cache")
+                return self.cachedDeposits.get(_hash).legacyFormat
+            cachedDeposit = self.CachedDeposit(depositData=self.custodyContract.functions.deposits(_hash).call())
             # if (w3.toChecksumAddress(self.token) != w3.toChecksumAddress(returnValue["token"])):
                 # returnValue["amount"] = 0
-            self.cachedDeposits[_hash] = returnValue
-            return returnValue
+            self.cachedDeposits[_hash] = cachedDeposit
+            print(f"Deposit {_hash} pulled from BSC")
+            self.saveCacheFile()
+            return cachedDeposit.legacyFormat
             
         def getBEP20At(self, addr):
             if self.cachedTokens.get(addr):
                 return self.cachedTokens[addr]
             _cached = self.CachedToken(self.chain.eth.contract(address=Web3.toChecksumAddress(addr), abi=self.BEP20ABI))
             self.cachedTokens[addr] = _cached
+            self.saveCacheFile()
             return _cached
-            
+                        
         def serializeCachedTokens(self):
             done = {}
             for address, token in self.cachedTokens.items():
                 done[address] = token.JSONSerializable()
             return done
             
+        def loadCachedTokens(self, data):
+            for address, cached in data.items():
+                self.cachedTokens[address] = self.CachedToken(self.chain.eth.contract(address=Web3.toChecksumAddress(address), abi=self.BEP20ABI), cached)
+            
+        def serializeCachedDeposits(self):
+            returnValue = {}
+            for key, value in self.cachedDeposits.items():
+                returnValue[key] = value.JSONSerializable()
+            return returnValue
+            
+        def loadCachedDeposits(self, data):
+            for key, value in data.items():
+                self.cachedDeposits[int(key) if key.isnumeric() else key] = self.CachedDeposit(cacheData=value)
+            
+        def loadCacheFile(self):
+            if not self.cacheFile:
+                return
+            f = open(self.cacheFile, "r")
+            _data = json.load(f)
+            f.close()
+            self.loadCachedTokens(_data.get("tokens", {}))
+            self.loadCachedDeposits(_data.get("deposits", {}))
+            
+            
         def saveCacheFile(self):
             if not self.cacheFile:
                 return
             f = open(self.cacheFile, "w")
-            f.write(json.dumps({"tokens": self.serializeCachedTokens(self.cachedTokens)), "deposits": self.cachedDeposits})
+            _data = json.dumps({"tokens": self.serializeCachedTokens(), "deposits": self.serializeCachedDeposits()})
+            f.write(_data)
             f.close()
 
 
@@ -435,7 +482,7 @@ class BeaconChain(object):
         self.blockTime = 600 # in seconds
         self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": self.Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
-        self.bsc = self.BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x723b074d5f653CbFCe78752DEC34301a3EA8326F", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.bsc = self.BSCInterface("https://data-seed-prebsc-2-s1.binance.org:8545/", "0x723b074d5f653CbFCe78752DEC34301a3EA8326F", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.STIUpgradeBlock = 1
 
     def checkBeaconMessages(self, beacon):
