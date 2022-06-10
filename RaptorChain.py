@@ -292,7 +292,7 @@ class BeaconChain(object):
             if not self.cacheFile:
                 return
             f = open(self.cacheFile, "w")
-            f.write(json.dumps(self.serializeCachedTokens(self.cachedTokens)))
+            f.write(json.dumps({"tokens": self.serializeCachedTokens(self.cachedTokens)), "deposits": self.cachedDeposits})
             f.close()
 
 
