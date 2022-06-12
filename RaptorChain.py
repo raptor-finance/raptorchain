@@ -366,7 +366,7 @@ class BeaconChain(object):
                 self.r = "0x0000000000000000000000000000000000000000000000000000000000000000"
                 self.s = "0x0000000000000000000000000000000000000000000000000000000000000000"
                 self.sig = "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-        else:
+            else:
                 self.timestamp = 1654884714
                 self.miner = "0x0000000000000000000000000000000000000000"
                 self.parent = b"RaptorChain Mainnet almost ready"
@@ -407,8 +407,8 @@ class BeaconChain(object):
         def difficultyMatched(self):
             return int(self.proofOfWork(), 16) < self.miningTarget
 
-        def ABIEncodableTuple(self):
-            return (self.miner,int(self.nonce),self.messagesToHex(),int(self.difficulty),self.miningTarget,self.timestamp,self.parent.hex(),self.proof,int(self.number),"0x0000000000000000000000000000000000000000000000000000000000000000", int(self.v),  self.r, self.s)
+        def ABIEncodable(self):
+            return str([self.miner, int(self.nonce),[m.hex() for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.height), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s])
 
         # def exportJson(self):
             # return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
@@ -485,9 +485,8 @@ class BeaconChain(object):
         def txsRoot(self):
             return w3.solidityKeccak(["bytes32", "bytes32", "bytes32[]"], [self.proof, self.stateRoot, sorted(self.transactions)])
 
-
-        # def ABIEncodableTuple(self):
-            # return (self.miner,int(self.nonce),self.messages,int(self.difficulty),self.miningTarget,self.timestamp,self.parent,self.proof,int(self.number),bytes.fromhex("0000000000000000000000000000000000000000000000000000000000000000"), int(self.v),  int(self.r), int(self.s))
+        def ABIEncodable(self):
+            return ([self.miner, int(self.nonce),[m.hex() for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.height), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s])
 
         def exportJson(self):
             # return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
@@ -1649,6 +1648,7 @@ class Terminal(object):
         self.commands["tokenBalance"] = self.tokenBalance
         self.commands["account"] = self.accountInfo
         self.commands["stats"] = self.stats
+        self.commands["abibeacon"] = self.abibeacon
     
     
     def _encodeWithSelector(self, functionName, params):
@@ -1686,6 +1686,15 @@ class Terminal(object):
         print(f"Chain stats\n    Chain length : {chainLength}\n    Last block hash : {lastBlockHash}")
         
         
+    def abibeacon(self, keyInput):
+        _id = keyInput[1]
+        try:
+            if _id.isnumeric():
+                print(self.node.state.beaconChain.blocks[int(_id)].ABIEncodable())
+            else:
+                print(self.node.state.beaconChain.blockByHash.get(_id).ABIEncodable())
+        except Exception as e:
+            print(e.__repr__())
     
     def balance(self, keyInput):
         addr = keyInput[1]
