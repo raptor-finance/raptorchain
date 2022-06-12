@@ -408,7 +408,7 @@ class BeaconChain(object):
             return int(self.proofOfWork(), 16) < self.miningTarget
 
         def ABIEncodable(self):
-            return str([self.miner, int(self.nonce),[m.hex() for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.height), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s])
+            return ([self.miner, int(self.nonce),[m.hex() for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent.hex(), self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s])
 
         # def exportJson(self):
             # return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
@@ -486,7 +486,7 @@ class BeaconChain(object):
             return w3.solidityKeccak(["bytes32", "bytes32", "bytes32[]"], [self.proof, self.stateRoot, sorted(self.transactions)])
 
         def ABIEncodable(self):
-            return ([self.miner, int(self.nonce),[m.hex() for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.height), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s])
+            return ([self.miner, int(self.nonce),[m.hex() for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s])
 
         def exportJson(self):
             # return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
@@ -1718,15 +1718,15 @@ class Terminal(object):
     
     def execCommand(self, command):
         keyInput = list(filter(("").__ne__, command.split(" "))) or [""]
-        try:
-            self.commands.get(keyInput[0], self.skip)(keyInput)
-        except Exception as e:
-            raise
+        self.commands.get(keyInput[0], self.skip)(keyInput)
     
     def terminalLoop(self):
         while True:
-            cmd = input("RaptorChain Terminal - $ ")
-            self.execCommand(cmd)
+            try:
+                cmd = input("RaptorChain Terminal - $ ")
+                self.execCommand(cmd)
+            except Exception as e:
+                print(f"Exception occured executing command: {e.__repr__()}")
 
 if __name__ == "__main__":
     node = Node(config)
