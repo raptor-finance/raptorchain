@@ -787,7 +787,7 @@ class State(object):
         self.debug = False
         self.shouldLog = True
         self.chainID = 499597202514
-        self.version = "0.4.1-testnet"
+        self.version = "0.5.0-testnet"
 
     def formatAddress(self, _addr):
         if (type(_addr) == int):
