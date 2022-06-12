@@ -635,19 +635,19 @@ class BeaconChain(object):
 
 class State(object):
     class Account(object):
-        def __init__(self, address, initTxID, accountGetter, callfallback, chainAccess):
+        def __init__(self, address, initTxID, accountGetter, callfallback, chainAccess, snapshotData={}):
             self.address = w3.toChecksumAddress(address)
             self.initialized = False
-            self.balance = 0
-            self.tempBalance = 0 # allows reverting calls
-            self.transactions = [initTxID]
-            self.sent = [initTxID]
-            self.received = []
-            self.mined = []
-            self.bio = ""
-            self.code = b""
-            self.storage = {}
-            self.tempStorage = {}
+            self.balance = snapshotData.get("balance", 0)
+            self.tempBalance = snapshotData.get("tempBalance", 0)
+            self.transactions = snapshotData.get("transactions", [initTxID])
+            self.sent = snapshotData.get("sent", [initTxID])
+            self.received = snapshotData.get("received", [])
+            self.mined = snapshotData.get("mined", [])
+            self.bio = snapshotData.get("bio", "")
+            self.code = bytes.fromhex(snapshotData.get("code", ""))
+            self.storage = snapshotData.get("storage", {})
+            self.tempStorage = snapshotData.get("tempStorage", {})
             self.hash = ""
             self.calcHash(True)
             self.precompiledContract = None
@@ -730,7 +730,7 @@ class State(object):
             return env
         
         def JSONSerializable(self):
-            return {"balance": self.balance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "hash": self.hash.hex(), "initialized": self.initialized}
+            return {"balance": self.balance, "tempBalance": self.tempBalance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "mined": self.mined, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "tempStorage": self.tempStorage, "hash": self.hash.hex(), "initialized": self.initialized}
 
     class CallBlankTransaction(object):
         def __init__(self, call):
