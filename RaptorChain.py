@@ -228,12 +228,13 @@ class BeaconChain(object):
             self.operator = w3.toChecksumAddress(operator)
             self.collateral = 1000000000000000000000000
             self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
+            self.blocks = []
         
         def updateHash(self):
             self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
 
         def JSONSerializable(self):
-            return {"owner": self.owner, "operator": self.operator, "collateral": self.collateral, "hash": self.hash.hex()}
+            return {"owner": self.owner, "operator": self.operator, "collateral": self.collateral, "blocks": self.blocks, "hash": self.hash.hex()}
 
     class BSCInterface(object):
         class CachedToken(object):
@@ -571,6 +572,7 @@ class BeaconChain(object):
         beaconValidity = self.isBeaconValid(_beacon)
         if beaconValidity[0]:
             self.addBeaconToChain(_beacon)
+            self.validators.get(w3.toChecksumAddress(_beacon.miner)).blocks.append(_beacon.proof)
             return _beacon.miner
         return False
     
