@@ -1047,7 +1047,6 @@ class State(object):
         
         
         self.accounts[tx.sender].balance -= (tx.value + tx.fee)
-        self.accounts[self.beaconChain.blocksByHash.get(tx.epoch).miner].balance += tx.fee
         if (tx.recipient == self.crossChainAddress):
             self.requestCrosschainTransfer(tx)
             self.totalSupply -= tx.value
@@ -1187,12 +1186,14 @@ class State(object):
             tx.messages = tx.messages + env.messages
             self.log(f"Tx messages : {tx.messages}")
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
-            return (True, tx.returnValue.hex())
         else:
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).cancelChanges()
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
-            return (False, tx.returnValue.hex())
+        feeToRefund = max((tx.gasprice * env.remainingGas()), 0) # can't spend more than gas limit (even if gas usage is slightly superior)
+        senderAcct.balance += feeToRefund
+        tx.fee -= feeToRefund
+        return (env.getSuccess(), tx.returnValue.hex())
         # else:
             # for _addr in tx.affectedAccounts:
                 # self.getAccount(_addr).makeChangesPermanent()
@@ -1279,6 +1280,7 @@ class State(object):
                 self.getAccount(acct).addParent(_tx.txid)
             self.getAccount(acct).calcHash()
         self.postTxMessages(_tx)
+        self.accounts[self.beaconChain.blocksByHash.get(_tx.epoch).miner].balance += _tx.fee
         self.calcStateRoot()
         self.updateHolders()
         print(f"Transaction {_tx.txid} completed in {round((time.time()-_begin_)*1000, 3)}ms")
