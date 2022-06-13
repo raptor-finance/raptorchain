@@ -315,6 +315,57 @@ contract CustodyManager {
 	}
 }
 
+contract RelayerSet {
+	struct Relayer {
+		address owner;
+		address operator;
+		bool active;
+		uint256 collateral;
+		bool exists;
+	}
+
+	ERC20Interface public stakingToken;
+	uint256 public collateral;
+	mapping (address => Relayer) public relayerInfo;
+	address[] public relayersList;
+	
+	modifier onlyRelayerOwner(address operator) {
+		require(relayerInfo[operator].owner == msg.sender, "Only relayer owner can do that");
+		_;
+	}
+	
+	function _addRelayer(address owner, address operator, bool active, uint256 collateral) private {
+		require(!relayerInfo[operator].exists, "RELAYER_ALREADY_EXISTS");
+		relayerInfo[addr] = Relayer({owner: owner, operator: operator, active: active, collateral: collateral, exists: true});
+		relayersList.push(addr);
+	}	
+	
+	constructor(address _stakingToken, uint256 _collateral, address bootstrapRelayer) {
+		stakingToken = ERC20Interface(_stakingToken);
+		collateral = _collateral;
+		_addRelayer(address(0), bootstrapRelayer, true, 0);
+	}
+	
+	function createRelayer(address operator) public {
+		require(stakingToken.transferFrom(msg.sender, address(this), collateral), "TRANSFER_FROM_FAILED");
+		_addRelayer(msg.sender, operator, true, collateral);
+	}
+	
+	function enableRelayer(operator) public onlyRelayerOwner(operator) {
+		Relayer storage relayer = relayerInfo[operator];
+		require(!relayer.active, "ALREADY_ACTIVE");
+		require(stakingToken.transferFrom(msg.sender, address(this), collateral), "TRANSFER_FROM_FAILED"); // assuming it's onlyRelayerOwner, then msg.sender == relayer.owner
+		relayer.active = true;
+	}
+	
+	function disableRelayer(operator) public onlyRelayerOwner(operator) {
+		Relayer storage relayer = relayerInfo[operator];
+		require(relayer.active, "ALREADY_DISABLED");
+		relayer.active = false;
+		stakingToken.transfer(relayer.owner, relayer.collateral);
+	}
+}
+
 contract BeaconChainHandler {
 	struct Beacon {
 		address miner;
@@ -331,6 +382,7 @@ contract BeaconChainHandler {
 		uint8 v;
 		bytes32 r;
 		bytes32 s;
+		bytes[] relayerSigs;
 	}
 	// StakeManager public stakingContract;
 	address owner;
@@ -345,7 +397,23 @@ contract BeaconChainHandler {
 		require(msg.sender == owner);
 		_;
 	}
-	
+
+	function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {
+		require(sig.length == 65, "invalid signature length");
+
+		assembly {
+
+			// first 32 bytes, after the length prefix
+			r := mload(add(sig, 32))
+			// second 32 bytes
+			s := mload(add(sig, 64))
+			// final byte (first byte of the next 32 bytes)
+			v := byte(0, mload(add(sig, 96)))
+		}
+
+		// implicitly return (r, s, v)
+	}
+
 	function _chainId() internal pure returns (uint256) {
 		uint256 id;
 		assembly {
@@ -365,6 +433,13 @@ contract BeaconChainHandler {
 		bytes32 messagesRoot = keccak256(abi.encode(_beacon.messages));
 		bytes32 bRoot = keccak256(abi.encodePacked(_beacon.parent, _beacon.timestamp,  messagesRoot, _beacon.parentTxRoot, _beacon.miner));
 		beaconRoot = keccak256(abi.encodePacked(bRoot, _beacon.nonce));
+	}
+	
+	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public pure returns (address[] memory signers) {
+		for (uint256 n = 0; n<_sigs.length; n++) {
+			(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sigs[n]);
+			signers[n] = ecrecover(bkhash, v, r, s); // implicitly returns signers
+		}
 	}
 	
 	function isBeaconValid(Beacon memory _beacon) public view returns (bool valid, string memory reason) {
@@ -388,8 +463,8 @@ contract BeaconChainHandler {
 		return (true, "VALID_BEACON");
 	}
 	
-	function executeCall(bytes memory message) private {
-		handler.call(abi.encodeWithSelector(bytes4(keccak256("routeCall(bytes)")), message));
+	function executeCall(bytes memory message) private returns (bool success, bytes memory result) {
+		(success, result) = handler.call(abi.encodeWithSelector(bytes4(keccak256("routeCall(bytes)")), message));
 	}
 	
 	function extractBeaconMessages(Beacon memory _beacon) public pure returns (bytes[] memory messages, uint256 length) {

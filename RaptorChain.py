@@ -454,6 +454,7 @@ class BeaconChain(object):
             self.r = data["signature"]["r"]
             self.s = data["signature"]["s"]
             self.sig = data["signature"]["sig"]
+            self.relayerSigs = {}
         
 
         def beaconRoot(self):
