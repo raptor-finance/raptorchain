@@ -1275,7 +1275,7 @@ class State(object):
         self.checkDepositsTillIndex(_tx)
         
         for acct in _tx.affectedAccounts:
-            _tx.txtype != 6: # don't count txid of ghost transactions
+            if _tx.txtype != 6: # don't count txid of ghost transactions
                 self.getAccount(acct).addParent(_tx.txid)
             self.getAccount(acct).calcHash()
         self.postTxMessages(_tx)
@@ -1924,6 +1924,25 @@ def getChainLength():
 @app.route("/chain/mempool")
 def getMempool():
     return flask.jsonify(result=node.state.beaconChain.exportMempool(), success=True)
+
+
+
+# VALIDATORS RELATED STUFF - as it's part of `BeaconChain` class, it's under `/chain/validators` path
+@app.route("/chain/validators")
+def getListOfValidators():
+    return flask.jsonify(result=[key for key, value in node.state.beaconChain.validators.items()], success=True)
+
+@app.route("/chain/validators/<valoper>")
+def getValidator(valoper):
+    _val = node.state.beaconChain.validators.get(node.state.formatAddress(valoper))
+    if _val:
+        return flask.jsonify(result=_val.JSONSerializable(), success=True)
+    else:
+        return flask.jsonify(message="VALIDATOR_NOT_FOUND", success=False)
+        
+
+
+
 
 # SHARE PEERS (from `Node` class)
 @app.route("/net/getPeers")
