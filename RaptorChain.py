@@ -246,7 +246,7 @@ class BeaconChain(object):
                 self.address = self.BEP20Instance.address
                 
             def JSONSerializable(self):
-                return {"name": self.name, "symbol": self.symbol, "decimals": self.decimals}
+                return {"name": self.name, "symbol": self.symbol, "decimals": self.decimals, "address": self.address}
     
         class CachedDeposit(object):
             class CachedDepositException(Exception):
