@@ -558,6 +558,7 @@ class BeaconChain(object):
         beacon.number = currentChainLength
         self.blocks.append(beacon)
         self.blocksByHash[beacon.proof] = beacon
+        self.validators.get(w3.toChecksumAddress(beacon.miner)).blocks.append(beacon.proof)
         # self.difficulty = self.calcDifficulty(self.blockTime, _oldtimestamp, int(beacon.timestamp), self.difficulty)
         # self.miningTarget = hex(int(min(int((2**256-1)/self.difficulty),0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)))
         return True
@@ -572,7 +573,6 @@ class BeaconChain(object):
         beaconValidity = self.isBeaconValid(_beacon)
         if beaconValidity[0]:
             self.addBeaconToChain(_beacon)
-            self.validators.get(w3.toChecksumAddress(_beacon.miner)).blocks.append(_beacon.proof)
             return _beacon.miner
         return False
     
