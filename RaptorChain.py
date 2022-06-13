@@ -184,10 +184,16 @@ class Transaction(object):
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.affectedAccounts = [self.sender, self.recipient]
-        elif self.txtype == 6:
+        elif self.txtype == 6: # system transaction
             self.fee = 0
             self.sender = "0x0000000000000000000000000000000000000000"
             self.recipient = "0x0000000000000000000000000000000000000000"
+            self.value = 0
+        elif self.txtype == 7: # relayer sign block
+            self.fee = 0
+            self.sender = txData.get("from")
+            self.recipient = "0x0000000000000000000000000000000000000000"
+            self.blocksig = txData.get("blocksig")
             self.value = 0
         
         self.epoch = txData.get("epoch")
@@ -355,17 +361,6 @@ class BeaconChain(object):
                 self.nonce = 0
                 self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
                 self.proof = self.proofOfWork()
-                self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
-                self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
-                self.transactions = []
-                self.depCheckerTxs = []
-                self.number = 0
-                self.son = ""
-                self.nextBlockTx = None
-                self.v = 0
-                self.r = "0x0000000000000000000000000000000000000000000000000000000000000000"
-                self.s = "0x0000000000000000000000000000000000000000000000000000000000000000"
-                self.sig = "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
             else:
                 self.timestamp = 1654884714
                 self.miner = "0x0000000000000000000000000000000000000000"
@@ -376,17 +371,18 @@ class BeaconChain(object):
                 self.nonce = 0
                 self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
                 self.proof = self.proofOfWork()
-                self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
-                self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
-                self.transactions = []
-                self.depCheckerTxs = []
-                self.number = 0
-                self.son = ""
-                self.nextBlockTx = None
-                self.v = 0
-                self.r = "0x0000000000000000000000000000000000000000000000000000000000000000"
-                self.s = "0x0000000000000000000000000000000000000000000000000000000000000000"
-                self.sig = "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
+            self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
+            self.transactions = []
+            self.depCheckerTxs = []
+            self.son = ""
+            self.number = 0
+            self.nextBlockTx = None
+            self.v = 0
+            self.r = "0x0000000000000000000000000000000000000000000000000000000000000000"
+            self.s = "0x0000000000000000000000000000000000000000000000000000000000000000"
+            self.sig = "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+            self.relayerSigs = []
             
         def beaconRoot(self):
             messagesHash = w3.keccak(eth_abi.encode_abi(["bytes[]"], [self.decodedMessages]))
@@ -454,7 +450,6 @@ class BeaconChain(object):
             self.r = data["signature"]["r"]
             self.s = data["signature"]["s"]
             self.sig = data["signature"]["sig"]
-            self.relayerSigs = []
         
 
         def beaconRoot(self):
@@ -1016,10 +1011,6 @@ class State(object):
         self.accounts[tx.sender].sent.append(tx.txid)
         if tx.txtype == 2:
             return
-        
-        self.accounts[tx.sender].transactions.append(tx.txid)
-        if (tx.sender != tx.recipient):
-            self.accounts[tx.recipient].transactions.append(tx.txid)
         if tx.txtype == 1:
             miner = tx.blockData.get("miningData").get("miner")
             self.ensureExistence(miner)
@@ -1251,9 +1242,9 @@ class State(object):
                 # feedback = self.executeTransfer(_tx, showMessage)
             # else:
             feedback = self.executeContractCall(_tx, showMessage)
-        if _tx.txtype == 1:
+        elif _tx.txtype == 1:
             feedback = self.mineBlock(_tx)
-        if _tx.txtype == 2:
+        elif _tx.txtype == 2:
             # if (_tx.recipient == self.crossChainAddress):
                 # feedback = self.executeTransfer(_tx, showMessage)
             # else:
@@ -1261,15 +1252,17 @@ class State(object):
                 feedback = self.deployContract(_tx)
             else:
                 feedback = self.executeContractCall(_tx, showMessage)
-        if _tx.txtype == 3:
+        elif _tx.txtype == 3:
             # feedback = self.checkOutDeposit(_tx)
             pass # deprecated
-        if _tx.txtype == 4:
+        elif _tx.txtype == 4:
             feedback = self.createMN(_tx)
-        if _tx.txtype == 5:
+        elif _tx.txtype == 5:
             feedback = self.destroyMN(_tx)
-        if _tx.txtype == 6:
+        elif _tx.txtype == 6:
             self.beaconChain.getLastBeacon().depCheckerTxs.append(_tx.txid)
+        elif _tx.txtype == 7:
+            self.beaconChain.addRelayerSig(_tx.sender, _tx.epoch, _tx.sig)
         
         if (_tx.bio):
             self.accounts[_tx.sender].bio = _tx.bio.replace("%20", " ")
@@ -1278,6 +1271,8 @@ class State(object):
         self.checkDepositsTillIndex(_tx)
         
         for acct in _tx.affectedAccounts:
+            _tx.txtype != 6: # txtype 6 = ghost transactions !
+                self.getAccount(acct).addParent(_tx.txid)
             self.getAccount(acct).calcHash()
         self.postTxMessages(_tx)
         self.calcStateRoot()
