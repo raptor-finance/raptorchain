@@ -323,27 +323,58 @@ contract RelayerSet {
 		uint256 collateral;
 		bool exists;
 	}
-
+	
+	address public owner;
 	ERC20Interface public stakingToken;
 	uint256 public collateral;
 	mapping (address => Relayer) public relayerInfo;
 	address[] public relayersList;
+	uint256 public activeRelayers;
+	mapping (uint256 => mapping (bytes32 => mapping (address => bool))) signerCounted;
+	uint256 public systemNonce;
+	
 	
 	modifier onlyRelayerOwner(address operator) {
 		require(relayerInfo[operator].owner == msg.sender, "Only relayer owner can do that");
 		_;
 	}
 	
-	function _addRelayer(address owner, address operator, bool active, uint256 collateral) private {
+	modifier onlyOwner() {
+		require(msg.sender == owner);
+		_;
+	}
+	
+	function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {
+		require(sig.length == 65, "invalid signature length");
+
+		assembly {
+			// first 32 bytes, after the length prefix
+			r := mload(add(sig, 32))
+			// second 32 bytes
+			s := mload(add(sig, 64))
+			// final byte (first byte of the next 32 bytes)
+			v := byte(0, mload(add(sig, 96)))
+		}
+
+		// implicitly return (r, s, v)
+	}
+
+	function _addRelayer(address _owner, address operator, bool active, uint256 _collateral) private {
 		require(!relayerInfo[operator].exists, "RELAYER_ALREADY_EXISTS");
-		relayerInfo[addr] = Relayer({owner: owner, operator: operator, active: active, collateral: collateral, exists: true});
-		relayersList.push(addr);
-	}	
+		relayerInfo[operator] = Relayer({owner: _owner, operator: operator, active: active, collateral: _collateral, exists: true});
+		relayersList.push(operator);
+		activeRelayers += 1;
+	}
 	
 	constructor(address _stakingToken, uint256 _collateral, address bootstrapRelayer) {
+		owner = msg.sender;
 		stakingToken = ERC20Interface(_stakingToken);
 		collateral = _collateral;
 		_addRelayer(address(0), bootstrapRelayer, true, 0);
+	}
+	
+	function nakamotoCoefficient() public view returns (uint256) {
+		return (activeRelayers/2)+1;
 	}
 	
 	function createRelayer(address operator) public {
@@ -351,18 +382,36 @@ contract RelayerSet {
 		_addRelayer(msg.sender, operator, true, collateral);
 	}
 	
-	function enableRelayer(operator) public onlyRelayerOwner(operator) {
+	function enableRelayer(address operator) public onlyRelayerOwner(operator) {
 		Relayer storage relayer = relayerInfo[operator];
 		require(!relayer.active, "ALREADY_ACTIVE");
 		require(stakingToken.transferFrom(msg.sender, address(this), collateral), "TRANSFER_FROM_FAILED"); // assuming it's onlyRelayerOwner, then msg.sender == relayer.owner
 		relayer.active = true;
+		activeRelayers += 1;
 	}
 	
-	function disableRelayer(operator) public onlyRelayerOwner(operator) {
+	function disableRelayer(address operator) public onlyRelayerOwner(operator) {
 		Relayer storage relayer = relayerInfo[operator];
 		require(relayer.active, "ALREADY_DISABLED");
 		relayer.active = false;
 		stakingToken.transfer(relayer.owner, relayer.collateral);
+		activeRelayers -= 1;
+	}
+	
+	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public onlyOwner returns (address[] memory signers, address[] memory validsigs, bool coeffmatched) {
+		uint256 _systemNonce = systemNonce;
+		for (uint256 n = 0; n<_sigs.length; n++) {
+			(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sigs[n]);
+			address addr = ecrecover(bkhash, v, r, s); // implicitly returns signers
+			signers[n] = addr;
+			if ((!signerCounted[_systemNonce][bkhash][addr]) && relayerInfo[addr].active) {
+ 				signerCounted[_systemNonce][bkhash][addr] = true;
+				validsigs[validsigs.length] = addr;
+			}
+			coeffmatched = (validsigs.length >= nakamotoCoefficient());
+			if coeffmatched { break; } // we don't need to keep checking once we're sure it works
+		}
+		systemNonce = _systemNonce+1; // using _systemNonce saves a gas-eating SLOAD
 	}
 }
 
@@ -389,6 +438,7 @@ contract BeaconChainHandler {
 	Beacon[] public beacons;
 	uint256 blockTime = 600;
 	address handler;
+	RelayerSet public relayerSet;
 	
 	event CallExecuted(address indexed to, bytes data, bool success);
 	event CallDismissed(address indexed to, bytes data, string reason);
@@ -396,22 +446,6 @@ contract BeaconChainHandler {
 	modifier onlyOwner {
 		require(msg.sender == owner);
 		_;
-	}
-
-	function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {
-		require(sig.length == 65, "invalid signature length");
-
-		assembly {
-
-			// first 32 bytes, after the length prefix
-			r := mload(add(sig, 32))
-			// second 32 bytes
-			s := mload(add(sig, 64))
-			// final byte (first byte of the next 32 bytes)
-			v := byte(0, mload(add(sig, 96)))
-		}
-
-		// implicitly return (r, s, v)
 	}
 
 	function _chainId() internal pure returns (uint256) {
@@ -427,19 +461,13 @@ contract BeaconChainHandler {
 		beacons.push(_genesisBeacon);
 		beacons[0].height = 0;
 		handler = msg.sender;
+		relayerSet = new RelayerSet(address _stakingToken, 10e18, address bootstrapRelayer)
 	}
 	
 	function beaconHash(Beacon memory _beacon) public pure returns (bytes32 beaconRoot) {
 		bytes32 messagesRoot = keccak256(abi.encode(_beacon.messages));
 		bytes32 bRoot = keccak256(abi.encodePacked(_beacon.parent, _beacon.timestamp,  messagesRoot, _beacon.parentTxRoot, _beacon.miner));
 		beaconRoot = keccak256(abi.encodePacked(bRoot, _beacon.nonce));
-	}
-	
-	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public pure returns (address[] memory signers) {
-		for (uint256 n = 0; n<_sigs.length; n++) {
-			(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sigs[n]);
-			signers[n] = ecrecover(bkhash, v, r, s); // implicitly returns signers
-		}
 	}
 	
 	function isBeaconValid(Beacon memory _beacon) public view returns (bool valid, string memory reason) {
