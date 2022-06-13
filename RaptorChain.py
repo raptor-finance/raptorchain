@@ -1012,10 +1012,11 @@ class State(object):
         if tx.txtype == 2:
             return
         if tx.txtype == 1:
-            miner = tx.blockData.get("miningData").get("miner")
+            miner = self.formatAddress(tx.blockData.get("miningData").get("miner"))
             self.ensureExistence(miner)
             self.accounts[miner].mined.append(tx.txid)
-            self.accounts[miner].transactions.append(tx.txid)
+            tx.affectedAccounts.append(miner)
+            # self.accounts[miner].transactions.append(tx.txid)
         
         self.accounts[tx.recipient].received.append(tx.txid)
 
@@ -1271,7 +1272,7 @@ class State(object):
         self.checkDepositsTillIndex(_tx)
         
         for acct in _tx.affectedAccounts:
-            _tx.txtype != 6: # txtype 6 = ghost transactions !
+            _tx.txtype != 6: # don't count txid of ghost transactions
                 self.getAccount(acct).addParent(_tx.txid)
             self.getAccount(acct).calcHash()
         self.postTxMessages(_tx)
