@@ -646,7 +646,8 @@ class State(object):
             self.storage = snapshotData.get("storage", {})
             self.tempStorage = snapshotData.get("tempStorage", {})
             self.hash = ""
-            self.calcHash(True)
+            self.calcHash(False)
+            self.defaultHash = snapshotData.get("defaultHash", self.hash)
             self.precompiledContract = None
             self.accountGetter = accountGetter
             self.callfallback = callfallback
@@ -688,7 +689,7 @@ class State(object):
                 self.transactions.append(txid)
         
         def isInitialized(self):
-            (not self.precompiledContract) or len(self.transactions > 1)
+            return (self.hash == self.defaultHash)
         
         def _prepareCallEnv(self, msg):
             return EVM.CallEnv(self.accountGetter, caller=msg.sender, runningAccount=self, recipient=self.address, beaconchain=self.chainAccess, value=msg.value, gaslimit=msg.gas, tx=msg.tx, data=msg.data, callfallback=self.callfallback, code=b"", static=False, storage=None, calltype=msg.calltype, calledFromAcctClass=True)
@@ -727,7 +728,7 @@ class State(object):
             return env
         
         def JSONSerializable(self):
-            return {"balance": self.balance, "tempBalance": self.tempBalance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "mined": self.mined, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "tempStorage": self.tempStorage, "hash": self.hash.hex(), "initialized": self.initialized}
+            return {"balance": self.balance, "tempBalance": self.tempBalance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "mined": self.mined, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "tempStorage": self.tempStorage, "hash": self.hash.hex(), "defaultHash": self.defaultHash, "initialized": self.initialized}
 
     class CallBlankTransaction(object):
         def __init__(self, call):
@@ -801,7 +802,7 @@ class State(object):
     def calcStateRoot(self):
         accountHashes = []
         for (addr, acct) in self.accounts.items():
-            if acct.initialized:
+            if acct.isInitialized():
                 accountHashes.append(acct.hash)
         accountingRoot = w3.solidityKeccak(["bytes32[]"], [sorted(accountHashes)])
         masternodesRoot = self.beaconChain.validatorSetHash()
