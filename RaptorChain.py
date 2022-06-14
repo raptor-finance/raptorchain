@@ -383,7 +383,7 @@ class BeaconChain(object):
             self.r = "0x0000000000000000000000000000000000000000000000000000000000000000"
             self.s = "0x0000000000000000000000000000000000000000000000000000000000000000"
             self.sig = "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            self.relayerSigs = []
+            self.relayerSigs = {}
             
         def beaconRoot(self):
             messagesHash = w3.keccak(eth_abi.encode_abi(["bytes[]"], [self.decodedMessages]))
@@ -405,7 +405,7 @@ class BeaconChain(object):
             return int(self.proofOfWork(), 16) < self.miningTarget
 
         def ABIEncodable(self):
-            return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), ("0x" + ((self.parent + (b'\x00' * (32-len(self.parent)))).hex())), self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s, [f"0x{s.hex()}" for s in self.relayerSigs]])
+            return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), ("0x" + ((self.parent + (b'\x00' * (32-len(self.parent)))).hex())), self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s, [f"0x{s.hex()}" for r, s in self.relayerSigs.items()]])
 
         # def exportJson(self):
             # return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
@@ -451,6 +451,7 @@ class BeaconChain(object):
             self.r = data["signature"]["r"]
             self.s = data["signature"]["s"]
             self.sig = data["signature"]["sig"]
+            self.relayerSigs = {}
         
 
         def beaconRoot(self):
@@ -473,6 +474,21 @@ class BeaconChain(object):
             print(f"Miner : {self.miner}")
             return (w3.eth.account.recoverHash(self.proof, vrs=(self.v, self.r, self.s)) == self.miner)
 
+        def canAddSig(self, sig):
+            if (len(sig) == 65):
+                return (False, "INVALID_SIG")
+            signer = w3.eth.account.recoverHash(bkhash, signature=sig)
+            if self.relayerSigs.get(signer):
+                return (False, "SIG_ALREADY_EXISTS")
+            return (True, signer)
+            
+
+        def submitRelayerSig(self, sig):
+            _isokay = self.canAddSig(sig)
+            if _isokay[0]:
+                self.nodeSigs[_isokay[1]] = sig
+            return _isokay
+
         def messagesToHex(self):
             _msgs = []
             for _msg_ in self.decodedMessages:
@@ -483,7 +499,7 @@ class BeaconChain(object):
             return w3.solidityKeccak(["bytes32", "bytes32", "bytes32[]"], [self.proof, self.stateRoot, sorted(self.transactions)])
 
         def ABIEncodable(self):
-            return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s, [f"0x{s.hex()}" for s in self.relayerSigs]])
+            return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s, [f"0x{s.hex()}" for r, s in self.relayerSigs.items()]])
 
         def exportJson(self):
             # return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
@@ -620,6 +636,12 @@ class BeaconChain(object):
     def updateStateRoot(self, newRoot):
         self.stateRoot = newRoot
         self.getLastBeacon().stateRoot = newRoot
+    
+    def estimateRelayerSuccess(self, bkhash, sig):
+        return self.blocksByHash.get(bkhash).canAddSig(sig)
+    
+    def addRelayerSig(self, relayer, bkhash, sig):
+        return self.blocksByHash.get(bkhash).submitRelayerSig(sig)
     
     def JSONSerializable(self):
         blocksJSON = []
@@ -982,6 +1004,8 @@ class State(object):
             underlyingOperationSuccess = self.estimateDestroyMNSuccess(_tx)
         if _tx.txtype == 6:
             underlyingOperationSuccess = (True, None)
+        if _tx.txtype == 7:
+            underlyingOperationSuccess = self.beaconChain.estimateRelayerSuccess(_tx.epoch, _tx.blocksig)
         print(correctBeacon, correctParent, underlyingOperationSuccess)
         return (underlyingOperationSuccess[0] and correctBeacon and correctParent)
         
@@ -1267,7 +1291,7 @@ class State(object):
         elif _tx.txtype == 6:
             self.beaconChain.getLastBeacon().depCheckerTxs.append(_tx.txid)
         elif _tx.txtype == 7:
-            self.beaconChain.addRelayerSig(_tx.sender, _tx.epoch, _tx.sig)
+            self.beaconChain.addRelayerSig(_tx.sender, _tx.epoch, _tx.blocksig)
         
         if (_tx.bio):
             self.accounts[_tx.sender].bio = _tx.bio.replace("%20", " ")
