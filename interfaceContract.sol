@@ -507,7 +507,9 @@ contract BeaconChainHandler {
 	
 	function pushBeacon(Beacon memory _beacon) public onlyOwner {
 		(bool _valid, string memory _reason) = isBeaconValid(_beacon);
+		(, , bool sigsMatched) = relayerSet.recoverRelayerSigs(_beacon.relayerSigs);
 		require(_valid, _reason);
+		require(sigsMatched, "UNMATCHED_RELAYER_SIGNATURES");
 		beacons.push(_beacon);
 		beacons[beacons.length-2].son = _beacon.proof;
 		
