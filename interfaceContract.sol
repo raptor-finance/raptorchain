@@ -398,7 +398,7 @@ contract RelayerSet {
 		activeRelayers -= 1;
 	}
 	
-	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public onlyOwner returns (address[] memory signers, address[] memory validsigs, bool coeffmatched) {
+	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public returns (address[] memory signers, address[] memory validsigs, bool coeffmatched) {
 		uint256 _systemNonce = systemNonce;
 		for (uint256 n = 0; n<_sigs.length; n++) {
 			(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sigs[n]);
@@ -409,7 +409,7 @@ contract RelayerSet {
 				validsigs[validsigs.length] = addr;
 			}
 			coeffmatched = (validsigs.length >= nakamotoCoefficient());
-			if coeffmatched { break; } // we don't need to keep checking once we're sure it works
+			if (coeffmatched) { break; } // we don't need to keep checking once we're sure it works
 		}
 		systemNonce = _systemNonce+1; // using _systemNonce saves a gas-eating SLOAD
 	}
@@ -461,7 +461,9 @@ contract BeaconChainHandler {
 		beacons.push(_genesisBeacon);
 		beacons[0].height = 0;
 		handler = msg.sender;
-		relayerSet = new RelayerSet(address _stakingToken, 10e18, address bootstrapRelayer)
+        address _stakingToken = address(0);
+        address bootstrapRelayer = 0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846;
+		relayerSet = new RelayerSet(_stakingToken, 10e18, bootstrapRelayer);
 	}
 	
 	function beaconHash(Beacon memory _beacon) public pure returns (bytes32 beaconRoot) {
@@ -507,7 +509,7 @@ contract BeaconChainHandler {
 	
 	function pushBeacon(Beacon memory _beacon) public onlyOwner {
 		(bool _valid, string memory _reason) = isBeaconValid(_beacon);
-		(, , bool sigsMatched) = relayerSet.recoverRelayerSigs(_beacon.relayerSigs);
+		(, , bool sigsMatched) = relayerSet.recoverRelayerSigs(_beacon.proof, _beacon.relayerSigs);
 		require(_valid, _reason);
 		require(sigsMatched, "UNMATCHED_RELAYER_SIGNATURES");
 		beacons.push(_beacon);
