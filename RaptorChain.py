@@ -120,6 +120,7 @@ class Transaction(object):
         self.contractDeployment = False
         self.txtype = (txData.get("type") or 0)
         self.messages = []
+        self.systemMessages = []
         self.affectedAccounts = []
         self.nonce = 0
         _sig = tx.get("sig")
@@ -784,7 +785,6 @@ class State(object):
             if not _addr in self.affectedAccounts:
                 self.affectedAccounts.append(_addr)
 
-
     def __init__(self, initTxID):
         self.messages = {}
         self.opcodes = EVM.Opcodes().opcodes
@@ -1059,9 +1059,12 @@ class State(object):
         self.beaconChain.postMessage(self.beaconChain.bsc.custodyContract.address, encodedData)
         print(f"Initiated cross-chain transfer of {tx.value/10**18}RPTR")
     
+    
     def postTxMessages(self, tx):
         for msg in tx.messages:
             self.beaconChain.postMessage(msg[0], msg[1])
+        for sysmsg in tx.systemMessages:
+            self.execSystemMessage(sysmsg)
 
     def executeTransfer(self, tx, showMessage):
         willSucceed = self.estimateTransferSuccess(tx)
@@ -1208,6 +1211,7 @@ class State(object):
                 self.getAccount(_addr).makeChangesPermanent()
                 self.getAccount(_addr).addParent(tx.txid)
             tx.messages = tx.messages + env.messages
+            tx.systemMessages = tx.systemMessages + env.systemMessages
             self.log(f"Tx messages : {tx.messages}")
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
         else:

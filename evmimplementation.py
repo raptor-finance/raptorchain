@@ -1111,6 +1111,7 @@ class Opcodes(object):
         env.stack.append(int(result[0]))
         if result[0]:
             env.messages = env.messages + _childEnv.messages
+            env.systemMessages = env.systemMessages + _childEnv.systemMessages
         env.memory.write_bytes(retOffset, retLength, retValue)
         env.consumeGas(_childEnv.gasUsed + 5000)
         env.pc += 1
@@ -1141,6 +1142,8 @@ class Opcodes(object):
         env.lastCallReturn = retValue
         if result[0]:
             env.storage = _subCallEnv.storage.copy()
+            env.messages = env.messages + _childEnv.messages
+            env.systemMessages = env.systemMessages + _childEnv.systemMessages
         env.stack.append(int(result[0]))
         env.memory.write_bytes(retOffset, retLength, retValue)
         env.consumeGas(_childEnv.gasUsed + 5000)
@@ -1427,6 +1430,27 @@ class PrecompiledContracts(object):
             hasher.update(env.data)
             env.returnCall(hasher.digest())
     
+    class RelayerSigsHandler(object):
+        def __init__(self):
+            self.methods = {}
+            self.methods[self.calcFunctionSelector("addSig(bytes32, bytes)")]
+            
+            
+        def calcFunctionSelector(self, functionName):
+            return bytes(w3.keccak(str(functionName).encode()))[0:4]
+        
+        def addSig(self, env):
+            params = eth_abi.decode_abi(["bytes32", "bytes"], env.data[4:])
+            env.pushSystemMessage(env.SystemMessage(env.msgSender, env.recipient, 0, params))
+        
+        def fallback(self, env):
+            pass
+            
+        def call(self, env):
+            try:
+                self.methods.get(env.data[:4], self.fallback)(env)
+            except Exception as e:
+                print(f"Exception {e.__repr__()} caught calling {self.address} with calldata {env.data}")
     
     def __init__(self, bridgeFallBack, bsc, getAccount):
         self.contracts = {}
@@ -1470,6 +1494,13 @@ class Msg(object):
         
 # CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
 class CallEnv(object):
+    class SystemMessage(object):
+        def __init__(self, sender, contract, instruction, data):
+            self.sender = sender
+            self.contract = contract
+            self.instruction = instruction
+            self.data = data
+
     def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, code, static,*, storage=None, calltype=0, calledFromAcctClass=False):
         self.stack = []
         self.getAccount = accountGetter
@@ -1481,6 +1512,7 @@ class CallEnv(object):
         self.runningAccount = runningAccount
         self.calltype=calltype # 0 = in transaction, 1 = child call (staticcall included), 2 = delegate call, 3 = contract creation in subcall
         self.lastCallReturn = b""
+        self.systemMessages = []
         if storage:
             self.storage = storage.copy()
         else:
@@ -1575,6 +1607,9 @@ class CallEnv(object):
         self.success = False
         self.returnValue = data
         # self.returnValue = eth_abi.encode_abi(["bytes"], [data]) if type(data) == bytes else eth_abi.encode_abi(["string"], [data])
+    
+    def pushSystemMessage(self, sysmsg):
+        self.systemMessages.append(sysmsg)
     
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))
