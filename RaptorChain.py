@@ -532,6 +532,9 @@ class BeaconChain(object):
     def calcDifficulty(self, expectedDelay, timestamp1, timestamp2, currentDiff):
         return min(max((currentDiff * expectedDelay)/max((timestamp2 - timestamp1), 1), currentDiff * 0.9, 1), currentDiff*1.1)
     
+    def isValidatorAllowed(self, val):
+        return self.validators.get(w3.toChecksumAddress(beacon.miner)) # returns `None` if not found, which acts same way as `False`
+    
     def isBeaconValid(self, beacon):
         _lastBeacon = self.getLastBeacon()
         if _lastBeacon.proof != beacon.parent:
@@ -542,7 +545,7 @@ class BeaconChain(object):
             return (False, "UNMATCHED_SIGNATURE")
         # if (not self.bsc.beaconChainContract.functions.isValidatorAtBlock(len(self.blocks), w3.toChecksumAddress(beacon.miner))):
             # return (False, "NOT_A_MASTERNODE")
-        if not self.validators.get(w3.toChecksumAddress(beacon.miner)):
+        if not self.isValidatorAllowed(beacon.miner):
             return (False, "NOT_IN_VALIDATOR_SET")
         # if (beacon.miner == _lastBeacon.miner):
             # return (False, "ALREADY_PRODUCED_LAST_BEACON")
@@ -1666,12 +1669,100 @@ class Node(object):
         return _txid_
 
 
+class RaptorBlockProducer(object):
+    class NotInSetError(Exception): pass
+    
+    def __init__(self, node, privkey):
+        self.node = node
+        self.acct = w3.eth.account.from_key(privkey)
+        if not (self.acct.addr in self.node.state.beaconChain.validators):
+            raise NotInSetError("Not in validator set")
+        self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x723b074d5f653CbFCe78752DEC34301a3EA8326F", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
+        self.nasaPrint(f"RaptorChain masternode started using address {self.acct.address}", 5)
+    
+    def pullAvailableMessages(self):
+        return self.node.state.beaconChain.pendingMessages.copy()
+    
+    
+    def nasaPrint(self, text, duration):
+        for char in str(text):
+            print(char, flush=True, end="")
+            time.sleep(duration / len(text))
+        print("")
+    
+    
+    def blockHash(self, block):
+        messagesHash = w3.keccak(bytes.fromhex(block["messages"])).hex()
+        bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32", "bytes32", "address"], [block["parent"], int(block["timestamp"]), messagesHash, block["parentTxRoot"], self.acct.address]).hex() # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
+        return w3.soliditySha3(["bytes32", "uint256"], [bRoot, int(0)]).hex()
+    
+    def buildBlock(self):
+        blockHeight = len(self.node.state.beaconChain.blocks)
+        lastBlock = self.node.state.beaconChain[blockHeight]
+        lastBlockHash = lastBlock.proof
+        parentTxRoot = lastBlock.txsRoot()
+        pulledMessages = self.pullAvailableMessages()
+        if (len(pulledMessages) == 0):
+            pulledMessages = [self.defaultMessage]
+        
+        abiencodedmessages = eth_abi.encode_abi(["bytes[]"], [pulledMessages])
+        
+        blockData = {"parentTxRoot": parentTxRoot, "miningData" : {"miner": self.acct.address,"nonce": 0,"difficulty": 1,"miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","proof": None}, "height": blockHeight,"parent": lastBlockHash,"messages": abiencodedmessages.hex(), "timestamp": int(time.time()), "son": "0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": None, "r": None, "s": None, "sig": None}}
+        blockData["miningData"]["proof"] = self.blockHash(blockData)
+        _sig = self.acct.signHash(blockData["miningData"]["proof"])
+        blockData["signature"]["v"] = _sig.v
+        blockData["signature"]["r"] = _sig.r
+        blockData["signature"]["s"] = _sig.s
+        blockData["signature"]["sig"] = _sig.signature.hex()
+        return blockData
+        
+    def submitBlock(self, block):
+        acctTxs = self.node.state.getAccount(self.acct.address).transactions
+        lastTx = acctTxs[len(acctTxs)-1]
+        epoch = block["parent"]
+        txdata = json.dumps({"from": "0x0000000000000000000000000000000000000000", "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blockData": block, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 1})
+        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
+        feedback = self.node.checkTxs([tx])
+        return feedback
+    
+    
+    
+    def blockStruct(self, block):
+        msgsList = list(eth_abi.decode_abi(["bytes[]"], bytes.fromhex(block["messages"]))[0])
+        # msgsList = eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"]))
+        _encodedParent = bytes.fromhex(block["parent"].replace("0x", ""))
+        _encodedProof = bytes.fromhex(block["miningData"]["proof"].replace("0x", ""))
+        _encodedSon = bytes.fromhex(block["son"].replace("0x", ""))
+        _encodedSigR = bytes.fromhex(hex(block["signature"]["r"])[2:])
+        print(hex(block["signature"]["s"]))
+        _encodedSigS = bytes.fromhex(hex(block["signature"]["s"])[2:])
+        
+        return (self.acct.address, int(0), msgsList, 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), _encodedParent, _encodedProof, int(block["height"]), _encodedSon, int(block["signature"]["v"]), _encodedSigR, _encodedSigS)
+    
+    def produceNewBlock(self):
+        _block = self.buildBlock()
+        _submitFeedBack = self.submitBlock(_block)
+        # try:
+            # # _bscPushFeedback = self.pushBlockOnBSC(_block)
+        # except Exception as e:
+            # print(e)
+        
+    def blockProductionLoop(self):
+        while True:
+            try:
+                self.produceNewBlock()
+                time.sleep(60)
+            except Exception as e:
+                print(f"Exception caught : {e}")
+
 # thread = threading.Thread(target=node.backgroundRoutine)
 # thread.start()
 
 class Terminal(object):
     def __init__(self, nodeClass):
         self.node = nodeClass
+        this.mn = None # masternode not started/set at boot
         self.commands = {}
         self.commands["snapshot"] = self.snapshot
         self.commands["balance"] = self.balance
@@ -1679,6 +1770,7 @@ class Terminal(object):
         self.commands["account"] = self.accountInfo
         self.commands["stats"] = self.stats
         self.commands["abibeacon"] = self.abibeacon
+        self.commands["startmn"] = self.startmn
     
     
     def _encodeWithSelector(self, functionName, params):
@@ -1696,8 +1788,13 @@ class Terminal(object):
         rawRetValue = self.node.state.eth_Call({"to": to, "data": callData}).returnValue
         return eth_abi.decode_abi(returnTypes, rawRetValue)
 
+
     def skip(self, keyInput):
         pass
+    
+    def startmn(self, keyInput):
+        privkey = self.keyInput[1]
+        this.mn = RaptorBlockProducer(this.node, privkey)
     
     def snapshot(self, keyInput):
         file = open(keyInput[1], "w")
