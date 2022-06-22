@@ -812,6 +812,7 @@ class State(object):
         self.debug = False
         self.shouldLog = True
         self.chainID = 499597202514
+        self.burnAddress = "0x000000000000000000000000000000000000dEaD"
         self.version = "0.5.0-testnet"
 
     def formatAddress(self, _addr):
@@ -1268,6 +1269,14 @@ class State(object):
             self.getAccount(_addr, True).cancelChanges()
         return env
 
+    def distributeFee(self, tx):
+        miner = self.beaconChain.blocksByHash.get(tx.epoch).miner
+        valOwner = self.beaconChain.validators.get(self.formatAddress(miner)).owner
+        toValOwner = int(tx.fee // 2)
+        toBurn = int(tx.fee - toValOwner)
+        self.accounts[valOwner].balance += toValOwner
+        self.accounts[self.burnAddress].balance += toBurn # adds funds to burn address
+
     def playTransaction(self, tx, showMessage):
         _begin_ = time.time()
         _tx = Transaction(tx)
@@ -1311,7 +1320,7 @@ class State(object):
                 self.getAccount(acct).addParent(_tx.txid)
             self.getAccount(acct).calcHash()
         self.postTxMessages(_tx)
-        self.accounts[self.beaconChain.blocksByHash.get(_tx.epoch).miner].balance += _tx.fee
+        self.distributeFee(_tx)
         self.calcStateRoot()
         self.updateHolders()
         print(f"Transaction {_tx.txid} completed in {round((time.time()-_begin_)*1000, 3)}ms")
