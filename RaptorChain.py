@@ -1063,8 +1063,14 @@ class State(object):
         self.beaconChain.postMessage(self.beaconChain.bsc.custodyContract.address, encodedData)
         print(f"Initiated cross-chain transfer of {tx.value/10**18}RPTR")
     
+    def clearCrossChainAccount(self):
+        crossChainAccount = self.getAccount(self.crossChainAddress)
+        self.totalSupply -= crossChainAccount.balance
+        crossChainAccount.balance = 0
     
     def postTxMessages(self, tx):
+        tx.markAccountAffected(self.crossChainAddress)
+        self.clearCrossChainAccount()
         for msg in tx.messages:
             self.beaconChain.postMessage(msg[0], msg[1])
         for sysmsg in tx.systemMessages:
