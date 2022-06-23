@@ -1777,12 +1777,94 @@ class RaptorBlockProducer(object):
             except Exception as e:
                 print(f"Exception caught : {e}")
 
+class Wallet(object):
+    def __init__(self, node, configfile):
+        self.commands = {}
+        self.node = node
+        self.configfile = configfile
+        self.encryptedkey = None
+        self.privkey = None
+        self.acct = None
+        self.commands["balance"] = self.balance
+        
+    def computePassword(self, passwd):
+        return base64.b64encode(w3.solidityKeccak(["string"], [passwd]))
+        
+    def loadConfig(self):
+        data = {}
+        try:
+            file = open(self.configfile, "r")
+            _data = file.read()
+            file.close()
+            data = json.loads(_data)
+        except:
+            print("Do you want to import en existing key (e) or generate a new one (n) [default: n]")
+            _a = input("Answer: ")
+            if (_a == "e"):
+                self.importKey()
+            else:
+                self.create()
+        else:
+            self.encryptedkey = bytes.fromhex(data.get("encryptedkey"))
+            self.address = data.get("address")
+            
+    def create(self):
+        data = {}
+        print("Please create a password. It will be used to encrypt your private key !")
+        password = input("Password: ")
+        self.fernet = Fernet(self.computePassword(password))
+        key = secrets.token_hex(32)
+        self.acct = w3.eth.account.from_key(key)
+        self.address = self.acct.address
+        bkey = bytes.fromhex(key)
+        encKey = self.fernet.encrypt(bkey)
+        data["encryptedkey"] = encKey.hex()
+        data["address"] = self.acct.address
+        file = open(self.configfile, "w")
+        file.write(json.dumps(data))
+        file.close()
+        
+    def importKey(self):
+        data = {}
+        key = input("Input your private key: ")
+        print("Please create a password. It will be used to encrypt your private key !")
+        password = input("Password: ")
+        self.fernet = Fernet(self.computePassword(password))
+        self.acct = w3.eth.account.from_key(key)
+        self.address = self.acct.address
+        bkey = bytes.fromhex(key)
+        encKey = self.fernet.encrypt(bkey)
+        data["encryptedkey"] = encKey.hex()
+        data["address"] = self.acct.address
+        file = open(self.configfile, "w")
+        file.write(json.dumps(data))
+        file.close()
+        
+    def decrypt(self):
+        password = input("Password: ")
+        self.fernet = Fernet(self.computePassword(password))
+        self.acct = w3.eth.account.from_key(self.fernet.decrypt(self.encryptedkey))
+        
+    def balance(self, keyInput):
+        print(f"Balance: {self.node.state.getAccount(self.address).balance / (10**18)}")
+        
+    def info(self, keyInput):
+        print(f"Address : {self.address}\nEncrypted : {self.acct != None}\n")
+        
+    def skip(self, keyInput):
+        pass
+        
+    def execCommand(self, keyInput):
+        self.commands.get(keyInput[1], self.skip)(keyInput)
+        
+
 # thread = threading.Thread(target=node.backgroundRoutine)
 # thread.start()
 
 class Terminal(object):
     def __init__(self, nodeClass):
         self.node = nodeClass
+        self.wallet = None
         self.mn = None # masternode not started/set at boot
         self.commands = {}
         self.commands["snapshot"] = self.snapshot
@@ -1792,6 +1874,7 @@ class Terminal(object):
         self.commands["stats"] = self.stats
         self.commands["abibeacon"] = self.abibeacon
         self.commands["startmn"] = self.startmn
+        self.commands["wallet"] = self.walletCommand
     
     
     def _encodeWithSelector(self, functionName, params):
@@ -1823,6 +1906,12 @@ class Terminal(object):
         serialized = json.dumps(serializable)
         file.write(serialized)
         file.close()
+    
+    def walletCommand(self, keyInput):
+        if not self.wallet:
+            print("Cannot display wallet: No wallet loaded")
+            return
+        self.wallet.execCommand(keyInput)
     
     def stats(self, keyInput):
         totalSupply = self.node.state.totalSupply
