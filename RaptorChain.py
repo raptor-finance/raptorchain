@@ -123,6 +123,7 @@ class Transaction(object):
         self.systemMessages = []
         self.affectedAccounts = []
         self.nonce = 0
+        self.gasprice = 0
         _sig = tx.get("sig")
         self.sig = bytes.fromhex(_sig.replace("0x", "")) if _sig else b""
         if _sig:
@@ -812,6 +813,7 @@ class State(object):
         self.debug = False
         self.shouldLog = True
         self.chainID = 499597202514
+        self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
         self.burnAddress = "0x000000000000000000000000000000000000dEaD"
         self.version = "0.5.0-testnet"
 
@@ -993,6 +995,7 @@ class State(object):
         underlyingOperationSuccess = (False, None)
         correctParent = self.checkParent(_tx)
         correctBeacon = self.isBeaconCorrect(_tx)
+        correctGasPrice = (_tx.gasprice >= self.gasPrice) if (_tx.txtype in [2]) else True
         if _tx.txtype == 0:
             underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
         if _tx.txtype == 1:
@@ -1010,8 +1013,8 @@ class State(object):
             underlyingOperationSuccess = (True, None)
         if _tx.txtype == 7:
             underlyingOperationSuccess = self.beaconChain.estimateRelayerSuccess(_tx.epoch, _tx.blocksig)
-        print(correctBeacon, correctParent, underlyingOperationSuccess)
-        return (underlyingOperationSuccess[0] and correctBeacon and correctParent)
+        # print(correctBeacon, correctParent, underlyingOperationSuccess, correctGasPrice)
+        return (underlyingOperationSuccess[0] and correctBeacon and correctParent and correctGasPrice)
         
 
     # def mineBlock(self, blockData):
@@ -1277,11 +1280,12 @@ class State(object):
 
     def distributeFee(self, tx):
         miner = self.beaconChain.blocksByHash.get(tx.epoch).miner
-        valOwner = self.beaconChain.validators.get(self.formatAddress(miner)).owner
-        toValOwner = int(tx.fee // 2)
+        toValOwner = (0 if (miner == "0x0000000000000000000000000000000000000000") else int(tx.fee // 2))
         toBurn = int(tx.fee - toValOwner)
-        self.accounts[valOwner].balance += toValOwner
-        self.accounts[self.burnAddress].balance += toBurn # adds funds to burn address
+        if (toValOwner > 0):
+            valOwner = self.beaconChain.validators.get(self.formatAddress(miner)).owner
+            self.accounts[valOwner].balance += toValOwner
+        self.getAccount(self.burnAddress).balance += toBurn # sends funds to burn address
 
     def playTransaction(self, tx, showMessage):
         _begin_ = time.time()
@@ -1690,11 +1694,13 @@ class RaptorBlockProducer(object):
     def __init__(self, node, privkey):
         self.node = node
         self.acct = w3.eth.account.from_key(privkey)
-        if not (self.acct.addr in self.node.state.beaconChain.validators):
+        if not (self.acct.address in self.node.state.beaconChain.validators):
             raise NotInSetError("Not in validator set")
-        self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x723b074d5f653CbFCe78752DEC34301a3EA8326F", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.bsc = node.state.beaconChain.BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x723b074d5f653CbFCe78752DEC34301a3EA8326F", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.nasaPrint(f"RaptorChain masternode started using address {self.acct.address}", 5)
+        self.thread = threading.Thread(target=self.blockProductionLoop)
+        self.thread.start()
     
     def pullAvailableMessages(self):
         return self.node.state.beaconChain.pendingMessages.copy()
@@ -1714,7 +1720,7 @@ class RaptorBlockProducer(object):
     
     def buildBlock(self):
         blockHeight = len(self.node.state.beaconChain.blocks)
-        lastBlock = self.node.state.beaconChain[blockHeight]
+        lastBlock = self.node.state.beaconChain.blocks[blockHeight-1]
         lastBlockHash = lastBlock.proof
         parentTxRoot = lastBlock.txsRoot()
         pulledMessages = self.pullAvailableMessages()
@@ -1777,7 +1783,7 @@ class RaptorBlockProducer(object):
 class Terminal(object):
     def __init__(self, nodeClass):
         self.node = nodeClass
-        this.mn = None # masternode not started/set at boot
+        self.mn = None # masternode not started/set at boot
         self.commands = {}
         self.commands["snapshot"] = self.snapshot
         self.commands["balance"] = self.balance
@@ -1808,8 +1814,8 @@ class Terminal(object):
         pass
     
     def startmn(self, keyInput):
-        privkey = self.keyInput[1]
-        this.mn = RaptorBlockProducer(this.node, privkey)
+        privkey = keyInput[1]
+        self.mn = RaptorBlockProducer(self.node, privkey)
     
     def snapshot(self, keyInput):
         file = open(keyInput[1], "w")
@@ -2116,7 +2122,7 @@ def handleWeb3Request():
     if method == "eth_mining":
         result = False
     if method == "eth_gasPrice":
-        result = "0x1"
+        result = hex(node.state.gasPrice)
     if method == "eth_blockNumber":
         # result = hex(len(node.state.beaconChain.blocks) - 1)
         result = hex(len(node.transactions) - 1)
