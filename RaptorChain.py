@@ -1,4 +1,4 @@
-import requests, time, json, threading, flask, rlp, eth_abi, itertools
+import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets
 global config
 from web3.auto import w3
 from web3 import Web3
@@ -9,7 +9,7 @@ from typing import Optional
 from eth_utils import keccak
 from rlp.sedes import Binary, big_endian_int, binary
 import evmimplementation as EVM
-
+from cryptography.fernet import Fernet
 
 transactions = {}
 try:
@@ -1785,7 +1785,19 @@ class Wallet(object):
         self.encryptedkey = None
         self.privkey = None
         self.acct = None
+        self.commands["info"] = self.info
         self.commands["balance"] = self.balance
+        self.commands["send"] = self.send
+        self.loadConfig()
+        
+    def sendTransaction(self, to, tokens):
+        acctTxs = self.node.state.getAccount(self.address).transactions
+        lastTx = acctTxs[len(acctTxs)-1]
+        epoch = self.node.state.beaconChain.getLastBeacon().proof
+        txdata = json.dumps({"from": self.address, "to": to, "tokens": tokens, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 0})
+        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
+        feedback = self.node.checkTxs([tx])
+        return feedback
         
     def computePassword(self, passwd):
         return base64.b64encode(w3.solidityKeccak(["string"], [passwd]))
@@ -1848,8 +1860,22 @@ class Wallet(object):
     def balance(self, keyInput):
         print(f"Balance: {self.node.state.getAccount(self.address).balance / (10**18)}")
         
+    def send(self, keyInput):
+        try:
+            _to = w3.toChecksumAddress(keyInput[2])
+        except:
+            _to = w3.toChecksumAddress(input("Recipient: "))
+        try:
+            _value = float(keyInput[3])
+        except:
+            _value = float(input("Amount: "))
+        if not self.acct:
+            print("Wallet is encrypted, please enter password to uncrypt it !")
+            self.decrypt()
+        self.sendTransaction(_to, int(_value*(10**18)))
+        
     def info(self, keyInput):
-        print(f"Address : {self.address}\nEncrypted : {self.acct != None}\n")
+        print(f"Address : {self.address}\nEncrypted : {self.acct == None}\n")
         
     def skip(self, keyInput):
         pass
@@ -1875,6 +1901,7 @@ class Terminal(object):
         self.commands["abibeacon"] = self.abibeacon
         self.commands["startmn"] = self.startmn
         self.commands["wallet"] = self.walletCommand
+        self.commands["walletload"] = self.walletload
     
     
     def _encodeWithSelector(self, functionName, params):
@@ -1912,6 +1939,9 @@ class Terminal(object):
             print("Cannot display wallet: No wallet loaded")
             return
         self.wallet.execCommand(keyInput)
+    
+    def walletload(self, keyInput):
+        self.wallet = Wallet(self.node, keyInput[1])
     
     def stats(self, keyInput):
         totalSupply = self.node.state.totalSupply
