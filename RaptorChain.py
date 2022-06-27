@@ -568,6 +568,9 @@ class BeaconChain(object):
     def getLastBeacon(self):
         return self.blocks[len(self.blocks) - 1]
     
+    def onBlockMined(self, beacon):
+        pass
+    
     def addBeaconToChain(self, beacon):
         _messages = beacon.decodedMessages.copy()
         for msg in _messages:
@@ -580,6 +583,10 @@ class BeaconChain(object):
         self.blocks.append(beacon)
         self.blocksByHash[beacon.proof] = beacon
         self.validators.get(w3.toChecksumAddress(beacon.miner)).blocks.append(beacon.proof)
+        try:
+            self.onBlockMined(beacon)
+        except Exception as e:
+            print(f"Error handling new block: {e.__repr__()}")
         # self.difficulty = self.calcDifficulty(self.blockTime, _oldtimestamp, int(beacon.timestamp), self.difficulty)
         # self.miningTarget = hex(int(min(int((2**256-1)/self.difficulty),0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)))
         return True
@@ -1692,9 +1699,10 @@ class RaptorBlockSigner(object):
     def __init__(self, node, privkey):
         self.node = node
         self.acct = w3.eth.account.from_key(privkey)
+        self.node.state.beaconChain.onBlockMined = self.onBlockMined
         
     def generateBlockSig(self, blockhash):
-        return self.acct.signHash(blockhash)
+        return self.acct.signHash(blockhash).hex()
         
     def submitSig(self, blockhash, blocksig):
         acctTxs = self.node.state.getAccount(self.acct.address).transactions
@@ -1704,6 +1712,14 @@ class RaptorBlockSigner(object):
         tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
         feedback = self.node.checkTxs([tx])
         return feedback
+        
+    def makeSig(self):
+        bkhash = self.node.state.beaconChain.getLastBeacon().proof
+        bksig = self.generateBlockSig()
+        self.submitSig(bkhash, bksig)
+        
+    def onBlockMined(self, beacon):
+        self.makeSig()
         
 
 class RaptorBlockProducer(object):
