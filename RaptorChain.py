@@ -1688,6 +1688,24 @@ class Node(object):
         return _txid_
 
 
+class RaptorBlockSigner(object):
+    def __init__(self, node, privkey):
+        self.node = node
+        self.acct = w3.eth.account.from_key(privkey)
+        
+    def generateBlockSig(self, blockhash):
+        return self.acct.signHash(blockhash)
+        
+    def submitSig(self, blockhash, blocksig):
+        acctTxs = self.node.state.getAccount(self.acct.address).transactions
+        lastTx = acctTxs[len(acctTxs)-1]
+        epoch = block["parent"]
+        txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blocksig": blocksig, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 7})
+        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
+        feedback = self.node.checkTxs([tx])
+        return feedback
+        
+
 class RaptorBlockProducer(object):
     class NotInSetError(Exception): pass
     
