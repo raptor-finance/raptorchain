@@ -1725,6 +1725,7 @@ class RaptorBlockSigner(object):
 class RaptorBlockProducer(object):
     class NotInSetError(Exception): pass
     
+    
     def __init__(self, node, privkey):
         self.node = node
         self.acct = w3.eth.account.from_key(privkey)
@@ -1822,6 +1823,7 @@ class Wallet(object):
         self.commands["info"] = self.info
         self.commands["balance"] = self.balance
         self.commands["send"] = self.send
+        self.commands["startmn"] = self.startmn
         self.loadConfig()
         
     def sendTransaction(self, to, tokens):
@@ -1896,11 +1898,11 @@ class Wallet(object):
         
     def send(self, keyInput):
         try:
-            _to = w3.toChecksumAddress(keyInput[2])
+            _to = w3.toChecksumAddress(keyInput[1])
         except:
             _to = w3.toChecksumAddress(input("Recipient: "))
         try:
-            _value = float(keyInput[3])
+            _value = float(keyInput[2])
         except:
             _value = float(input("Amount: "))
         if not self.acct:
@@ -1911,11 +1913,14 @@ class Wallet(object):
     def info(self, keyInput):
         print(f"Address : {self.address}\nEncrypted : {self.acct == None}\n")
         
+    def startmn(self, keyInput):
+        self.mn = RaptorBlockProducer(self.node, self.key.hex())
+        
     def skip(self, keyInput):
         pass
         
     def execCommand(self, keyInput):
-        self.commands.get(keyInput[1], self.skip)(keyInput)
+        self.commands.get(keyInput[0], self.skip)(keyInput)
         
 
 # thread = threading.Thread(target=node.backgroundRoutine)
@@ -1972,7 +1977,7 @@ class Terminal(object):
         if not self.wallet:
             print("Cannot display wallet: No wallet loaded")
             return
-        self.wallet.execCommand(keyInput)
+        self.wallet.execCommand(keyInput[1:])
     
     def walletload(self, keyInput):
         self.wallet = Wallet(self.node, keyInput[1])
