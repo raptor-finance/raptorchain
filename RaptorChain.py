@@ -471,9 +471,6 @@ class BeaconChain(object):
             return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
 
         def signatureMatched(self):
-            print(f"Block proof : {self.proof}")
-            print(f"Signer : {w3.eth.account.recoverHash(self.proof, vrs=(self.v, self.r, self.s))}")
-            print(f"Miner : {self.miner}")
             return (w3.eth.account.recoverHash(self.proof, vrs=(self.v, self.r, self.s)) == self.miner)
 
         def canAddSig(self, sig):
@@ -533,7 +530,7 @@ class BeaconChain(object):
     def calcDifficulty(self, expectedDelay, timestamp1, timestamp2, currentDiff):
         return min(max((currentDiff * expectedDelay)/max((timestamp2 - timestamp1), 1), currentDiff * 0.9, 1), currentDiff*1.1)
     
-    def isValidatorAllowed(self, val):
+    def isValidatorAllowed(self, beacon):
         return self.validators.get(w3.toChecksumAddress(beacon.miner)) # returns `None` if not found, which acts same way as `False`
     
     def isBeaconValid(self, beacon):
@@ -546,7 +543,7 @@ class BeaconChain(object):
             return (False, "UNMATCHED_SIGNATURE")
         # if (not self.bsc.beaconChainContract.functions.isValidatorAtBlock(len(self.blocks), w3.toChecksumAddress(beacon.miner))):
             # return (False, "NOT_A_MASTERNODE")
-        if not self.isValidatorAllowed(beacon.miner):
+        if not self.isValidatorAllowed(beacon):
             return (False, "NOT_IN_VALIDATOR_SET")
         # if (beacon.miner == _lastBeacon.miner):
             # return (False, "ALREADY_PRODUCED_LAST_BEACON")
@@ -558,12 +555,13 @@ class BeaconChain(object):
             return (False, "NO_DATA_HERE")
         return (True, "GOOD")
     
-    
     def isBlockValid(self, blockData):
         try:
-            return self.isBeaconValid(self.Beacon(blockData, self.difficulty))
+            beacon = self.Beacon(blockData, self.difficulty)
+            _validity = self.isBeaconValid(beacon)
+            return _validity
         except Exception as e:
-            return (False, e)
+            return (False, f"Error checking beacon validity: {e}")
     
     def getLastBeacon(self):
         return self.blocks[len(self.blocks) - 1]
@@ -672,6 +670,7 @@ class State(object):
             self.address = w3.toChecksumAddress(address)
             self.initialized = False
             self.balance = snapshotData.get("balance", 0)
+            self.masternodes = snapshotData.get("masternodes", [])
             self.tempBalance = snapshotData.get("tempBalance", 0)
             self.transactions = snapshotData.get("transactions", [initTxID])
             self.sent = snapshotData.get("sent", [initTxID])
@@ -910,24 +909,28 @@ class State(object):
     def estimateCreateMNSuccess(self, tx):
         _sufficientBalance = (self.getAccount(tx.sender).balance >= 1000000000000000000000000) # 1 million with 18 decimals
         _canAddToSet = (not (self.beaconChain.validators.get(tx.recipient)))
-        return (_sufficientBalance and _canAddToSet)
+        return (_sufficientBalance and _canAddToSet, "")
     
     def estimateDestroyMNSuccess(self, tx):
         if ((not (self.beaconChain.validators.get(tx.recipient)))):
             return False
-        return (self.beaconChain.validators.get(tx.recipient).owner == tx.sender)
+        return (self.beaconChain.validators.get(tx.recipient).owner == tx.sender, "")
         
     def createMN(self, tx):
+        self.applyParentStuff(tx)
         willSucceed = self.estimateCreateMNSuccess(tx)
         if not willSucceed:
             return False
         self.getAccount(tx.sender).balance -= 1000000000000000000000000
+        self.getAccount(tx.sender).masternodes.append(tx.recipient)
         self.beaconChain.createValidator(tx.sender, tx.recipient)
     
     def destroyMN(self, tx):
-        if not self.estimateDestroyMNSuccess(self, tx):
+        self.applyParentStuff(tx)
+        if not self.estimateDestroyMNSuccess(tx):
             return False
         self.getAccount(self.beaconChain.validators.get(tx.recipient).owner).balance += 1000000000000000000000000
+        self.getAccount(tx.sender).masternodes = list(filter(tx.recipient.__ne__, self.getAccount(tx.sender).masternodes))
         self.beaconChain.destroyValidator(tx.recipient)
     
 
@@ -1071,7 +1074,7 @@ class State(object):
     def requestCrosschainTransfer(self, tx):
         encodedData = eth_abi.encode_abi(["address", "address", "uint256", "uint256"], [self.beaconChain.bsc.token, tx.sender, int(tx.value), len(self.accounts[tx.sender].transactions)]) # decoder on solidity side : (address token, address withdrawer, uint256 amount, uint256 nonce) = abi.decode(_data, (address, address, uint256, uint256));
         self.beaconChain.postMessage(self.beaconChain.bsc.custodyContract.address, encodedData)
-        print(f"Initiated cross-chain transfer of {tx.value/10**18}RPTR")
+        # print(f"Initiated cross-chain transfer of {tx.value/10**18}RPTR")
     
     def clearCrossChainAccount(self):
         crossChainAccount = self.getAccount(self.crossChainAddress)
@@ -1232,7 +1235,6 @@ class State(object):
                 self.getAccount(_addr).addParent(tx.txid)
             tx.messages = tx.messages + env.messages
             tx.systemMessages = tx.systemMessages + env.systemMessages
-            self.log(f"Tx messages : {tx.messages}")
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
         else:
             for _addr in tx.affectedAccounts:
@@ -1334,6 +1336,7 @@ class State(object):
         
         for acct in _tx.affectedAccounts:
             if _tx.txtype != 6: # don't count txid of ghost transactions
+                self.txChilds[_tx.txid] = self.txChilds.get(_tx.txid, [])
                 self.getAccount(acct).addParent(_tx.txid)
             self.getAccount(acct).calcHash()
         self.postTxMessages(_tx)
@@ -1571,7 +1574,8 @@ class Node(object):
                         txs.append(tx)
                         break
                     except Exception as e:
-                        print("Exception pulling tx:", txid, e)
+                        pass
+                        # print("Exception pulling tx:", txid, e)
             else:
                 txs.append(localTx)
         return txs
@@ -1636,7 +1640,6 @@ class Node(object):
         self.checkTxs(self.pullSetOfTxs(self.pullTxsByBlockNumber(0)))
         for blockNumber in range(self.bestBlockChecked,self.getChainLength()):
             _toCheck_ = self.pullSetOfTxs(self.pullTxsByBlockNumber(blockNumber))
-            print(blockNumber)
             self.checkTxs(_toCheck_)
             self.bestBlockChecked = blockNumber
     
@@ -1730,10 +1733,10 @@ class RaptorBlockProducer(object):
         self.node = node
         self.acct = w3.eth.account.from_key(privkey)
         if not (self.acct.address in self.node.state.beaconChain.validators):
-            raise NotInSetError("Not in validator set")
+            raise self.NotInSetError("Not in validator set")
         self.bsc = node.state.beaconChain.BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x723b074d5f653CbFCe78752DEC34301a3EA8326F", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
-        self.nasaPrint(f"RaptorChain masternode started using address {self.acct.address}", 5)
+        self.fancyPrint(f"RaptorChain masternode started using address {self.acct.address}", 2)
         self.thread = threading.Thread(target=self.blockProductionLoop)
         self.thread.start()
     
@@ -1741,7 +1744,7 @@ class RaptorBlockProducer(object):
         return self.node.state.beaconChain.pendingMessages.copy()
     
     
-    def nasaPrint(self, text, duration):
+    def fancyPrint(self, text, duration):
         for char in str(text):
             print(char, flush=True, end="")
             time.sleep(duration / len(text))
@@ -1755,7 +1758,7 @@ class RaptorBlockProducer(object):
     
     def buildBlock(self):
         blockHeight = len(self.node.state.beaconChain.blocks)
-        lastBlock = self.node.state.beaconChain.blocks[blockHeight-1]
+        lastBlock = self.node.state.beaconChain.getLastBeacon()
         lastBlockHash = lastBlock.proof
         parentTxRoot = lastBlock.txsRoot()
         pulledMessages = self.pullAvailableMessages()
@@ -1777,7 +1780,7 @@ class RaptorBlockProducer(object):
         acctTxs = self.node.state.getAccount(self.acct.address).transactions
         lastTx = acctTxs[len(acctTxs)-1]
         epoch = block["parent"]
-        txdata = json.dumps({"from": "0x0000000000000000000000000000000000000000", "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blockData": block, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 1})
+        txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blockData": block, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 1})
         tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
         feedback = self.node.checkTxs([tx])
         return feedback
@@ -1816,6 +1819,7 @@ class Wallet(object):
     def __init__(self, node, configfile):
         self.commands = {}
         self.node = node
+        self.bsc = self.node.beaconChain.bsc
         self.configfile = configfile
         self.encryptedkey = None
         self.privkey = None
@@ -1824,7 +1828,28 @@ class Wallet(object):
         self.commands["balance"] = self.balance
         self.commands["send"] = self.send
         self.commands["startmn"] = self.startmn
+        self.commands["registermn"] = self.registermn
+        self.commands["destroymn"] = self.destroymn
         self.loadConfig()
+        
+    def createMNForSelf(self):
+        acctTxs = self.node.state.getAccount(self.address).transactions
+        lastTx = acctTxs[len(acctTxs)-1]
+        epoch = self.node.state.beaconChain.getLastBeacon().proof
+        txdata = json.dumps({"from": self.address, "to": self.address, "tokens": 1000000000000000000000000, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 4})
+        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
+        feedback = self.node.checkTxs([tx])
+        return feedback
+        
+    def destroyOwnedMN(self, toDestroy):
+        acctTxs = self.node.state.getAccount(self.address).transactions
+        lastTx = acctTxs[len(acctTxs)-1]
+        epoch = self.node.state.beaconChain.getLastBeacon().proof
+        txdata = json.dumps({"from": self.address, "to": toDestroy, "tokens": 0, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 5})
+        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
+        feedback = self.node.checkTxs([tx])
+        return feedback
+        
         
     def sendTransaction(self, to, tokens):
         acctTxs = self.node.state.getAccount(self.address).transactions
@@ -1892,10 +1917,21 @@ class Wallet(object):
         password = input("Password: ")
         self.fernet = Fernet(self.computePassword(password))
         self.acct = w3.eth.account.from_key(self.fernet.decrypt(self.encryptedkey))
+        print(f"Successfully decrypted password !")
         
     def balance(self, keyInput):
         print(f"Balance: {self.node.state.getAccount(self.address).balance / (10**18)}")
-        
+
+    def requireDecryption(self):
+        if not self.acct:
+            try:
+                print("Wallet is encrypted, please enter password to uncrypt it !")
+                self.decrypt()
+            except Exception as e:
+                print(f"Exception occured decrypting wallet: {e.__repr__()}")
+                return False
+        return True
+
     def send(self, keyInput):
         try:
             _to = w3.toChecksumAddress(keyInput[1])
@@ -1905,16 +1941,30 @@ class Wallet(object):
             _value = float(keyInput[2])
         except:
             _value = float(input("Amount: "))
-        if not self.acct:
-            print("Wallet is encrypted, please enter password to uncrypt it !")
-            self.decrypt()
-        self.sendTransaction(_to, int(_value*(10**18)))
+        _decr = self.requireDecryption()
+        if _decr:
+            self.sendTransaction(_to, int(_value*(10**18)))
         
     def info(self, keyInput):
         print(f"Address : {self.address}\nEncrypted : {self.acct == None}\n")
         
     def startmn(self, keyInput):
-        self.mn = RaptorBlockProducer(self.node, self.key.hex())
+        if self.requireDecryption():
+            self.mn = RaptorBlockProducer(self.node, self.acct.key.hex())
+        
+    def registermn(self, keyInput):
+        if not self.requireDecryption():
+            return
+        self.createMNForSelf()
+        
+    def destroymn(self, keyInput):
+        if not self.requireDecryption():
+            return
+        try:
+            mnaddr = keyInput[1]
+        except:
+            mnaddr = self.address
+        self.destroyOwnedMN(mnaddr)
         
     def skip(self, keyInput):
         pass

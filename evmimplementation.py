@@ -1123,7 +1123,7 @@ class Opcodes(object):
         env.pc += 1
         
     def RETURN(self, env):
-        print(f"Stack state just before return : {env.stack}")
+        # print(f"Stack state just before return : {env.stack}")
         offset = env.stack.pop()
         length = env.stack.pop()
         env.returnCall(bytes(env.memory.data[offset:offset+length]))
