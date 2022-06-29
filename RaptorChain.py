@@ -1819,7 +1819,7 @@ class Wallet(object):
     def __init__(self, node, configfile):
         self.commands = {}
         self.node = node
-        self.bsc = self.node.beaconChain.bsc
+        self.bsc = self.node.state.beaconChain.bsc
         self.configfile = configfile
         self.encryptedkey = None
         self.privkey = None
