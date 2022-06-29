@@ -549,7 +549,7 @@ class BeaconChain(object):
             # return (False, "ALREADY_PRODUCED_LAST_BEACON")
         if ((int(beacon.timestamp) < (int(_lastBeacon.timestamp)+int(self.blockTime))) or (beacon.timestamp > time.time())):
             return (False, "INVALID_TIMESTAMP")
-        if ((len(self.blocks) < self.STIUpgradeBlock) or (beacon.parentTxRoot == self.blocks[len(self.blocks)-1].txsRoot())):
+        if (beacon.parentTxRoot != self.blocks[len(self.blocks)-1].txsRoot().hex()):
             return (False, "STI_UPGRADE_UNMATCHED")
         if (not len(self.pendingMessages)):
             return (False, "NO_DATA_HERE")
@@ -1917,7 +1917,7 @@ class Wallet(object):
         password = input("Password: ")
         self.fernet = Fernet(self.computePassword(password))
         self.acct = w3.eth.account.from_key(self.fernet.decrypt(self.encryptedkey))
-        print(f"Successfully decrypted password !")
+        print(f"Successfully decrypted wallet !")
         
     def balance(self, keyInput):
         print(f"Balance: {self.node.state.getAccount(self.address).balance / (10**18)}")
