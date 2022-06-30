@@ -1838,6 +1838,8 @@ class Wallet(object):
         self.commands["startmn"] = self.startmn
         self.commands["registermn"] = self.registermn
         self.commands["destroymn"] = self.destroymn
+        self.commands["deposit"] = self.deposit
+        self.commands["withdraw"] = self.withdraw
         self.loadConfig()
         
     def createMNForSelf(self):
@@ -1867,6 +1869,22 @@ class Wallet(object):
         tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
         feedback = self.node.checkTxs([tx])
         return feedback
+        
+    def depositRPTR(self, amount, gasPrice=10000000000, useApproveAndCall=True):
+        print("Initiating cross-chain deposit...")
+        tx = (self.bsc.rptr.BEP20Instance.functions.approveAndCall(self.bsc.custodyContract.address, int(amount), b"") if useApproveAndCall else self.bsc.custodyContract.functions.deposit(self.bsc.token, amount, b"")).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.address),'chainId': self.bsc.chainID, 'gasPrice': gasPrice, 'from':self.address, 'value': 0})
+        tx = self.acct.sign_transaction(tx)
+        txid = tx.hash.hex()
+        print(f"BSC-side txid: {txid}")
+        self.bsc.chain.eth.send_raw_transaction(tx.rawTransaction)
+        print("Waiting for bsc-side tx confirmation...")
+        receipt = self.bsc.chain.eth.waitForTransactionReceipt(txid)
+        print("Tx confirmed !\nPlease wait for RaptorChain-side confirmation !")
+        self.node.createRefreshTx()
+        return receipt
+        
+    def withdrawRPTR(self, amount):
+        self.sendTransaction(self.node.state.crossChainAddress, amount)
         
     def computePassword(self, passwd):
         return base64.b64encode(w3.solidityKeccak(["string"], [passwd]))
@@ -1976,12 +1994,15 @@ class Wallet(object):
             mnaddr = self.address
         self.destroyOwnedMN(mnaddr)
 
-    def bridgeRPTR(self, amount, gasPrice=5, useApproveAndCall=True):
-        tx = (self.bsc.rptr.BEP20Instance.functions.approveAndCall(self.bsc.custodyContract.address, b"") if useApproveAndCall else self.bsc.custodyContract.functions.deposit(self.bsc.token, amount, b"")).buildTransaction({'nonce': self.bsc.eth.get_transaction_count(self.address),'chainId': self.bsc.chainID, 'gasPrice': gasPrice, 'from':self.address, 'value': 0})
-        tx = self.acct.sign_transaction(tx)
-        txid = tx.hash.hex()
-        self.bsc.eth.send_raw_transaction(tx.rawTransaction)
-        return self.bsc.eth.waitForTransactionReceipt(txid)
+    def deposit(self, keyInput):
+        if not self.requireDecryption():
+            return
+        self.depositRPTR(int(float(keyInput[1]) * 10**18))
+        
+    def withdraw(self, keyInput):
+        if not self.requireDecryption():
+            return
+        self.withdraw(int(float(keyInput[1]) * 10**18))
 
     def skip(self, keyInput):
         pass
