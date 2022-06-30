@@ -1832,14 +1832,15 @@ class Wallet(object):
         self.encryptedkey = None
         self.privkey = None
         self.acct = None
-        self.commands["info"] = self.info
-        self.commands["balance"] = self.balance
-        self.commands["send"] = self.send
-        self.commands["startmn"] = self.startmn
-        self.commands["registermn"] = self.registermn
-        self.commands["destroymn"] = self.destroymn
-        self.commands["deposit"] = self.deposit
-        self.commands["withdraw"] = self.withdraw
+        self.commands["info"] = [self.info, "wallet info - Get info about currently loaded wallet"]
+        self.commands["balance"] = [self.balance, "wallet balance - Get wallet balance (note : might be incorrect if wallet isn't correctly synced)"]
+        self.commands["send"] = [self.send, "wallet send <recipient> <value> - Transfer RPTR over RaptorChain"]
+        self.commands["startmn"] = [self.startmn, "wallet startmn - Starts masternode"]
+        self.commands["registermn"] = [self.registermn, "wallet registermn - Registers a masternode - collateral: 1M RPTR locked on chain side"]
+        self.commands["destroymn"] = [self.destroymn, "wallet destroymn <mnaddress> - Destroys/unregisters a masternode owned by current account, releases collateral"]
+        self.commands["deposit"] = [self.deposit, "wallet deposit <amount> - Cross-chain deposit (BSC to RaptorChain)"]
+        self.commands["withdraw"] = [self.withdraw, "wallet withdraw <amount> - Cross-chain withdrawal (RaptorChain to BSC)"]
+        self.commands["help"] = [self.help, "wallet help - Show this help message"]
         self.loadConfig()
         
     def createMNForSelf(self):
@@ -1973,6 +1974,12 @@ class Wallet(object):
         if _decr:
             self.sendTransaction(_to, int(_value*(10**18)))
         
+    def help(self, keyInput):
+        if len(keyInput) > 1:
+            print(self.commands.get(keyInput, [None, ""])[1])
+        else:
+            [print(info[1]) for cmd, info in self.commands.items()]
+        
     def info(self, keyInput):
         print(f"Address : {self.address}\nEncrypted : {self.acct == None}\n")
         
@@ -2008,7 +2015,7 @@ class Wallet(object):
         pass
         
     def execCommand(self, keyInput):
-        self.commands.get(keyInput[0], self.skip)(keyInput)
+        self.commands.get(keyInput[0], [self.skip])[0](keyInput)
         
 
 # thread = threading.Thread(target=node.backgroundRoutine)
@@ -2020,15 +2027,16 @@ class Terminal(object):
         self.wallet = None
         self.mn = None # masternode not started/set at boot
         self.commands = {}
-        self.commands["snapshot"] = self.snapshot
-        self.commands["balance"] = self.balance
-        self.commands["tokenBalance"] = self.tokenBalance
-        self.commands["account"] = self.accountInfo
-        self.commands["stats"] = self.stats
-        self.commands["abibeacon"] = self.abibeacon
-        self.commands["startmn"] = self.startmn
-        self.commands["wallet"] = self.walletCommand
-        self.commands["walletload"] = self.walletload
+        self.commands["snapshot"] = [self.snapshot, "snapshot <filepath> - takes a snapshot of current network state"]
+        self.commands["balance"] = [self.balance, "balance <address> - shows balance of an address"]
+        self.commands["tokenBalance"] = [self.tokenBalance, "tokenBalance <tokenaddress> <address> - get token balance of an address"]
+        self.commands["account"] = [self.accountInfo, "account <address> - gives informations about an account on network"]
+        self.commands["stats"] = [self.stats, "stats - network statistics"]
+        self.commands["abibeacon"] = [self.abibeacon, "abibeacon <blockid> - gives abi-encodable format of a beacon (e.g. for remix)"]
+        self.commands["startmn"] = [self.startmn, "startmn <privkey> - NOT RECOMMENDED - starts masternode with a defined private key"]
+        self.commands["wallet"] = [self.walletCommand, "wallet ... - Wallet related commands - get more help with `wallet help`"]
+        self.commands["walletload"] = [self.walletload, "walletload <filepath> - Loads a wallet from file. Creates a fresh wallet if it don't exist !"]
+        self.commands["help"] = [self.help, "help - show this help message"]
     
     
     def _encodeWithSelector(self, functionName, params):
@@ -2041,11 +2049,13 @@ class Terminal(object):
         encoded = self._encodeWithSelector(keyInput[1], keyInput[2:])
         print(encoded)
         
+    def printCmdHelp(self, cmd, helpMessage):
+        print(f"    {cmd} - {helpMessage}")
+        
     def callContract(self, to, function, params, returnTypes):
         callData = self._encodeWithSelector(function, params)
         rawRetValue = self.node.state.eth_Call({"to": to, "data": callData}).returnValue
         return eth_abi.decode_abi(returnTypes, rawRetValue)
-
 
     def skip(self, keyInput):
         pass
@@ -2079,6 +2089,11 @@ class Terminal(object):
         print(f"Coin stats\n    Total Supply : {totalSupply}\n    Holders : {holders}\n    Number of transactions : {txsNumber}")
         print(f"Chain stats\n    Chain length : {chainLength}\n    Last block hash : {lastBlockHash}")
         
+    def help(self, keyInput):
+        if len(keyInput) > 1:
+            print(self.commands.get(keyInput, [None, ""])[1])
+        else:
+            [print(info[1]) for cmd, info in self.commands.items()]
         
     def abibeacon(self, keyInput):
         _id = keyInput[1]
@@ -2112,7 +2127,7 @@ class Terminal(object):
     
     def execCommand(self, command):
         keyInput = list(filter(("").__ne__, command.split(" "))) or [""]
-        self.commands.get(keyInput[0], self.skip)(keyInput)
+        _cmd = self.commands.get(keyInput[0], [self.skip])[0](keyInput)
     
     def terminalLoop(self):
         while True:
