@@ -1953,7 +1953,7 @@ class Wallet(object):
     def requireDecryption(self):
         if not self.acct:
             try:
-                print("Wallet is encrypted, please enter password to uncrypt it !")
+                print("Wallet is encrypted, please enter password to decrypt it !")
                 self.decrypt()
             except Exception as e:
                 print(f"Exception occured decrypting wallet: {e.__repr__()}")
