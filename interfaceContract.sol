@@ -456,14 +456,12 @@ contract BeaconChainHandler {
 		return id;
 	}
 	
-	constructor(Beacon memory _genesisBeacon, address _owner) {
-		owner = _owner;
+	constructor(Beacon memory _genesisBeacon, address _stakingToken, uint256 mnCollateral) {
 		beacons.push(_genesisBeacon);
 		beacons[0].height = 0;
 		handler = msg.sender;
-        address _stakingToken = address(0);
         address bootstrapRelayer = 0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846;
-		relayerSet = new RelayerSet(_stakingToken, 10e18, bootstrapRelayer);
+		relayerSet = new RelayerSet(_stakingToken, mnCollateral, bootstrapRelayer);
 	}
 	
 	function beaconHash(Beacon memory _beacon) public pure returns (bytes32 beaconRoot) {
@@ -493,12 +491,19 @@ contract BeaconChainHandler {
 		return (true, "VALID_BEACON");
 	}
 	
-	function executeCall(bytes memory message) private returns (bool success, bytes memory result) {
-		(success, result) = handler.call(abi.encodeWithSelector(bytes4(keccak256("routeCall(bytes)")), message));
-	}
-	
 	function extractBeaconMessages(Beacon memory _beacon) public pure returns (bytes[] memory messages, uint256 length) {
 		return (_beacon.messages, _beacon.messages.length);
+	}
+	
+	function executeCall(bytes memory message) private returns (bool success) {
+		(address recipient, uint256 chainID, bytes memory data) = abi.decode(message, (address, uint256, bytes));
+		if (_chainId() == chainID) {
+			(success, ) = recipient.call(abi.encodeWithSelector(bytes4(keccak256("execBridgeCall(bytes)")), data));
+			emit CallExecuted(recipient, data, success);
+		}
+		else {
+			emit CallDismissed(recipient, data, "INVALID_CHAIN_ID");
+		}
 	}
 	
 	function executeMessages(Beacon memory _beacon) private {
@@ -507,7 +512,7 @@ contract BeaconChainHandler {
 		}
 	}
 	
-	function pushBeacon(Beacon memory _beacon) public onlyOwner {
+	function pushBeacon(Beacon memory _beacon) public {
 		(bool _valid, string memory _reason) = isBeaconValid(_beacon);
 		(, , bool sigsMatched) = relayerSet.recoverRelayerSigs(_beacon.proof, _beacon.relayerSigs);
 		require(_valid, _reason);
@@ -525,76 +530,77 @@ contract BeaconChainHandler {
 }
 
 
-contract ChainsImplementationHandler {
-	address[] public instances;
-	mapping (address => bool) public isInstance;
-	mapping (address => address[]) public instancesPerOwner;
+// contract ChainsImplementationHandler {
+	// address[] public instances;
+	// mapping (address => bool) public isInstance;
+	// mapping (address => address[]) public instancesPerOwner;
 	
-	BeaconChainHandler.Beacon public genesisBeacon;
-	ERC20Interface public stakingToken;
-	address owner;
-	address officialInstance;
+	// BeaconChainHandler.Beacon public genesisBeacon;
+	// ERC20Interface public stakingToken;
+	// address owner;
+	// address officialInstance;
 	
-	event CallExecuted(address indexed to, bytes data, bool success);
-	event CallDismissed(address indexed to, bytes data, string reason);
+	// event CallExecuted(address indexed to, bytes data, bool success);
+	// event CallDismissed(address indexed to, bytes data, string reason);
 	
-	modifier onlyOwner {
-		require(msg.sender == owner);
-		_;
-	}
+	// modifier onlyOwner {
+		// require(msg.sender == owner);
+		// _;
+	// }
 
-	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, ERC20Interface _stakingToken) {
-		genesisBeacon = _genesisBeacon;
-		stakingToken = _stakingToken;
-		owner = tx.origin;
-	}
+	// constructor(BeaconChainHandler.Beacon memory _genesisBeacon, ERC20Interface _stakingToken) {
+		// genesisBeacon = _genesisBeacon;
+		// stakingToken = _stakingToken;
+		// owner = tx.origin;
+	// }
 
-	function _chainId() internal pure returns (uint256) {
-		uint256 id;
-		assembly {
-			id := chainid()
-		}
-		return id;
-	}
+	// function _chainId() internal pure returns (uint256) {
+		// uint256 id;
+		// assembly {
+			// id := chainid()
+		// }
+		// return id;
+	// }
 	
-	function transferOwnership(address _to) public onlyOwner {
-		owner = _to;
-	}
+	// function transferOwnership(address _to) public onlyOwner {
+		// owner = _to;
+	// }
 	
-	function setOfficialInstance(address _instance) public onlyOwner{
-		officialInstance = _instance;
-	}
+	// function setOfficialInstance(address _instance) public onlyOwner{
+		// officialInstance = _instance;
+	// }
 	
-	function getAllInstances() public view returns (address[] memory) {
-		return instances;
-	}
+	// function getAllInstances() public view returns (address[] memory) {
+		// return instances;
+	// }
 	
-	function createInstance(address instanceOwner) public {
-		address newInstance = address(new BeaconChainHandler(genesisBeacon, instanceOwner));
-		instances.push(newInstance);
-		isInstance[newInstance] = true;
-		instancesPerOwner[instanceOwner].push(newInstance);
-	}
+	// function createInstance(address instanceOwner) public {
+		// address newInstance = address(new BeaconChainHandler(genesisBeacon, instanceOwner));
+		// instances.push(newInstance);
+		// isInstance[newInstance] = true;
+		// instancesPerOwner[instanceOwner].push(newInstance);
+	// }
 	
-	function routeCall(bytes memory call) public {
-		if (msg.sender != officialInstance) {
-			return;
-		}
-		(address recipient, uint256 chainID, bytes memory data) = abi.decode(call, (address, uint256, bytes));
-		if (_chainId() == chainID) {
-			(bool success, ) = recipient.call(abi.encodeWithSelector(bytes4(keccak256("execBridgeCall(bytes)")), data));
-			emit CallExecuted(recipient, data, success);
-		}
-		else {
-			emit CallDismissed(recipient, data, "INVALID_CHAIN_ID");
-		}
-	}
-}
+	// function routeCall(bytes memory call) public {
+		// if (msg.sender != officialInstance) {
+			// return;
+		// }
+		// (address recipient, uint256 chainID, bytes memory data) = abi.decode(call, (address, uint256, bytes));
+		// if (_chainId() == chainID) {
+			// (bool success, ) = recipient.call(abi.encodeWithSelector(bytes4(keccak256("execBridgeCall(bytes)")), data));
+			// emit CallExecuted(recipient, data, success);
+		// }
+		// else {
+			// emit CallDismissed(recipient, data, "INVALID_CHAIN_ID");
+		// }
+	// }
+// }
 
 contract MasterContract {
 	// StakeManager public staking;
 	CustodyManager public custody;
-    ChainsImplementationHandler public chainInstances;
+	BeaconChainHandler public beaconchain;
+    // ChainsImplementationHandler public chainInstances;
 	
 	// comment used as a reminder, DON'T REMOVE
 	// struct Beacon {
@@ -620,11 +626,11 @@ contract MasterContract {
 	// calldata to use on deployment
 	// GenesisBeacon calldata : ["0x0000000000000000000000000000000000000000",0,["0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b"],1,"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",1645457628,"0x496e697469616c697a696e672074686520526170746f72436861696e2e2e2e00","0x7d9e1f415e0084675c211687b1c8dfaee67e53128e325b5fdda9c98d7288aaeb",0,"0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000",0,"0x0000000000000000000000000000000000000000000000000000000000000000","0x0000000000000000000000000000000000000000000000000000000000000000"]
 	
-	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, ERC20Interface stakingToken) {
+	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, address stakingToken, uint256 mnCollateral) {
 		// staking = new StakeManager(stakingToken);
-        chainInstances = new ChainsImplementationHandler(_genesisBeacon, stakingToken);
-		custody = new CustodyManager(address(chainInstances));
-		// beaconchain = new BeaconChainHandler(_genesisBeacon, staking);
+        // chainInstances = new ChainsImplementationHandler(_genesisBeacon, stakingToken);
+		beaconchain = new BeaconChainHandler(_genesisBeacon, stakingToken, mnCollateral);
+		custody = new CustodyManager(address(beaconchain));
 		// staking.setBeaconHandler(beaconchain);
 	}
 	
