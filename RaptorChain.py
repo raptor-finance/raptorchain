@@ -124,6 +124,7 @@ class Transaction(object):
         self.affectedAccounts = []
         self.nonce = 0
         self.gasprice = 0
+        self.epoch = txData.get("epoch")
         _sig = tx.get("sig")
         self.sig = bytes.fromhex(_sig.replace("0x", "")) if _sig else b""
         if _sig:
@@ -196,9 +197,9 @@ class Transaction(object):
             self.sender = txData.get("from")
             self.recipient = "0x0000000000000000000000000000000000000000"
             self.blocksig = txData.get("blocksig")
+            self.blockhash = txData.get("blockhash", self.epoch)
             self.value = 0
         
-        self.epoch = txData.get("epoch")
         self.bio = txData.get("bio")
         self.parent = txData.get("parent")
         self.message = txData.get("message")
@@ -566,6 +567,8 @@ class BeaconChain(object):
             return (False, "STI_UPGRADE_UNMATCHED")
         if (not len(self.pendingMessages)):
             return (False, "NO_DATA_HERE")
+        if len(self.blocks) > self.bsc.beaconChainContract.functions.chainLength().call():
+            return (False, "UNMATCHED_CONTRACTSIDE_CHAIN_LENGTH")
         return (True, "GOOD")
     
     def isBlockValid(self, blockData):
@@ -1339,7 +1342,7 @@ class State(object):
         elif _tx.txtype == 6:
             self.beaconChain.getLastBeacon().depCheckerTxs.append(_tx.txid)
         elif _tx.txtype == 7:
-            self.beaconChain.addRelayerSig(_tx.sender, _tx.epoch, _tx.blocksig)
+            self.beaconChain.addRelayerSig(_tx.sender, _tx.blockhash, _tx.blocksig)
         
         if (_tx.bio):
             self.accounts[_tx.sender].bio = _tx.bio.replace("%20", " ")
@@ -1723,19 +1726,25 @@ class RaptorBlockSigner(object):
     def submitSig(self, blockhash, blocksig):
         acctTxs = self.node.state.getAccount(self.acct.address).transactions
         lastTx = acctTxs[len(acctTxs)-1]
-        epoch = block["parent"]
-        txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blocksig": blocksig, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 7})
+        epoch = self.node.state.beaconChain.getLastBeacon().proof
+        txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blocksig": blocksig, "blockhash": blockhash, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 7})
         tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
         feedback = self.node.checkTxs([tx])
         return feedback
         
-    def makeSig(self):
+    def signBlockByHeight(self, blockheight):
+        bkhash = self.node.state.beaconChain.blocks[int(blockheight)].proof
+        bksig = self.generateBlockSig(bkhash)
+        self.submitSig(bkhash, bksig)
+        
+        
+    def signLastBlock(self):
         bkhash = self.node.state.beaconChain.getLastBeacon().proof
-        bksig = self.generateBlockSig()
+        bksig = self.generateBlockSig(bkhash)
         self.submitSig(bkhash, bksig)
         
     def onBlockMined(self, beacon):
-        self.makeSig()
+        self.signLastBlock()
         
 
 class RaptorBlockProducer(object):
