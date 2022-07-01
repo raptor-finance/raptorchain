@@ -17,7 +17,7 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "raptorchain-testnet-v0.4_TEST.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":["https://rpc-testnet.raptorchain.io/"], "InitTxID": "RPTRTESTNET-TRYING0.4", "netLogFile": "rptrnetlog.log"}
+    config = {"dataBaseFile": "raptorchain-testnet-v0.5_TEST.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET-TRYING0.4", "netLogFile": "rptrnetlog.log"}
 
 
 def isNotComment(line):
@@ -345,11 +345,14 @@ class BeaconChain(object):
         def loadCacheFile(self):
             if not self.cacheFile:
                 return
-            f = open(self.cacheFile, "r")
-            _data = json.load(f)
-            f.close()
-            self.loadCachedTokens(_data.get("tokens", {}))
-            self.loadCachedDeposits(_data.get("deposits", {}))
+            try:
+                f = open(self.cacheFile, "r")
+                _data = json.load(f)
+                f.close()
+                self.loadCachedTokens(_data.get("tokens", {}))
+                self.loadCachedDeposits(_data.get("deposits", {}))
+            except Exception as e:
+                print(f"Error encountered loading BSC cache: {e.__repr__()}")
             
         def saveCacheFile(self):
             if not self.cacheFile:
@@ -1665,9 +1668,9 @@ class Node(object):
     def networkBackgroundRoutine(self):
         while True:
 #            print("Refreshing transactions from other nodes")
-            self.createRefreshTx()
             self.checkGuys()
             self.syncByBlock()
+            self.createRefreshTx()
             time.sleep(60)
 
     def txReceipt(self, txid):
