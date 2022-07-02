@@ -1,4 +1,4 @@
-import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets
+import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys
 global config
 from web3.auto import w3
 from web3 import Web3
@@ -1719,6 +1719,7 @@ class RaptorBlockSigner(object):
         self.node = node
         self.acct = w3.eth.account.from_key(privkey)
         self.node.state.beaconChain.onBlockMined = self.onBlockMined
+        self.signLastBlock()
         
     def generateBlockSig(self, blockhash):
         return self.acct.signHash(blockhash).hex()
@@ -1739,7 +1740,10 @@ class RaptorBlockSigner(object):
         
         
     def signLastBlock(self):
-        bkhash = self.node.state.beaconChain.getLastBeacon().proof
+        lastbeacon = self.node.state.beaconChain.getLastBeacon()
+        if lastBeacon.nodeSigs.get(self.acct.address):
+            return
+        bkhash = lastbeacon.proof
         bksig = self.generateBlockSig(bkhash)
         self.submitSig(bkhash, bksig)
         
@@ -2046,7 +2050,7 @@ class Wallet(object):
 class Terminal(object):
     def __init__(self, nodeClass):
         self.node = nodeClass
-        self.wallet = None
+        self.wallet = Wallet(self.node, sys.argv[1]) if (len(sys.argv) > 1) else None
         self.mn = None # masternode not started/set at boot
         self.commands = {}
         self.commands["snapshot"] = [self.snapshot, "snapshot <filepath> - takes a snapshot of current network state"]
@@ -2059,6 +2063,7 @@ class Terminal(object):
         self.commands["wallet"] = [self.walletCommand, "wallet ... - Wallet related commands - get more help with `wallet help`"]
         self.commands["walletload"] = [self.walletload, "walletload <filepath> - Loads a wallet from file. Creates a fresh wallet if it don't exist !"]
         self.commands["help"] = [self.help, "help - show this help message"]
+        
     
     
     def _encodeWithSelector(self, functionName, params):
