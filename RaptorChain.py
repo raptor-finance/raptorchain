@@ -563,7 +563,7 @@ class BeaconChain(object):
             # return (False, "ALREADY_PRODUCED_LAST_BEACON")
         if ((int(beacon.timestamp) < (int(_lastBeacon.timestamp)+int(self.blockTime))) or (beacon.timestamp > time.time())):
             return (False, "INVALID_TIMESTAMP")
-        if (beacon.parentTxRoot != self.blocks[len(self.blocks)-1].txsRoot().hex()):
+        if (beacon.parentTxRoot != self.getLastBeacon().txsRoot().hex()):
             return (False, "STI_UPGRADE_UNMATCHED")
         if (not len(self.pendingMessages)):
             return (False, "NO_DATA_HERE")
