@@ -1741,7 +1741,7 @@ class RaptorBlockSigner(object):
         
     def signLastBlock(self):
         lastbeacon = self.node.state.beaconChain.getLastBeacon()
-        if lastBeacon.nodeSigs.get(self.acct.address):
+        if lastbeacon.nodeSigs.get(self.acct.address):
             return
         bkhash = lastbeacon.proof
         bksig = self.generateBlockSig(bkhash)
@@ -1850,13 +1850,16 @@ class Wallet(object):
         self.encryptedkey = None
         self.privkey = None
         self.acct = None
+        self.relayerCollateral = ((10**18) * 1000000)
         self.commands["info"] = [self.info, "wallet info - Get info about currently loaded wallet"]
         self.commands["balance"] = [self.balance, "wallet balance - Get wallet balance (note : might be incorrect if wallet isn't correctly synced)"]
+        self.commands["decrypt"] = [self.decrypt, "wallet decrypt <password> - Decrypts wallet (note : password argument is optional and can be passed afterwards)"]
         self.commands["send"] = [self.send, "wallet send <recipient> <value> - Transfer RPTR over RaptorChain"]
         self.commands["startmn"] = [self.startmn, "wallet startmn - Starts masternode"]
         self.commands["startsigner"] = [self.startsigner, "wallet startsigner - Starts beacon signer (for cross-chain transfers)"]
         self.commands["registermn"] = [self.registermn, "wallet registermn - Registers a masternode - collateral: 1M RPTR locked on chain side"]
         self.commands["destroymn"] = [self.destroymn, "wallet destroymn <mnaddress> - Destroys/unregisters a masternode owned by current account, releases collateral"]
+        self.commands["regrelayer"] = [self.regrelayer, "wallet regrelayer <address> - Destroys/unregisters a relayer, locks 1M BSC-side RPTR as collateral"]
         self.commands["deposit"] = [self.deposit, "wallet deposit <amount> - Cross-chain deposit (BSC to RaptorChain)"]
         self.commands["withdraw"] = [self.withdraw, "wallet withdraw <amount> - Cross-chain withdrawal (RaptorChain to BSC)"]
         self.commands["help"] = [self.help, "wallet help - Show this help message"]
@@ -1890,24 +1893,38 @@ class Wallet(object):
         feedback = self.node.checkTxs([tx])
         return feedback
         
-    def depositRPTR(self, amount, gasPrice=10000000000, useApproveAndCall=True):
-        print("Initiating cross-chain deposit...")
-        tx = (self.bsc.rptr.BEP20Instance.functions.approveAndCall(self.bsc.custodyContract.address, int(amount), b"") if useApproveAndCall else self.bsc.custodyContract.functions.deposit(self.bsc.token, amount, b"")).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.address),'chainId': self.bsc.chainID, 'gasPrice': gasPrice, 'from':self.address, 'value': 0})
+    def sendBSCTx(self, preparedCall, gasPrice=10000000000):
+        tx = preparedCall.buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.address),'chainId': self.bsc.chainID, 'gasPrice': gasPrice, 'from':self.address, 'value': 0})
         tx = self.acct.sign_transaction(tx)
         txid = tx.hash.hex()
         print(f"BSC-side txid: {txid}")
         self.bsc.chain.eth.send_raw_transaction(tx.rawTransaction)
         print("Waiting for bsc-side tx confirmation...")
         receipt = self.bsc.chain.eth.waitForTransactionReceipt(txid)
-        print("Tx confirmed !\nPlease wait for RaptorChain-side confirmation !")
+        print("Tx confirmed !")
+        return receipt
+        
+    def depositRPTR(self, amount, useApproveAndCall=True):
+        print("Initiating cross-chain deposit...")
+        receipt = self.sendBSCTx(self.bsc.rptr.BEP20Instance.functions.approveAndCall(self.bsc.custodyContract.address, int(amount), b"") if useApproveAndCall else self.bsc.custodyContract.functions.deposit(self.bsc.token, amount, b""))
+        print("Please wait for RaptorChain-side confirmation !")
         self.node.createRefreshTx()
         return receipt
+        
         
     def withdrawRPTR(self, amount):
         self.sendTransaction(self.node.state.crossChainAddress, amount)
         
-    def registerRelayer(self):
-        self.bsc.rptr.BEP20Instance.functions.approve(self.bsc.custodyContract.address, int(amount), b"")
+    def registerRelayer(self, _relAddress=None):
+        relAddress = _relAddress or self.address
+        if (self.bsc.rptr.balanceOf(self.address) < self.relayerCollateral):
+            print("Insufficient balance for collateral (1M BEP20 RPTR)")
+        allowed = self.bsc.rptr.BEP20Instance.functions.allowance(self.address, self.bsc.relayerSetContract.address).call()
+        if allowed < self.relayerCollateral:
+            print("Insufficient allowance, approving...")
+            self.sendBSCTx(self.bsc.rptr.BEP20Instance.functions.approve(self.bsc.relayerSetContract.address, int(self.relayerCollateral)))
+        print("Registering Relayer in validator set...")
+        self.sendBSCTx(self.bsc.relayerSetContract.functions.createRelayer(relAddress))
         
     def computePassword(self, passwd):
         return base64.b64encode(w3.solidityKeccak(["string"], [passwd]))
@@ -1962,8 +1979,8 @@ class Wallet(object):
         file.write(json.dumps(data))
         file.close()
         
-    def decrypt(self):
-        password = input("Password: ")
+    def decrypt(self, keyInput=["decrypt"]):
+        password = keyInput[1] if (len(keyInput) > 1) else input("Password: ")
         self.fernet = Fernet(self.computePassword(password))
         self.acct = w3.eth.account.from_key(self.fernet.decrypt(self.encryptedkey))
         print(f"Successfully decrypted wallet !")
@@ -1971,6 +1988,7 @@ class Wallet(object):
     def balance(self, keyInput):
         print(f"Balance: {self.node.state.getAccount(self.address).balance / (10**18)}")
         print(f"BEP20 Balance: {self.bsc.rptr.balanceOf(self.address) / (10**18)}")
+
 
 
     def requireDecryption(self):
@@ -1998,7 +2016,7 @@ class Wallet(object):
         
     def help(self, keyInput):
         if len(keyInput) > 1:
-            print(self.commands.get(keyInput, [None, ""])[1])
+            print(self.commands.get(keyInput[1], [None, ""])[1])
         else:
             [print(info[1]) for cmd, info in self.commands.items()]
         
@@ -2026,6 +2044,14 @@ class Wallet(object):
         except:
             mnaddr = self.address
         self.destroyOwnedMN(mnaddr)
+
+    def regrelayer(self, keyInput):
+        if not self.requireDecryption():
+            return
+        if (len(keyInput) > 1):
+            self.registerRelayer(keyInput[1])
+        else:
+            self.registerRelayer(self.address)
 
     def deposit(self, keyInput):
         if not self.requireDecryption():
@@ -2063,7 +2089,8 @@ class Terminal(object):
         self.commands["wallet"] = [self.walletCommand, "wallet ... - Wallet related commands - get more help with `wallet help`"]
         self.commands["walletload"] = [self.walletload, "walletload <filepath> - Loads a wallet from file. Creates a fresh wallet if it don't exist !"]
         self.commands["help"] = [self.help, "help - show this help message"]
-        self.execCommand("wallet startmn") if (self.wallet and ("startmn" in sys.argv)) else None
+        for cmd in sys.argv[2:]:
+            self.execCommand(cmd)
     
     
     def _encodeWithSelector(self, functionName, params):
@@ -2075,9 +2102,6 @@ class Terminal(object):
     def encodeWithSelector(self, keyInput):
         encoded = self._encodeWithSelector(keyInput[1], keyInput[2:])
         print(encoded)
-        
-    def printCmdHelp(self, cmd, helpMessage):
-        print(f"    {cmd} - {helpMessage}")
         
     def callContract(self, to, function, params, returnTypes):
         callData = self._encodeWithSelector(function, params)
@@ -2118,7 +2142,7 @@ class Terminal(object):
         
     def help(self, keyInput):
         if len(keyInput) > 1:
-            print(self.commands.get(keyInput, [None, ""])[1])
+            print(self.commands.get(keyInput[1], [None, ""])[1])
         else:
             [print(info[1]) for cmd, info in self.commands.items()]
         
