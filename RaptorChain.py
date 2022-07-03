@@ -300,7 +300,7 @@ class BeaconChain(object):
             # self.stakingContract = self.chain.eth.contract(address=self.masterContract.functions.staking().call(), abi=StakingContractABI)
             self.custodyContract = self.chain.eth.contract(address=self.masterContract.functions.custody().call(), abi=CustodyContractABI)
             self.beaconChainContract = self.chain.eth.contract(address=self.masterContract.functions.beaconchain().call(), abi=BeaconChainContractABI)
-            self.beaconChainContract = self.chain.eth.contract(address=self.beaconChainContract.functions.relayerSet().call(), abi=RelayerSetContractABI)
+            self.relayerSetContract = self.chain.eth.contract(address=self.beaconChainContract.functions.relayerSet().call(), abi=RelayerSetContractABI)
             self.loadCacheFile()
             self.rptr = self.getBEP20At(self.token)
             
@@ -2063,7 +2063,7 @@ class Terminal(object):
         self.commands["wallet"] = [self.walletCommand, "wallet ... - Wallet related commands - get more help with `wallet help`"]
         self.commands["walletload"] = [self.walletload, "walletload <filepath> - Loads a wallet from file. Creates a fresh wallet if it don't exist !"]
         self.commands["help"] = [self.help, "help - show this help message"]
-        
+        self.execCommand("wallet startmn") if (self.wallet and ("startmn" in sys.argv)) else None
     
     
     def _encodeWithSelector(self, functionName, params):
