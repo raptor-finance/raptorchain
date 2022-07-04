@@ -499,7 +499,7 @@ class BeaconChain(object):
         def submitRelayerSig(self, sig):
             _isokay = self.canAddSig(sig)
             if _isokay[0]:
-                self.nodeSigs[_isokay[1]] = sig
+                self.relayerSigs[_isokay[1]] = sig
             return _isokay
 
         def messagesToHex(self):
@@ -1722,7 +1722,7 @@ class RaptorBlockSigner(object):
         self.signLastBlock()
         
     def generateBlockSig(self, blockhash):
-        return self.acct.signHash(blockhash).hex()
+        return self.acct.signHash(blockhash).signature.hex()
         
     def submitSig(self, blockhash, blocksig):
         acctTxs = self.node.state.getAccount(self.acct.address).transactions
@@ -1741,7 +1741,7 @@ class RaptorBlockSigner(object):
         
     def signLastBlock(self):
         lastbeacon = self.node.state.beaconChain.getLastBeacon()
-        if lastbeacon.nodeSigs.get(self.acct.address):
+        if lastbeacon.relayerSigs.get(self.acct.address):
             return
         bkhash = lastbeacon.proof
         bksig = self.generateBlockSig(bkhash)
@@ -2088,6 +2088,7 @@ class Terminal(object):
         self.commands["startmn"] = [self.startmn, "startmn <privkey> - NOT RECOMMENDED - starts masternode with a defined private key"]
         self.commands["wallet"] = [self.walletCommand, "wallet ... - Wallet related commands - get more help with `wallet help`"]
         self.commands["walletload"] = [self.walletload, "walletload <filepath> - Loads a wallet from file. Creates a fresh wallet if it don't exist !"]
+        self.commands["contractaddresses"] = [self.contractaddresses, "contractaddresses - Prints addresses of different contracts on BSC !"]
         self.commands["help"] = [self.help, "help - show this help message"]
         for cmd in sys.argv[2:]:
             self.execCommand(cmd)
@@ -2127,6 +2128,10 @@ class Terminal(object):
             print("Cannot display wallet: No wallet loaded")
             return
         self.wallet.execCommand(keyInput[1:])
+    
+    def contractaddresses(self, keyInput):
+        bsc = self.node.state.beaconChain.bsc
+        print(f"Master contract: {bsc.masterContract.address}\nCustody contract: {bsc.custodyContract.address}\nBeacon chain contract: {bsc.beaconChainContract.address}\nRelayer set: {bsc.relayerSetContract.address}")
     
     def walletload(self, keyInput):
         self.wallet = Wallet(self.node, keyInput[1])
