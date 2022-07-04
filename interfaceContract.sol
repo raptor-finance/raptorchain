@@ -398,17 +398,17 @@ contract RelayerSet {
 		activeRelayers -= 1;
 	}
 	
-	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public returns (address[] memory signers, address[] memory validsigs, bool coeffmatched) {
+	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public returns (uint256 validsigs, bool coeffmatched) {
 		uint256 _systemNonce = systemNonce;
+		uint256 naka = nakamotoCoefficient();
 		for (uint256 n = 0; n<_sigs.length; n++) {
 			(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sigs[n]);
 			address addr = ecrecover(bkhash, v, r, s); // implicitly returns signers
-			signers[n] = addr;
 			if ((!signerCounted[_systemNonce][bkhash][addr]) && relayerInfo[addr].active) {
  				signerCounted[_systemNonce][bkhash][addr] = true;
-				validsigs[validsigs.length] = addr;
+				validsigs++;
 			}
-			coeffmatched = (validsigs.length >= nakamotoCoefficient());
+			coeffmatched = (validsigs >= naka);
 			if (coeffmatched) { break; } // we don't need to keep checking once we're sure it works
 		}
 		systemNonce = _systemNonce+1; // using _systemNonce saves a gas-eating SLOAD
@@ -514,7 +514,7 @@ contract BeaconChainHandler {
 	
 	function pushBeacon(Beacon memory _beacon) public {
 		(bool _valid, string memory _reason) = isBeaconValid(_beacon);
-		(, , bool sigsMatched) = relayerSet.recoverRelayerSigs(_beacon.proof, _beacon.relayerSigs);
+		(, bool sigsMatched) = relayerSet.recoverRelayerSigs(_beacon.proof, _beacon.relayerSigs);
 		require(_valid, _reason);
 		require(sigsMatched, "UNMATCHED_RELAYER_SIGNATURES");
 		beacons.push(_beacon);

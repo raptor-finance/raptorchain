@@ -421,7 +421,7 @@ class BeaconChain(object):
             return int(self.proofOfWork(), 16) < self.miningTarget
 
         def ABIEncodable(self):
-            return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), ("0x" + ((self.parent + (b'\x00' * (32-len(self.parent)))).hex())), self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s, [f"0x{s.hex()}" for r, s in self.relayerSigs.items()]])
+            return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), ("0x" + ((self.parent + (b'\x00' * (32-len(self.parent)))).hex())), self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s, [f"0x{s}" for r, s in self.relayerSigs.items()]])
 
         # def exportJson(self):
             # return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
@@ -430,7 +430,7 @@ class BeaconChain(object):
             return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
 
         def exportJson(self):
-            return {"transactions": (self.depCheckerTxs + self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"0x{s.hex()}" for r, s in self.relayerSigs.items()]}
+            return {"transactions": (self.depCheckerTxs + self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"0x{s}" for r, s in self.relayerSigs.items()]}
 
 
     class Beacon(object):
@@ -490,7 +490,7 @@ class BeaconChain(object):
         def canAddSig(self, sig):
             if (len(sig) == 65):
                 return (False, "INVALID_SIG")
-            signer = w3.eth.account.recoverHash(bkhash, signature=sig)
+            signer = w3.eth.account.recoverHash(self.proof, signature=sig)
             if self.relayerSigs.get(signer):
                 return (False, "SIG_ALREADY_EXISTS")
             return (True, signer)
@@ -512,11 +512,11 @@ class BeaconChain(object):
             return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
 
         def ABIEncodable(self):
-            return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s, [f"0x{s.hex()}" for r, s in self.relayerSigs.items()]])
+            return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), self.r, self.s, [f"0x{s}" for r, s in self.relayerSigs.items()]])
 
         def exportJson(self):
             # return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
-            return {"transactions": (self.depCheckerTxs + self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"0x{s.hex()}" for r, s in self.relayerSigs.items()]}
+            return {"transactions": (self.depCheckerTxs + self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"0x{s}" for r, s in self.relayerSigs.items()]}
 
 
     def __init__(self):
@@ -529,7 +529,7 @@ class BeaconChain(object):
         self.blockTime = 600 # in seconds
         self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": self.Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
-        self.bsc = self.BSCInterface("https://data-seed-prebsc-2-s1.binance.org:8545/", "0x750E093d84e418FDC21CD9136e3cd5A506E2eD90", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.bsc = self.BSCInterface("https://data-seed-prebsc-2-s1.binance.org:8545/", "0x96aEF4543F0D4b2706DCF2cddAf4aB107e9497Ac", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.STIUpgradeBlock = 1
 
     def checkBeaconMessages(self, beacon):
@@ -1717,6 +1717,7 @@ class Node(object):
 class RaptorBlockSigner(object):
     def __init__(self, node, privkey):
         self.node = node
+        self.bsc = node.state.beaconChain.bsc
         self.acct = w3.eth.account.from_key(privkey)
         self.node.state.beaconChain.onBlockMined = self.onBlockMined
         self.signLastBlock()
@@ -1926,6 +1927,12 @@ class Wallet(object):
         print("Registering Relayer in validator set...")
         self.sendBSCTx(self.bsc.relayerSetContract.functions.createRelayer(relAddress))
         
+    def disableRelayer(self, _relAddress=None)
+        relAddress = _relAddress or self.address
+        print("Removing Relayer from validator set...")
+        self.sendBSCTx(self.bsc.relayerSetContract.functions.disableRelayer(relAddress))
+       
+        
     def computePassword(self, passwd):
         return base64.b64encode(w3.solidityKeccak(["string"], [passwd]))
         
@@ -2046,6 +2053,14 @@ class Wallet(object):
         self.destroyOwnedMN(mnaddr)
 
     def regrelayer(self, keyInput):
+        if not self.requireDecryption():
+            return
+        if (len(keyInput) > 1):
+            self.registerRelayer(keyInput[1])
+        else:
+            self.registerRelayer(self.address)
+
+    def disablerelayer(self, keyInput):
         if not self.requireDecryption():
             return
         if (len(keyInput) > 1):
