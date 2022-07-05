@@ -321,6 +321,7 @@ contract RelayerSet {
 		address operator;
 		bool active;
 		uint256 collateral;
+		uint256 depositBlock;
 		bool exists;
 	}
 	
@@ -361,7 +362,7 @@ contract RelayerSet {
 
 	function _addRelayer(address _owner, address operator, bool active, uint256 _collateral) private {
 		require(!relayerInfo[operator].exists, "RELAYER_ALREADY_EXISTS");
-		relayerInfo[operator] = Relayer({owner: _owner, operator: operator, active: active, collateral: _collateral, exists: true});
+		relayerInfo[operator] = Relayer({owner: _owner, operator: operator, active: active, collateral: _collateral, depositBlock: block.number, exists: true});
 		relayersList.push(operator);
 		activeRelayers += 1;
 	}
@@ -387,12 +388,14 @@ contract RelayerSet {
 		require(!relayer.active, "ALREADY_ACTIVE");
 		require(stakingToken.transferFrom(msg.sender, address(this), collateral), "TRANSFER_FROM_FAILED"); // assuming it's onlyRelayerOwner, then msg.sender == relayer.owner
 		relayer.active = true;
+		relayer.depositBlock = block.number;
 		activeRelayers += 1;
 	}
 	
 	function disableRelayer(address operator) public onlyRelayerOwner(operator) {
 		Relayer storage relayer = relayerInfo[operator];
 		require(relayer.active, "ALREADY_DISABLED");
+		require(relayer.depositBlock < block.number, "UNMATCHED_COOLDOWN");
 		relayer.active = false;
 		stakingToken.transfer(relayer.owner, relayer.collateral);
 		activeRelayers -= 1;
