@@ -532,6 +532,10 @@ class BeaconChain(object):
         self.bsc = self.BSCInterface("https://data-seed-prebsc-2-s1.binance.org:8545/", "0x96aEF4543F0D4b2706DCF2cddAf4aB107e9497Ac", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.STIUpgradeBlock = 1
 
+    def whoseTurnAtTimestamp(self, _timestamp):
+        _vals = [key for key, value in self.validators.items()]
+        return _vals[int(_timestamp//self.blockTime)%len(_vals)]
+
     def checkBeaconMessages(self, beacon):
         _messages = beacon.decodedMessages.copy()
         if (not len(_messages)):
