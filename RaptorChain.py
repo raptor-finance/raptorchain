@@ -551,7 +551,7 @@ class BeaconChain(object):
         return min(max((currentDiff * expectedDelay)/max((timestamp2 - timestamp1), 1), currentDiff * 0.9, 1), currentDiff*1.1)
     
     def isValidatorAllowed(self, beacon):
-        return self.validators.get(w3.toChecksumAddress(beacon.miner)) # returns `None` if not found, which acts same way as `False`
+        return (self.whoseTurnAtTimestamp(int(beacon.timestamp)) == w3.toChecksumAddress(beacon.miner))
     
     def isBeaconValid(self, beacon):
         _lastBeacon = self.getLastBeacon()
@@ -564,7 +564,7 @@ class BeaconChain(object):
         # if (not self.bsc.beaconChainContract.functions.isValidatorAtBlock(len(self.blocks), w3.toChecksumAddress(beacon.miner))):
             # return (False, "NOT_A_MASTERNODE")
         if not self.isValidatorAllowed(beacon):
-            return (False, "NOT_IN_VALIDATOR_SET")
+            return (False, "NOT_ALLOWED")
         # if (beacon.miner == _lastBeacon.miner):
             # return (False, "ALREADY_PRODUCED_LAST_BEACON")
         if ((int(beacon.timestamp) < (int(_lastBeacon.timestamp)+int(self.blockTime))) or (beacon.timestamp > time.time())):
@@ -670,7 +670,10 @@ class BeaconChain(object):
         self.getLastBeacon().stateRoot = newRoot
     
     def estimateRelayerSuccess(self, bkhash, sig):
-        return self.blocksByHash.get(bkhash).canAddSig(sig)
+        if self.blocksByHash.get(bkhash):
+            return self.blocksByHash.get(bkhash).canAddSig(sig)
+        else:
+            return (False, "UNEXISTENT_BLOCK_HASH")
     
     def addRelayerSig(self, relayer, bkhash, sig):
         return self.blocksByHash.get(bkhash).submitRelayerSig(sig)
@@ -1045,7 +1048,7 @@ class State(object):
         if _tx.txtype == 6:
             underlyingOperationSuccess = (True, None)
         if _tx.txtype == 7:
-            underlyingOperationSuccess = self.beaconChain.estimateRelayerSuccess(_tx.epoch, _tx.blocksig)
+            underlyingOperationSuccess = self.beaconChain.estimateRelayerSuccess(_tx.blockhash, _tx.blocksig)
         # print(correctBeacon, correctParent, underlyingOperationSuccess, correctGasPrice)
         return (underlyingOperationSuccess[0] and correctBeacon and correctParent and correctGasPrice)
         
