@@ -2424,6 +2424,8 @@ def getListOfValidators():
 
 @app.route("/chain/validators/<valoper>")
 def getValidator(valoper):
+    if valoper == "whoseturn":
+        return flask.jsonify(result=node.state.beaconChain.whoseTurnAtTimestamp(int(time.time())), success=True)
     _val = node.state.beaconChain.validators.get(node.state.formatAddress(valoper))
     if _val:
         return flask.jsonify(result=_val.JSONSerializable(), success=True)
