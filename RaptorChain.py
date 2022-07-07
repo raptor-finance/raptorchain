@@ -279,7 +279,8 @@ class BeaconChain(object):
             def JSONSerializable(self):
                 return {"amount": self.amount, "depositor": self.depositor, "nonce": self.nonce, "token": self.token, "data": self.data.hex(), "hash": self.hash.hex()}
     
-        def __init__(self, rpc, MasterContractAddress, tokenAddress, cacheFile="BSCcache.json"):
+        def __init__(self, testnet, MasterContractAddress, tokenAddress, cacheFile="BSCcache.json"):
+            self.testnet = testnet
             self.token = tokenAddress
             MasterContractABI = """[{"inputs":[{"components":[{"internalType":"address","name":"miner","type":"address"},{"internalType":"uint256","name":"nonce","type":"uint256"},{"internalType":"bytes[]","name":"messages","type":"bytes[]"},{"internalType":"uint256","name":"difficulty","type":"uint256"},{"internalType":"bytes32","name":"miningTarget","type":"bytes32"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bytes32","name":"parent","type":"bytes32"},{"internalType":"bytes32","name":"proof","type":"bytes32"},{"internalType":"uint256","name":"height","type":"uint256"},{"internalType":"bytes32","name":"son","type":"bytes32"},{"internalType":"bytes32","name":"parentTxRoot","type":"bytes32"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"},{"internalType":"bytes[]","name":"relayerSigs","type":"bytes[]"}],"internalType":"struct BeaconChainHandler.Beacon","name":"_genesisBeacon","type":"tuple"},{"internalType":"address","name":"stakingToken","type":"address"},{"internalType":"uint256","name":"mnCollateral","type":"uint256"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[],"name":"beaconchain","outputs":[{"internalType":"contract BeaconChainHandler","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"custody","outputs":[{"internalType":"contract CustodyManager","name":"","type":"address"}],"stateMutability":"view","type":"function"}]"""
             # StakingContractABI = """[{"inputs": [{"internalType": "address","name": "_stakingToken","type": "address"}],"stateMutability": "nonpayable","type": "constructor"},{"inputs": [],"name": "beaconChain","outputs": [{"internalType": "contract BeaconChainHandler","name": "","type": "address"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "claimMNRewards","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "createMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "destroyMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "disableMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "enableMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "","type": "address"}],"name": "masternodes","outputs": [{"internalType": "address","name": "owner","type": "address"},{"internalType": "address","name": "operator","type": "address"},{"internalType": "uint256","name": "collateral","type": "uint256"},{"internalType": "uint256","name": "rewards","type": "uint256"},{"internalType": "bool","name": "operating","type": "bool"}],"stateMutability": "view","type": "function"},{"inputs": [{"components": [{"internalType": "address","name": "miner","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "bytes[]","name": "messages","type": "bytes[]"},{"internalType": "uint256","name": "difficulty","type": "uint256"},{"internalType": "bytes32","name": "miningTarget","type": "bytes32"},{"internalType": "uint256","name": "timestamp","type": "uint256"},{"internalType": "bytes32","name": "parent","type": "bytes32"},{"internalType": "bytes32","name": "proof","type": "bytes32"},{"internalType": "uint256","name": "height","type": "uint256"},{"internalType": "bytes32","name": "son","type": "bytes32"},{"internalType": "uint8","name": "v","type": "uint8"},{"internalType": "bytes32","name": "r","type": "bytes32"},{"internalType": "bytes32","name": "s","type": "bytes32"}],"internalType": "struct BeaconChainHandler.Beacon","name": "_block","type": "tuple"}],"name": "sendL2Block","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "contract BeaconChainHandler","name": "_handler","type": "address"}],"name": "setBeaconHandler","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [],"name": "stakingToken","outputs": [{"internalType": "contract ERC20Interface","name": "","type": "address"}],"stateMutability": "view","type": "function"}]"""
@@ -289,13 +290,14 @@ class BeaconChain(object):
             self.BEP20ABI = """[{"constant":false,"inputs":[{"name":"spender","type":"address"},{"name":"tokens","type":"uint256"},{"name":"data","type":"bytes"}],"name":"approveAndCall","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"name","outputs":[{"name":"","type":"string"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"_spender","type":"address"},{"name":"_value","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"totalSupply","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"_from","type":"address"},{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transferFrom","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"","type":"string"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[{"name":"_owner","type":"address"},{"name":"_spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"payable":true,"stateMutability":"payable","type":"fallback"},{"anonymous":false,"inputs":[{"indexed":true,"name":"owner","type":"address"},{"indexed":true,"name":"spender","type":"address"},{"indexed":false,"name":"value","type":"uint256"}],"name":"Approval","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"from","type":"address"},{"indexed":true,"name":"to","type":"address"},{"indexed":false,"name":"value","type":"uint256"}],"name":"Transfer","type":"event"}]"""
             self.cachedTokens = {}
             self.cachedDeposits = {}
-            self.rpcurl = rpc
-            self.chainID = 97
+            self.rpcurl = ("https://data-seed-prebsc-2-s1.binance.org:8545/" if self.testnet else "https://bscrpc.com/")
+            rpcprotocol = self.rpcurl.split(":")[0]
+            self.chainID = (97 if self.testnet else 56)
             self.cacheFile = cacheFile
-            if (rpc.split(":")[0]) in ["ws", "wss"]:
-                self.chain = Web3(Web3.WebsocketProvider(rpc))
-            elif (rpc.split(":")[0]) in ["http", "https"]:
-                self.chain = Web3(Web3.HTTPProvider(rpc))
+            if (rpcprotocol) in ["ws", "wss"]:
+                self.chain = Web3(Web3.WebsocketProvider(self.rpcurl))
+            elif (rpcprotocol) in ["http", "https"]:
+                self.chain = Web3(Web3.HTTPProvider(self.rpcurl))
             self.masterContract = self.chain.eth.contract(address=Web3.toChecksumAddress(MasterContractAddress), abi=MasterContractABI)
             # self.stakingContract = self.chain.eth.contract(address=self.masterContract.functions.staking().call(), abi=StakingContractABI)
             self.custodyContract = self.chain.eth.contract(address=self.masterContract.functions.custody().call(), abi=CustodyContractABI)
@@ -303,8 +305,7 @@ class BeaconChain(object):
             self.relayerSetContract = self.chain.eth.contract(address=self.beaconChainContract.functions.relayerSet().call(), abi=RelayerSetContractABI)
             self.loadCacheFile()
             self.rptr = self.getBEP20At(self.token)
-            
-            
+        
         def getDepositDetails(self, _hash):
             if self.cachedDeposits.get(_hash):
                 print(f"Deposit {_hash} pulled from cache")
@@ -519,17 +520,18 @@ class BeaconChain(object):
             return {"transactions": (self.depCheckerTxs + self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"0x{s}" for r, s in self.relayerSigs.items()]}
 
 
-    def __init__(self):
+    def __init__(self, testnet=True):
+        self.testnet = testnet
         self.difficulty = 1
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-        self.blocks = [self.GenesisBeacon()]
+        self.blocks = [self.GenesisBeacon(self.testnet)]
         self.blocksByHash = {self.blocks[0].proof: self.blocks[0]}
         self.pendingMessages = []
         self.blockReward = 0
         self.blockTime = 600 # in seconds
         self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": self.Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
-        self.bsc = self.BSCInterface("https://data-seed-prebsc-2-s1.binance.org:8545/", "0x96aEF4543F0D4b2706DCF2cddAf4aB107e9497Ac", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.bsc = self.BSCInterface(self.testnet, "0x96aEF4543F0D4b2706DCF2cddAf4aB107e9497Ac", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
         self.STIUpgradeBlock = 1
 
     def whoseTurnAtTimestamp(self, _timestamp):
@@ -815,14 +817,15 @@ class State(object):
             if not _addr in self.affectedAccounts:
                 self.affectedAccounts.append(_addr)
 
-    def __init__(self, initTxID):
+    def __init__(self, initTxID, testnet=True):
+        self.testnet = testnet
         self.messages = {}
         self.opcodes = EVM.Opcodes().opcodes
         self.initTxID = initTxID
         self.txChilds = {self.initTxID: []}
         self.txIndex = {}
         self.lastTxIndex = 0
-        self.beaconChain = BeaconChain()
+        self.beaconChain = BeaconChain(self.testnet)
         self.holders = ["0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x611B74e0dFA8085a54e8707c573A588138c9dDba", "0x0000000000000000000000000000000000000000"]
         self.totalSupply = 0
         self.type2ToType0Hash = {}
@@ -1931,7 +1934,7 @@ class Wallet(object):
         print("Registering Relayer in validator set...")
         self.sendBSCTx(self.bsc.relayerSetContract.functions.createRelayer(relAddress))
         
-    def disableRelayer(self, _relAddress=None)
+    def disableRelayer(self, _relAddress=None):
         relAddress = _relAddress or self.address
         print("Removing Relayer from validator set...")
         self.sendBSCTx(self.bsc.relayerSetContract.functions.disableRelayer(relAddress))
