@@ -463,7 +463,7 @@ contract BeaconChainHandler {
 		beacons.push(_genesisBeacon);
 		beacons[0].height = 0;
 		handler = msg.sender;
-        address bootstrapRelayer = 0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846;
+        address bootstrapRelayer = 0xE12Ca65C7A260bF91687A2e1763FA603eCCd812a;
 		relayerSet = new RelayerSet(_stakingToken, mnCollateral, bootstrapRelayer);
 	}
 	

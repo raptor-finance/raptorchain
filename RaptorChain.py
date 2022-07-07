@@ -17,7 +17,7 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "raptorchain-testnet-v0.5_TEST.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RPTRTESTNET-TRYING0.4", "netLogFile": "rptrnetlog.log"}
+    config = {"dataBaseFile": "raptorchain-mainnet-beta.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RaptorChainInit", "netLogFile": "rptrnetlog.log"}
 
 
 def isNotComment(line):
@@ -531,7 +531,7 @@ class BeaconChain(object):
         self.blockTime = 600 # in seconds
         self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": self.Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
-        self.bsc = self.BSCInterface(self.testnet, "0x96aEF4543F0D4b2706DCF2cddAf4aB107e9497Ac", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
+        self.bsc = self.BSCInterface(True, "0x96aEF4543F0D4b2706DCF2cddAf4aB107e9497Ac", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21") if self.testnet else self.BSCInterface(False, "0xa1AB3329235AcCd0C45Ce310a6DAC4FF19d81587", "0x44C99Ca267C2b2646cEEc72e898273085aB87ca5")
         self.STIUpgradeBlock = 1
 
     def whoseTurnAtTimestamp(self, _timestamp):
@@ -1450,12 +1450,13 @@ class Node(object):
                 raise PeerError("Error loading data from peer")
     
     def __init__(self, config):
+        self.testnet = False
         self.transactions = {}
         self.txsOrder = []
         self.mempool = []
         self.listenPort = 6969
         self.sigmanager = SignatureManager()
-        self.state = State(config["InitTxID"])
+        self.state = State(config["InitTxID"], self.testnet)
         self.config = config
         self.peers = self.loadBatchOfPeers(config["peers"])
         self.bestBlockChecked = 0
@@ -2180,9 +2181,9 @@ class Terminal(object):
         _id = keyInput[1]
         try:
             if _id.isnumeric():
-                print(self.node.state.beaconChain.blocks[int(_id)].ABIEncodable())
+                print(json.dumps(self.node.state.beaconChain.blocks[int(_id)].ABIEncodable()))
             else:
-                print(self.node.state.beaconChain.blockByHash.get(_id).ABIEncodable())
+                print(json.dumps(self.node.state.beaconChain.blockByHash.get(_id).ABIEncodable()))
         except Exception as e:
             print(e.__repr__())
     
