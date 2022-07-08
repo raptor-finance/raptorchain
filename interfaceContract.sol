@@ -296,11 +296,21 @@ contract CustodyManager {
 		// bytes32 _hash = keccak256(abi.encodePacked(amount, withdrawer, token, nonce));
 		// require(l2Hash == _hash, "HASH_UNMATCHED");
 		require(!_withdrawals[l2Hash].claimed, "ALREADY_CLAIMED");
-		Withdrawal memory _newWithdrawal = Withdrawal({amount: amount, withdrawer: withdrawer, nonce: nonce, token: token, hash: l2Hash, claimed: true});
+		Withdrawal memory _newWithdrawal = Withdrawal({amount: amount, withdrawer: withdrawer, nonce: nonce, token: token, hash: l2Hash, claimed: false});
+		(bool success, ) = token.call(abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), withdrawer, amount));
+		_newWithdrawal.claimed = success;
 		_withdrawals[l2Hash] = _newWithdrawal;
 		__withdrawals.push(_newWithdrawal);
-		ERC20Interface(token).transfer(withdrawer, amount);
 		emit Withdrawn(withdrawer, token, amount, nonce, l2Hash);
+	}
+	
+	function claimMissedWithdrawal(uint256 height) public {
+		Withdrawal storage wd = __withdrawals[height];
+		require(!wd.claimed, "ALREADY_CLAIMED");
+		(bool success, ) = wd.token.call(abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), wd.withdrawer, wd.amount));
+		require(success, "TRANSFER_FAILED");
+		wd.claimed = true;
+		_withdrawals[wd.hash].claimed = true;
 	}
 	
 	function execBridgeCall(bytes memory _data) public {
@@ -502,6 +512,7 @@ contract BeaconChainHandler {
 		(address recipient, uint256 chainID, bytes memory data) = abi.decode(message, (address, uint256, bytes));
 		if (_chainId() == chainID) {
 			(success, ) = recipient.call(abi.encodeWithSelector(bytes4(keccak256("execBridgeCall(bytes)")), data));
+			require(success, "MESSAGE_EXECUTION_FAILED");
 			emit CallExecuted(recipient, data, success);
 		}
 		else {
