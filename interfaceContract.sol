@@ -347,6 +347,8 @@ contract RelayerSet {
 	mapping (uint256 => mapping (bytes32 => mapping (address => bool))) signerCounted;
 	uint256 public systemNonce;
 	
+	event ControlSignerReleased();
+	
 	
 	modifier onlyRelayerOwner(address operator) {
 		require(relayerInfo[operator].owner == msg.sender, "Only relayer owner can do that");
@@ -435,6 +437,13 @@ contract RelayerSet {
 			if (coeffmatched) { break; } // we don't need to keep checking once we're sure it works
 		}
 		systemNonce = _systemNonce+1; // using _systemNonce saves a gas-eating SLOAD
+	}
+	
+	function renounceControlSigner() public {
+		require(msg.sender == controlSigner, "UNMATCHED_CONTROL_SIGNER");
+		require(!controlSignerReleased, "ALREADY_RELEASED");
+		controlSignerReleased = true;
+		emit ControlSignerReleased();
 	}
 }
 
