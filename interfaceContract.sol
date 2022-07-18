@@ -304,6 +304,7 @@ contract CustodyManager {
 		emit Withdrawn(withdrawer, token, amount, nonce, l2Hash);
 	}
 	
+	
 	function claimMissedWithdrawal(uint256 height) public {
 		Withdrawal storage wd = __withdrawals[height];
 		require(!wd.claimed, "ALREADY_CLAIMED");
@@ -336,6 +337,8 @@ contract RelayerSet {
 	}
 	
 	address public owner;
+	address public controlSigner; // veto right, no right to force push data
+	bool public controlSignerReleased = false;
 	ERC20Interface public stakingToken;
 	uint256 public collateral;
 	mapping (address => Relayer) public relayerInfo;
@@ -412,16 +415,23 @@ contract RelayerSet {
 	}
 	
 	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public returns (uint256 validsigs, bool coeffmatched) {
+		address _controlSigner;
+		bool controlSigMatch;
+		bool _controlReleased = controlSignerReleased;
+		if (!_controlReleased) {
+			_controlSigner = controlSigner;
+		}
 		uint256 _systemNonce = systemNonce;
 		uint256 naka = nakamotoCoefficient();
 		for (uint256 n = 0; n<_sigs.length; n++) {
 			(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sigs[n]);
 			address addr = ecrecover(bkhash, v, r, s); // implicitly returns signers
 			if ((!signerCounted[_systemNonce][bkhash][addr]) && relayerInfo[addr].active) {
+				controlSigMatch = (_controlReleased || controlSigMatch || (_controlSigner == addr));
  				signerCounted[_systemNonce][bkhash][addr] = true;
 				validsigs++;
 			}
-			coeffmatched = (validsigs >= naka);
+			coeffmatched = ((validsigs >= naka) && controlSigMatch);
 			if (coeffmatched) { break; } // we don't need to keep checking once we're sure it works
 		}
 		systemNonce = _systemNonce+1; // using _systemNonce saves a gas-eating SLOAD
