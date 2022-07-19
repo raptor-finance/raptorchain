@@ -295,7 +295,7 @@ contract CustodyManager {
 	function requestWithdrawal(address token, address withdrawer, uint256 amount, uint256 nonce, bytes32 l2Hash) private {
 		// bytes32 _hash = keccak256(abi.encodePacked(amount, withdrawer, token, nonce));
 		// require(l2Hash == _hash, "HASH_UNMATCHED");
-		require(!_withdrawals[l2Hash].claimed, "ALREADY_CLAIMED");
+		// require(!_withdrawals[l2Hash].claimed, "ALREADY_CLAIMED");
 		Withdrawal memory _newWithdrawal = Withdrawal({amount: amount, withdrawer: withdrawer, nonce: nonce, token: token, hash: l2Hash, claimed: false});
 		_withdrawals[l2Hash] = _newWithdrawal;
 		__withdrawals.push(_newWithdrawal.hash);
