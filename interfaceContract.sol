@@ -218,7 +218,7 @@ contract CustodyManager {
 	Deposit[] public __deposits;
 	mapping (bytes32 => Deposit) public _deposits;
 	
-	Withdrawal[] public __withdrawals;
+	bytes32[] public __withdrawals;
 	mapping (bytes32 => Withdrawal) public _withdrawals;
 	
 	
@@ -252,7 +252,7 @@ contract CustodyManager {
 	}
 
 	function withdrawals(uint256 _index) public view returns (Withdrawal memory) {
-		return __withdrawals[_index];
+		return _withdrawals[__withdrawals[_index]];
 	}
 	
 	function withdrawals(bytes32 _hash) public view returns (Withdrawal memory) {
@@ -297,21 +297,29 @@ contract CustodyManager {
 		// require(l2Hash == _hash, "HASH_UNMATCHED");
 		require(!_withdrawals[l2Hash].claimed, "ALREADY_CLAIMED");
 		Withdrawal memory _newWithdrawal = Withdrawal({amount: amount, withdrawer: withdrawer, nonce: nonce, token: token, hash: l2Hash, claimed: false});
-		(bool success, ) = token.call(abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), withdrawer, amount));
-		_newWithdrawal.claimed = success;
 		_withdrawals[l2Hash] = _newWithdrawal;
-		__withdrawals.push(_newWithdrawal);
+		__withdrawals.push(_newWithdrawal.hash);
+		_claimWithdrawal(l2Hash);
 		emit Withdrawn(withdrawer, token, amount, nonce, l2Hash);
 	}
 	
-	
-	function claimMissedWithdrawal(uint256 height) public {
-		Withdrawal storage wd = __withdrawals[height];
-		require(!wd.claimed, "ALREADY_CLAIMED");
+	function _claimWithdrawal(bytes32 hash) private returns (bool, string memory) {
+		Withdrawal storage wd = _withdrawals[hash];
+		if (wd.claimed) {
+			return (false, "ALREADY_CLAIMED");
+		}
 		(bool success, ) = wd.token.call(abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), wd.withdrawer, wd.amount));
-		require(success, "TRANSFER_FAILED");
+		if (!success) {
+			return (false, "TRANSFER_FAILED");
+		}
 		wd.claimed = true;
-		_withdrawals[wd.hash].claimed = true;
+		_withdrawals[hash].claimed = true;
+		return (true, "");
+	}
+	
+	function claimWithdrawal(bytes32 hash) public {
+		(bool success, string memory reason) = _claimWithdrawal(hash);
+		require(success, reason);
 	}
 	
 	function execBridgeCall(bytes memory _data) public {
