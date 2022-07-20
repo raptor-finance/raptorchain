@@ -395,6 +395,7 @@ contract RelayerSet {
 		stakingToken = ERC20Interface(_stakingToken);
 		collateral = _collateral;
 		_addRelayer(address(0), bootstrapRelayer, true, 0);
+		controlSigner = bootstrapRelayer;
 	}
 	
 	function nakamotoCoefficient() public view returns (uint256) {
