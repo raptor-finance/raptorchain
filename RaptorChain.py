@@ -380,9 +380,9 @@ class BeaconChain(object):
                 self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
                 self.proof = self.proofOfWork()
             else:
-                self.timestamp = 1654884714
+                self.timestamp = 1658340032
                 self.miner = "0x0000000000000000000000000000000000000000"
-                self.parent = b"RaptorChain Mainnet almost ready"
+                self.parent = b"Say hello to RaptorChain Mainnet"
                 self.difficulty = 1
                 self.decodedMessages = [b"Hey guys, I'm working on RaptorChain and expecting it to work very soon !!! - 10/06/2022"]
                 self.messages = eth_abi.encode_abi(["bytes[]"], [self.decodedMessages])
