@@ -440,7 +440,7 @@ contract RelayerSet {
 		uint256 _systemNonce = systemNonce;
 		uint256 naka = nakamotoCoefficient();
 		for (uint256 n = 0; n<_sigs.length; n++) {
-			address addr = recoverSig(bkhash, _sigs[n]); // implicitly returns signers
+			address addr = recoverSig(bkhash, _sigs[n]);
 			if ((!signerCounted[_systemNonce][bkhash][addr]) && relayerInfo[addr].active) {
 				controlSigMatch = (controlSigMatch || _controlReleased || (_controlSigner == addr));
  				signerCounted[_systemNonce][bkhash][addr] = true;
