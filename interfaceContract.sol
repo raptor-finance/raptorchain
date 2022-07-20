@@ -424,20 +424,25 @@ contract RelayerSet {
 		activeRelayers -= 1;
 	}
 	
+	function getActiveness(address addr) public view returns (bool) {
+		return relayerInfo[addr].active;
+	}
+	
+	function recoverSig(bytes32 hash, bytes memory _sig) public pure returns (address signer) {
+		(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sig);
+		return ecrecover(hash, v, r, s);
+	}
+	
 	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public returns (uint256 validsigs, bool coeffmatched) {
-		address _controlSigner;
 		bool controlSigMatch;
 		bool _controlReleased = controlSignerReleased;
-		if (!_controlReleased) {
-			_controlSigner = controlSigner;
-		}
+		address _controlSigner = controlSigner;
 		uint256 _systemNonce = systemNonce;
 		uint256 naka = nakamotoCoefficient();
 		for (uint256 n = 0; n<_sigs.length; n++) {
-			(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sigs[n]);
-			address addr = ecrecover(bkhash, v, r, s); // implicitly returns signers
+			address addr = recoverSig(bkhash, _sigs[n]); // implicitly returns signers
 			if ((!signerCounted[_systemNonce][bkhash][addr]) && relayerInfo[addr].active) {
-				controlSigMatch = (_controlReleased || controlSigMatch || (_controlSigner == addr));
+				controlSigMatch = (controlSigMatch || _controlReleased || (_controlSigner == addr));
  				signerCounted[_systemNonce][bkhash][addr] = true;
 				validsigs++;
 			}
