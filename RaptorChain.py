@@ -2238,7 +2238,7 @@ CORS(app)
 
 @app.route("/")
 def basicInfoHttp():
-    return f"RaptorChain testnet node running on port {node.listenPort}"
+    return f"RaptorChain {'testnet' if node.state.testnet else 'mainnet'} node running on port {node.listenPort}"
 
 @app.route("/ping")
 def getping():
