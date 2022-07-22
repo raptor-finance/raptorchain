@@ -6,28 +6,37 @@ A chain for RPTR (Raptor Token), but still under development !!!
 ## State of development
 ### What works ?
 - Transfers (raptorchain address to another raptorchain address)
-- Using BEP20 tokens on RPTR testnet
+- Using BEP20 tokens on RPTR testnet AND mainnet
 - Multi-asset bridge (transfer any BEP20 between raptorchain and bsc)
-- EVM
-
-### What's under development ?
-- Reducing fee on withdrawal
-	Basically, raptorchain-to-bsc communications works by operating an instance of raptorchain's beacon chain (which contains cross-chain data and is getting used as time anchor).
-	Thus, broadcasting one block per 10 minutes is very expensive !
+- EVM (ability to run smart contracts)
 
 ## Wanna try it ?
-### Testnet/devnet address
-Node ip : `https://rptr-testnet-1.dynamic-dns.net/web3` (note it's http and not https, else it won't work)
+### Testnet
+Web3/Metamask RPC : `https://rpc-testnet.raptorchain.io/web3`
 
-chainID : `0x7452505452`
+chainID (hex format) : `0x7452505452`
 
 chainID (in decimal format) : `499597202514`
 
 ticker : `tRPTR`
 
+explorer : `https://explorer-testnet.raptorchain.io/`
 
-But if you wanna try network right now, feel free to ask for some test tokens (it isn't real RPTR) at [@ygboucherk on telegram](https://t.me/ygboucherk) or `yanis#3059` on discord
+
+If you wanna try it for free, feel free to claim some coins on [faucet](https://raptorchain.io/faucet)
 
 
-### Questions
-If you have any question regarding raptorchain, please raise an issue (so it helps whole community as github issues are public) :D
+### Mainnet Beta
+Web3/Metamask RPC : `https://rpc.raptorchain.io/web3`
+
+chainID (hex format) : `0x52505452`
+
+chainID (in decimal format) : `1380996178`
+
+ticker : `RPTR`
+
+explorer : `https://explorer.raptorchain.io/`
+
+
+## Any question ?
+If you have any question regarding raptorchain, please raise an issue (so it helps whole community since github issues are public) :D
