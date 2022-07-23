@@ -1,3 +1,7 @@
 
 raptorchain-testnet.json
 *.pyc
+raptorchain-testnet-v0.4_TEST.json
+wallet.dat
+*.dat
+raptorchain-mainnet-beta.json

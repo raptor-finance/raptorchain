@@ -1,1 +1,1 @@
-https://rpc-testnet.raptorchain.io/
+https://rpc.raptorchain.io/

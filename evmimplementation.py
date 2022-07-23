@@ -1111,6 +1111,7 @@ class Opcodes(object):
         env.stack.append(int(result[0]))
         if result[0]:
             env.messages = env.messages + _childEnv.messages
+            env.systemMessages = env.systemMessages + _childEnv.systemMessages
         env.memory.write_bytes(retOffset, retLength, retValue)
         env.consumeGas(_childEnv.gasUsed + 5000)
         env.pc += 1
@@ -1122,7 +1123,7 @@ class Opcodes(object):
         env.pc += 1
         
     def RETURN(self, env):
-        print(f"Stack state just before return : {env.stack}")
+        # print(f"Stack state just before return : {env.stack}")
         offset = env.stack.pop()
         length = env.stack.pop()
         env.returnCall(bytes(env.memory.data[offset:offset+length]))
@@ -1141,6 +1142,8 @@ class Opcodes(object):
         env.lastCallReturn = retValue
         if result[0]:
             env.storage = _subCallEnv.storage.copy()
+            env.messages = env.messages + _childEnv.messages
+            env.systemMessages = env.systemMessages + _childEnv.systemMessages
         env.stack.append(int(result[0]))
         env.memory.write_bytes(retOffset, retLength, retValue)
         env.consumeGas(_childEnv.gasUsed + 5000)
@@ -1261,9 +1264,9 @@ class PrecompiledContracts(object):
             self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
             self.bridge = _bridge
             self.methods = {}
-            self._name = self.BEP20Instance.functions.name().call()
-            self._symbol = self.BEP20Instance.functions.symbol().call()
-            self._decimals = self.BEP20Instance.functions.decimals().call()
+            self._name = self.BEP20Instance.name
+            self._symbol = self.BEP20Instance.symbol
+            self._decimals = self.BEP20Instance.decimals
             self.address = w3.toChecksumAddress((int(self.BEP20Instance.address, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
             self.supply = 0
@@ -1427,32 +1430,78 @@ class PrecompiledContracts(object):
             hasher.update(env.data)
             env.returnCall(hasher.digest())
     
-    def __init__(self, bridgeFallBack, bsc):
+    class RelayerSigsHandler(object):
+        def __init__(self):
+            self.methods = {}
+            self.methods[self.calcFunctionSelector("addSig(bytes32, bytes)")]
+            
+            
+        def calcFunctionSelector(self, functionName):
+            return bytes(w3.keccak(str(functionName).encode()))[0:4]
+        
+        def addSig(self, env):
+            params = eth_abi.decode_abi(["bytes32", "bytes"], env.data[4:])
+            env.pushSystemMessage(env.SystemMessage(env.msgSender, env.recipient, 0, params))
+        
+        def fallback(self, env):
+            pass
+            
+        def call(self, env):
+            try:
+                self.methods.get(env.data[:4], self.fallback)(env)
+            except Exception as e:
+                print(f"Exception {e.__repr__()} caught calling {self.address} with calldata {env.data}")
+    
+    def __init__(self, bridgeFallBack, bsc, getAccount):
         self.contracts = {}
         self.bsc = bsc
+        self.getAccount = getAccount
         self.crossChainAddress = "0x0000000000000000000000000000000000000097"
-        self.contracts["0x0000000000000000000000000000000000000001"] = self.ecRecover()
-        self.contracts["0x0000000000000000000000000000000000000002"] = self.Sha256()
-        self.contracts["0x0000000000000000000000000000000000000003"] = self.Ripemd160()
-        self.contracts["0x0000000000000000000000000000000000000069"] = self.accountBioManager()
-        self.contracts[self.crossChainAddress] = self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc)
-        self.contracts["0x0000000000000000000000000000000d0ed622a3"] = self.Printer()
+        self.setContract("0x0000000000000000000000000000000000000001", self.ecRecover(), True)
+        self.setContract("0x0000000000000000000000000000000000000002", self.Sha256(), False)
+        self.setContract("0x0000000000000000000000000000000000000003", self.Ripemd160(), False)
+        self.setContract("0x0000000000000000000000000000000000000069", self.accountBioManager(), False)
+        self.setContract(self.crossChainAddress, self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc), False)
+        # self.setContract("0x0000000000000000000000000000000d0ed622a3", self.Printer())
     
-    
+    def setContract(self, address, contract, initialize=False):
+        self.contracts[address] = contract
+        _acct = self.getAccount(address)
+        _acct.setPrecompiledContract(contract, initialize)
+        
     def calcBridgedAddress(self, addr):
         return w3.toChecksumAddress((int(addr, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
     def mintCrossChainToken(self, env, tokenAddress, to, tokens):
         if not self.contracts.get(tokenAddress):
             _token = self.CrossChainToken(env, self.bsc, tokenAddress, self.contracts.get(self.crossChainAddress))
-            self.contracts[_token.address] = _token
+            self.setContract(_token.address, _token)
             print(f"Deployed cross-chain token {tokenAddress} to address {_token.address}")
         self.contracts[self.calcBridgedAddress(tokenAddress)].mint(env, to, tokens)
 
 
+
+class Msg(object):
+    def __init__(self, sender, recipient, value, gas, tx, data=b"", calltype=0, shallSaveData=False):
+        self.sender = sender
+        self.recipient = recipient
+        self.value = int(value)
+        self.gas = int(gas)
+        self.tx = tx
+        self.data = data
+        self.calltype = calltype
+        self.persistStorage = shallSaveData
+        
 # CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
 class CallEnv(object):
-    def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, code, static,*, storage=None, calltype=0):
+    class SystemMessage(object):
+        def __init__(self, sender, contract, instruction, data):
+            self.sender = sender
+            self.contract = contract
+            self.instruction = instruction
+            self.data = data
+
+    def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, code, static,*, storage=None, calltype=0, calledFromAcctClass=False):
         self.stack = []
         self.getAccount = accountGetter
         self.memory = CallMemory()
@@ -1463,6 +1512,7 @@ class CallEnv(object):
         self.runningAccount = runningAccount
         self.calltype=calltype # 0 = in transaction, 1 = child call (staticcall included), 2 = delegate call, 3 = contract creation in subcall
         self.lastCallReturn = b""
+        self.systemMessages = []
         if storage:
             self.storage = storage.copy()
         else:
@@ -1477,7 +1527,7 @@ class CallEnv(object):
         self.pc = 0
         self.tx = tx
         self.data = data
-        self.code = code
+        self.code = (b"" if calledFromAcctClass else code)
         self.halt = False
         self.returnValue = b""
         self.success = True
@@ -1557,6 +1607,9 @@ class CallEnv(object):
         self.success = False
         self.returnValue = data
         # self.returnValue = eth_abi.encode_abi(["bytes"], [data]) if type(data) == bytes else eth_abi.encode_abi(["string"], [data])
+    
+    def pushSystemMessage(self, sysmsg):
+        self.systemMessages.append(sysmsg)
     
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))
