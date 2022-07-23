@@ -1456,7 +1456,7 @@ class Node(object):
         self.transactions = {}
         self.txsOrder = []
         self.mempool = []
-        self.listenPort = 6969
+        self.listenPort = 4242
         self.sigmanager = SignatureManager()
         self.state = State(config["InitTxID"], self.testnet)
         self.config = config
