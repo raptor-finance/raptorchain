@@ -134,7 +134,7 @@ class Transaction(object):
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.value = max(int(txData.get("tokens")), 0)
             self.affectedAccounts = [self.sender, self.recipient]
-            self.gasprice = 0
+            self.gasprice = 1000000000000000
             self.gasLimit = 69000
             self.fee = self.gasprice*self.gasLimit
             try:
