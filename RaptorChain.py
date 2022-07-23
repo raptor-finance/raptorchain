@@ -806,6 +806,8 @@ class State(object):
                 self.data = b""
             self.gasprice = call.get("gasprice", 0)
             self.gasLimit = call.get("gas", 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
+            if (type(self.gasLimit) == str):
+                self.gasLimit = int(self.gasLimit, 16) if "0x" in self.gasLimit else int(self.gasLimit, 10)
             self.txid = "0x8c7e29b8d1ee82f7d7399a7d9aabd93fb07b5bb0274d2b564ce42afa73560524"
             self.affectedAccounts = [self.sender, self.recipient]
 
