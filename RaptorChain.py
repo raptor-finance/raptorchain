@@ -846,10 +846,10 @@ class State(object):
         self.hash = ""
         self.debug = False
         self.shouldLog = True
-        self.chainID = 499597202514
+        self.chainID = 499597202514 if self.testnet else 1380996178
         self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
         self.burnAddress = "0x000000000000000000000000000000000000dEaD"
-        self.version = "1.0.1-mainnet-beta"
+        self.version = "1.0.2-mainnet-beta"
 
     def formatAddress(self, _addr):
         if (type(_addr) == int):
