@@ -1685,11 +1685,14 @@ class Node(object):
     
     def networkBackgroundRoutine(self):
         while True:
+            try:
 #            print("Refreshing transactions from other nodes")
-            self.checkGuys()
-            self.syncByBlock()
-            self.createRefreshTx()
-            time.sleep(60)
+                self.checkGuys()
+                self.syncByBlock()
+                self.createRefreshTx()
+                time.sleep(60)
+            except Exception as e:
+                    print(e.__repr__())
 
     def txReceipt(self, txid):
         try:
