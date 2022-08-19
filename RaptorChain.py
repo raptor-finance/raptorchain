@@ -116,6 +116,7 @@ class Message(object):
 
 class Transaction(object):
     def __init__(self, tx):
+        self.persist = True
         txData = json.loads(tx["data"])
         self.contractDeployment = False
         self.txtype = (txData.get("type") or 0)
@@ -792,6 +793,7 @@ class State(object):
 
     class CallBlankTransaction(object):
         def __init__(self, call):
+            self.persist = False
             self.contractDeployment = False
             self.sender = w3.toChecksumAddress(call.get("from", "0x0000000000000000000000000000000000000000"))
             self.recipient = w3.toChecksumAddress(call.get("to", "0x0000000000000000000000000000000000000000"))
