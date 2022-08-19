@@ -1087,7 +1087,8 @@ class Opcodes(object):
         offset = env.stack.pop()
         length = env.stack.pop()
         _nonce = len(env.runningAccount.sent)
-        env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
+        if env.tx.persist:
+            env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
         deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(_nonce)]))[12:])
         _childEnv = CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, env.memory.read_bytes(offset, length), False, calltype=3)
         result = env.callFallback(_childEnv)
