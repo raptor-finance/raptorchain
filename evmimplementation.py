@@ -1160,7 +1160,8 @@ class Opcodes(object):
         salt = env.stack.pop()
         _nonce = len(env.runningAccount.sent)
         _initBytecode = env.memory.read_bytes(offset, length)
-        env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
+        if env.tx.persist:
+            env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
         deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([0xFF, bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(salt), _initBytecode]))[12:])
         result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3))
         env.stack.append(int(deplAddr, 16))
