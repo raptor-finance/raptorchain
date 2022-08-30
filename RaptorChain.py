@@ -222,7 +222,7 @@ class Transaction(object):
             self.affectedAccounts.append(_addr)
 
     def web3Returnable(self):
-        return {"hash": self.txid, "nonce": hex(self.nonce), "blockHash": self.txid, "transactionIndex": "0x0", "from": self.sender, "to": (None if self.contractDeployment else self.recipient), "value": hex(self.value), "gasPrice": hex(self.gasprice), "gas": hex(self.gasLimit), "input": self.data.hex(), "v": self.v, "r": self.r.hex(), "s": self.s.hex()}
+        return {"hash": self.txid, "nonce": hex(self.nonce), "blockHash": self.txid, "transactionIndex": "0x0", "from": self.sender, "to": (None if self.contractDeployment else self.recipient), "value": hex(self.value), "gasPrice": hex(self.gasprice), "gas": hex(self.gasLimit), "input": self.data.hex(), "v": self.v, "r": self.r, "s": self.s}
 
 
 class BeaconChain(object):
@@ -1709,10 +1709,10 @@ class Node(object):
     def ethGetTransactionByHash(self, txid):
         try:
             tx = Transaction(self.transactions[txid])
-            return json.dumps(tx.web3Returnable())
+            return tx.web3Returnable()
             # return {"hash": tx.txid, "nonce": hex(tx.nonce), "blockHash": tx.txid, "transactionIndex": "0x0", "from": tx.sender, "to": (None if tx.contractDeployment else tx.recipient), "value": hex(tx.value), "gasPrice": hex(tx.gasprice), "gas": hex(tx.gasLimit), "input": tx.data, "v": tx.v, "r": tx.r, "s": tx.s}
         except:
-            return "0x"
+            raise
 
     def createRefreshTx(self):
         _index = self.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
@@ -2498,8 +2498,9 @@ def handleWeb3Request():
     if method == "eth_getTransactionByHash":
         result = node.ethGetTransactionByHash(params[0])
     _respdict = {"id": _id, "jsonrpc": "2.0", "result": result}
+    _resp = json.dumps(_respdict)
     print(f"{data.get('method')} request completed in {round((time.time() - _begin)*1000, 3)}ms")
-    return flask.Response(json.dumps(_respdict), mimetype='application/json');
+    return flask.Response(_resp, mimetype='application/json');
     
 def runFlask():
     app.run(host="0.0.0.0", port=node.listenPort, ssl_context=ssl_context)
