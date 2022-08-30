@@ -763,7 +763,6 @@ class State(object):
                     if self.debug:
                         op = self.code[env.pc]
                         self.opcodes[op](env)
-                        debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {env.stack} - lastRetValue : {env.lastCallReturn} - memory : {bytes(env.memory.data)} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
                     else:
                         self.opcodes[self.code[env.pc]](env)
                 except Exception as e:
