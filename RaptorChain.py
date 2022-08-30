@@ -851,7 +851,7 @@ class State(object):
         self.chainID = 499597202514 if self.testnet else 1380996178
         self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
         self.burnAddress = "0x000000000000000000000000000000000000dEaD"
-        self.version = "1.0.4-mainnet-beta"
+        self.version = "1.0.5-mainnet-beta"
 
     def formatAddress(self, _addr):
         if (type(_addr) == int):
@@ -1299,7 +1299,7 @@ class State(object):
                 # break
         if (msg.getSuccess() and msg.calltype != 2):
             self.getAccount(msg.recipient).tempStorage = msg.storage.copy()
-            if (msg.calltype == 3):
+            if (msg.calltype == 3) and env.tx.persist:
                 self.getAccount(msg.recipient).makeChangesPermanent()
                 self.getAccount(msg.recipient).code = msg.returnValue
         return (msg.getSuccess(), msg.returnValue)
