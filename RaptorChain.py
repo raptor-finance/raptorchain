@@ -760,11 +760,7 @@ class State(object):
                 return
             while True and (not env.halt):
                 try:
-                    if self.debug:
-                        op = self.code[env.pc]
-                        self.opcodes[op](env)
-                    else:
-                        self.opcodes[self.code[env.pc]](env)
+                    self.opcodes[self.code[env.pc]](env)
                 except Exception as e:
                     raise
             if (env.calltype == 3) or (env.tx.contractDeployment):
@@ -1713,7 +1709,7 @@ class Node(object):
     def ethGetTransactionByHash(self, txid):
         try:
             tx = Transaction(self.transactions[txid])
-            return tx.web3Returnable()
+            return json.dumps(tx.web3Returnable())
             # return {"hash": tx.txid, "nonce": hex(tx.nonce), "blockHash": tx.txid, "transactionIndex": "0x0", "from": tx.sender, "to": (None if tx.contractDeployment else tx.recipient), "value": hex(tx.value), "gasPrice": hex(tx.gasprice), "gas": hex(tx.gasLimit), "input": tx.data, "v": tx.v, "r": tx.r, "s": tx.s}
         except:
             return "0x"
