@@ -851,7 +851,7 @@ class State(object):
         self.chainID = 499597202514 if self.testnet else 1380996178
         self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
         self.burnAddress = "0x000000000000000000000000000000000000dEaD"
-        self.version = "1.0.5-mainnet-beta"
+        self.version = "1.0.6-mainnet-beta"
 
     def formatAddress(self, _addr):
         if (type(_addr) == int):
@@ -1190,7 +1190,10 @@ class State(object):
         deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(tx.sender.replace("0x", "")), int(tx.nonce)]))[12:])
         self.ensureExistence(tx.sender)
         self.ensureExistence(deplAddr)
+        senderAcct = self.getAccount(tx.sender)
+        senderAcct.balance -= (tx.fee + tx.value)
         env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(deplAddr), deplAddr, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
+        self.getAccount(deplAddr).balance += tx.value
         self.execEVMCall(env)
         self.getAccount(deplAddr).code = env.returnValue
         self.getAccount(deplAddr).storage = env.storage.copy()
@@ -1208,7 +1211,7 @@ class State(object):
             env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
         else:
             env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
-        if (tx.value > self.getAccount(tx.sender).balance):
+        if ((tx.value + tx.fee) > self.getAccount(tx.sender).balance):
             return (False, b"")
         self.ensureExistence(tx.sender)
         self.ensureExistence(tx.recipient)
