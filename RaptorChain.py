@@ -1487,7 +1487,7 @@ class Node(object):
         if not (json.loads(tx.get("data")).get("type") in [1,2, 6]):
             sigVerified = self.sigmanager.verifyTransaction(tx)
         elif (json.loads(tx.get("data")).get("type") in [2]):
-            sigVerified = (len(self.state.beaconChain.blocks) < 6) or (tx.get("hash") == w3.solidityKeccak(["string"], [tx.get("data")])) # fixes a bug with chain
+            sigVerified = (tx.get("hash") == w3.solidityKeccak(["string"], [tx.get("data")]).hex()) # fixes a bug with chain
         else:
             sigVerified = True
         playableByState = self.state.willTransactionSucceed(tx)
