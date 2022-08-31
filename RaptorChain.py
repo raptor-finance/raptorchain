@@ -1530,8 +1530,6 @@ class Node(object):
         _toPropagate = []
         for tx in txs:
             playable = self.canBePlayed(tx)
-            if tx["hash"] == '0x776a5f8b8e832312c02acbec6749d55439ecd296530929b0fcab9a06038168d3':
-                print(f"Checking out if this weird tx can be played {playable}")
             # print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
             if (not self.transactions.get(tx["hash"]) and playable[0]):
                 self.transactions[tx["hash"]] = tx
