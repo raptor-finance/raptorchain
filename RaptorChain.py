@@ -204,7 +204,7 @@ class Transaction(object):
         self.bio = txData.get("bio")
         self.parent = txData.get("parent")
         self.message = txData.get("message")
-        self.txid = w3.soliditySha3(["string"], [tx["data"]]).hex()
+        self.txid = w3.solidityKeccak(["string"], [tx["data"]]).hex()
         self.indexToCheck = txData.get("indexToCheck", 0)
         
         # self.PoW = ""
@@ -1690,7 +1690,7 @@ class Node(object):
         self.checkGuys()
         toPush = []
         for tx in txs:
-            txString = json.dumps(tx).replace(" ", "")
+            txString = json.dumps(tx)
             txHex = txString.encode().hex()
             toPush.append(txHex)
         toPush = ",".join(toPush)
