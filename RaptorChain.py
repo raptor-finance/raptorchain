@@ -760,10 +760,13 @@ class State(object):
                 return
             while True and (not env.halt):
                 try:
-                    self.opcodes[self.code[env.pc]](env)
+                    op = self.code[env.pc]
+                    if (op in [0xF0, 0xF5]):
+                        print(hex(op))
+                    self.opcodes[op](env)
                 except Exception as e:
                     raise
-            if (env.calltype == 3) or (env.tx.contractDeployment):
+            if (((env.calltype == 3) or (env.tx.contractDeployment)) and env.tx.persist):
                 self.makeChangesPermanent()
                 if persist:
                     self.code = env.returnValue
@@ -777,8 +780,8 @@ class State(object):
                 self.precompiledContract.call(env)
             else:
                 print("Executing call as standard")
-                self._execStandardCall(env, msg.persistStorage)
-            if msg.persistStorage:
+                self._execStandardCall(env, env.tx.persist)
+            if env.tx.persist:
                 self.tempStorage = msg.storage
             return env
         
@@ -1303,13 +1306,13 @@ class State(object):
 
     def eth_Call(self, call):
         tx = self.CallBlankTransaction(call)
-        msg = EVM.Msg(sender=tx.sender, recipient=tx.recipient, value=tx.value, gas=tx.gasLimit, data=tx.data, tx=tx, calltype=0, shallSaveData=False)
-        # if tx.contractDeployment:
-            # env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
-        # else:
-            # env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
-            # self.execEVMCall(env)
-        env = self.getAccount(msg.recipient, True).call(msg)
+        # msg = EVM.Msg(sender=tx.sender, recipient=tx.recipient, value=tx.value, gas=tx.gasLimit, data=tx.data, tx=tx, calltype=0, shallSaveData=False)
+        if tx.contractDeployment:
+            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
+        else:
+            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
+            self.execEVMCall(env)
+        # env = self.getAccount(msg.recipient, True).call(msg)
         for _addr in tx.affectedAccounts:
             self.getAccount(_addr, True).cancelChanges()
         return env
@@ -2500,6 +2503,7 @@ def handleWeb3Request():
     _respdict = {"id": _id, "jsonrpc": "2.0", "result": result}
     _resp = json.dumps(_respdict)
     print(f"{data.get('method')} request completed in {round((time.time() - _begin)*1000, 3)}ms")
+    print(f"Response : {_resp}")
     return flask.Response(_resp, mimetype='application/json');
     
 def runFlask():
