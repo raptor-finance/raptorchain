@@ -781,7 +781,7 @@ class State(object):
             else:
                 print("Executing call as standard")
                 self._execStandardCall(env, env.tx.persist)
-            if env.tx.persist:
+            if msg.tx.persist:
                 self.tempStorage = msg.storage
             return env
         
