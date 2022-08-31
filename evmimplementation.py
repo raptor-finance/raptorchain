@@ -1166,6 +1166,7 @@ class Opcodes(object):
         result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3))
         env.stack.append(int(deplAddr, 16))
         env.consumeGas(32000)
+        env.pc += 1
     
     def STATICCALL(self, env):
         gas = env.stack.pop()
