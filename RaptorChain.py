@@ -1455,6 +1455,7 @@ class Node(object):
     
     def __init__(self, config):
         self.testnet = False
+        self.propagateAtStartup = True
         self.transactions = {}
         self.txsOrder = []
         self.mempool = []
@@ -1503,16 +1504,20 @@ class Node(object):
         except:
             print("Error loading DB, starting from zero :/")
         # self.upgradeTxs()
+        _toPropagate = []
         for txHash in self.txsOrder:
             tx = self.transactions[txHash]
             if self.canBePlayed(tx)[0]:
                 self.state.playTransaction(tx, False)
-            # self.propagateTransactions([tx])
+                if self.propagateAtStartup:
+                    _toPropagate.append(tx)
         self.saveDB()
         # self.syncDB()
         self.syncByBlock()
         self.createRefreshTx()
         self.saveDB()
+        if (self.propagateAtStartup and len(_toPropagate)):
+            self.propagateTransactions(_toPropagate)
 
     def checkTxs(self, txs, shouldPropagate=False):
         # print("Pulling DUCO txs...")
@@ -1676,6 +1681,7 @@ class Node(object):
     
     
     def propagateTransactions(self,txs):
+        self.checkGuys()
         toPush = []
         for tx in txs:
             txString = json.dumps(tx).replace(" ", "")
@@ -1683,7 +1689,10 @@ class Node(object):
             toPush.append(txHex)
         toPush = ",".join(toPush)
         for node in self.goodPeers:
-            requests.get(f"{node}/send/rawtransaction/?tx={toPush}")
+            try:
+                requests.get(f"{str(node)}/send/rawtransaction/?tx={toPush}")
+            except Exception as e:
+                print(e.__repr__())
     
     def networkBackgroundRoutine(self):
         while True:
