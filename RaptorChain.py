@@ -1486,6 +1486,8 @@ class Node(object):
         playableByState = False
         if not (json.loads(tx.get("data")).get("type") in [1,2, 6]):
             sigVerified = self.sigmanager.verifyTransaction(tx)
+        elif (json.loads(tx.get("data")).get("type") in [2]):
+            sigVerified = (len(self.state.beaconChain.blocks) < 6) or (tx.get("hash") == w3.solidityKeccak(["string"], [tx.get("data")])) # fixes a bug with chain
         else:
             sigVerified = True
         playableByState = self.state.willTransactionSucceed(tx)
@@ -1519,7 +1521,7 @@ class Node(object):
         if (self.propagateAtStartup and len(_toPropagate)):
             self.propagateTransactions(_toPropagate)
 
-    def checkTxs(self, txs, shouldPropagate=False):
+    def checkTxs(self, txs, shouldPropagate=True):
         # print("Pulling DUCO txs...")
         # txs = requests.get(self.config["endpoint"]).json()["result"]
         # print("Successfully pulled transactions !")
@@ -1528,6 +1530,8 @@ class Node(object):
         _toPropagate = []
         for tx in txs:
             playable = self.canBePlayed(tx)
+            if tx["hash"] == '0x776a5f8b8e832312c02acbec6749d55439ecd296530929b0fcab9a06038168d3':
+                print(f"Checking out if this weird tx can be played {playable}")
             # print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
             if (not self.transactions.get(tx["hash"]) and playable[0]):
                 self.transactions[tx["hash"]] = tx
@@ -1673,10 +1677,12 @@ class Node(object):
         return length
     
     def syncByBlock(self):
-        self.checkTxs(self.pullSetOfTxs(self.pullTxsByBlockNumber(0)))
+        # self.checkTxs(self.pullSetOfTxs(self.pullTxsByBlockNumber(0)))
         for blockNumber in range(self.bestBlockChecked,self.getChainLength()):
-            _toCheck_ = self.pullSetOfTxs(self.pullTxsByBlockNumber(blockNumber))
-            self.checkTxs(_toCheck_)
+            print(f"Checking out block number {blockNumber}")
+            _txids = self.pullTxsByBlockNumber(blockNumber)
+            _toCheck_ = self.pullSetOfTxs(_txids)
+            self.checkTxs(_toCheck_, False)
             self.bestBlockChecked = blockNumber
     
     
