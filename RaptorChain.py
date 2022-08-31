@@ -1873,6 +1873,7 @@ class Wallet(object):
         self.commands["info"] = [self.info, "wallet info - Get info about currently loaded wallet"]
         self.commands["balance"] = [self.balance, "wallet balance - Get wallet balance (note : might be incorrect if wallet isn't correctly synced)"]
         self.commands["decrypt"] = [self.decrypt, "wallet decrypt <password> - Decrypts wallet (note : password argument is optional and can be passed afterwards)"]
+        self.commands["changepasswd"] = [self.changepasswd, "wallet changepasswd - Allows to change wallet password"]
         self.commands["send"] = [self.send, "wallet send <recipient> <value> - Transfer RPTR over RaptorChain"]
         self.commands["startmn"] = [self.startmn, "wallet startmn - Starts masternode"]
         self.commands["startsigner"] = [self.startsigner, "wallet startsigner - Starts beacon signer (for cross-chain transfers)"]
@@ -2009,6 +2010,25 @@ class Wallet(object):
         self.fernet = Fernet(self.computePassword(password))
         self.acct = w3.eth.account.from_key(self.fernet.decrypt(self.encryptedkey))
         print(f"Successfully decrypted wallet !")
+        
+    def changepasswd(self, keyInput):
+        oldpasswd = input("Old password: ")
+        fernet = Fernet(self.computePassword(oldpasswd))
+        key = fernet.decrypt(self.encryptedkey)
+        newpasswd = input("New password: ")
+        newpasswdconf = input("Confirm new password: ")
+        if (newpasswd != newpasswdconf):
+            print("Passwords don't match :/")
+            return
+        fernet = Fernet(self.computePassword(newpasswd))
+        encKey = fernet.encrypt(key)
+        data = {}
+        data["encryptedkey"] = encKey.hex()
+        data["address"] = self.address
+        file = open(self.configfile, "w")
+        file.write(json.dumps(data))
+        file.close()
+        print("Successfully changed password ! It will take effect after restarting program !")
         
     def balance(self, keyInput):
         print(f"Balance: {self.node.state.getAccount(self.address).balance / (10**18)}")
