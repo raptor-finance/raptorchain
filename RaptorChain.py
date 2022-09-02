@@ -1529,9 +1529,10 @@ class Node(object):
         _counter = 0
         _toPropagate = []
         for tx in txs:
-            playable = self.canBePlayed(tx)
+            playable = self.canBePlayed(tx) if (not self.transactions.get(tx["hash"])) else False
             # print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
-            if (not self.transactions.get(tx["hash"]) and playable[0]):
+            print(not self.transactions.get(tx["hash"]))
+            if ((not self.transactions.get(tx["hash"])) and playable[0]):
                 self.transactions[tx["hash"]] = tx
                 self.txsOrder.append(tx["hash"])
                 self.state.playTransaction(tx, True)
