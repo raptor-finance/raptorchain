@@ -1300,7 +1300,7 @@ class State(object):
         if (msg.getSuccess() and msg.calltype != 2):
             self.getAccount(msg.recipient).tempStorage = msg.storage.copy()
             if (msg.calltype == 3) and msg.tx.persist:
-                self.getAccount(msg.recipient).makeChangesPermanent()
+                # self.getAccount(msg.recipient).makeChangesPermanent()
                 self.getAccount(msg.recipient).code = msg.returnValue
         return (msg.getSuccess(), msg.returnValue)
 
