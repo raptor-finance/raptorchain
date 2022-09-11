@@ -39,7 +39,8 @@ explorer : `https://explorer.raptorchain.io/`
 
 
 ## Note about Defi apps and WETH
-If you wanna deploy DeFi apps (like swap routers), please note that WRPTR address is [0xeF7cADE66695f4cD8a535f7916fBF659936818C4](https://explorer.raptorchain.io/address/0xeF7cADE66695f4cD8a535f7916fBF659936818C4)
+If you wanna deploy DeFi apps (like swap routers), please note that WRPTR address is [0xeF7cADE66695f4cD8a535f7916fBF659936818C4](https://explorer.raptorchain.io/address/0xeF7cADE66695f4cD8a535f7916fBF659936818C4) !
+
 If you don't know what WETH is, feel free to check it out [here](https://weth.io/) !
 
 ## Any question ?
