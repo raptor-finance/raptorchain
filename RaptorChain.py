@@ -1032,6 +1032,7 @@ class State(object):
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
         _tx.notTry = False
+        _tx.persist = (len(self.beaconChain.blocks) < self.persistenceUpgradeBlock)
         underlyingOperationSuccess = (False, None)
         correctParent = self.checkParent(_tx)
         correctBeacon = self.isBeaconCorrect(_tx)
