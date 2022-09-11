@@ -850,7 +850,7 @@ class State(object):
         self.chainID = 499597202514 if self.testnet else 1380996178
         self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
         self.burnAddress = "0x000000000000000000000000000000000000dEaD"
-        self.persistenceUpgradeBlock = 7
+        self.persistencyUpgradeBlock = 7
         self.version = "1.1.0-mainnet-beta"
 
     def formatAddress(self, _addr):
@@ -1033,7 +1033,7 @@ class State(object):
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
         _tx.notTry = False
-        _tx.persist = (len(self.beaconChain.blocks) < self.persistenceUpgradeBlock)
+        _tx.persist = (len(self.beaconChain.blocks) < self.persistencyUpgradeBlock)
         underlyingOperationSuccess = (False, None)
         correctParent = self.checkParent(_tx)
         correctBeacon = self.isBeaconCorrect(_tx)
