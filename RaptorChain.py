@@ -1503,6 +1503,9 @@ class Node(object):
         if (self.canBePlayed(tx)[1]):
             self.mempool.append(tx)
 
+    def getTransaction(self, txid):
+        _txid = self.state.type2ToType0Hash.get(txid, txid)
+        return self.transactions.get(_txid)
 
     def initNode(self):
         try:
@@ -2340,7 +2343,7 @@ def getTxIndex(txid):
 
 @app.route("/get/transaction/<txhash>", methods=["GET"]) # get specific tx by hash
 def getTransactionByHash(txhash):
-    tx = node.transactions.get(txhash)
+    tx = node.getTransaction(txhash)
     if (tx != None):
         return flask.jsonify(result=tx, success=True)
     else:
@@ -2352,7 +2355,7 @@ def getMultipleTransactionsByHashes(txhashes):
     oneSucceeded = False
     _txhashes = txhashes.split(",")
     for txhash in _txhashes:
-        tx = node.transactions.get(txhash)
+        tx = node.getTransaction(txhash)
         if (tx):
             txs.append(tx)
             oneSucceeded = True
