@@ -1,9 +1,10 @@
 flask
 web3
-json
 eth_account
 flask_cors
 dataclasses
 typing
 eth_utils
 rlp
+cryptography
+secrets
