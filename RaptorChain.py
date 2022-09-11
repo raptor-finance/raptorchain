@@ -1760,6 +1760,7 @@ class RaptorBlockSigner(object):
         self.bsc = node.state.beaconChain.bsc
         self.acct = w3.eth.account.from_key(privkey)
         self.node.state.beaconChain.onBlockMined = self.onBlockMined
+        print(f"Raptor block signer started with address {self.acct.address}")
         self.signLastBlock()
         
     def generateBlockSig(self, blockhash):
