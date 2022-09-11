@@ -1209,19 +1209,18 @@ class State(object):
 
 
     def tryContractCall(self, tx):
-        if tx.contractDeployment:
-            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
-        else:
-            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
-        if ((tx.value + tx.fee) > self.getAccount(tx.sender).balance):
-            return (False, b"")
         self.ensureExistence(tx.sender)
         self.ensureExistence(tx.recipient)
         senderAcct = self.getAccount(tx.sender)
         recipientAcct = self.getAccount(tx.recipient)
-        
         senderAcct.cancelChanges()
         recipientAcct.cancelChanges()
+        if tx.contractDeployment:
+            env = EVM.CallEnv(self.getAccount, tx.sender, recipientAcct, tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
+        else:
+            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
+        if ((tx.value + tx.fee) > self.getAccount(tx.sender).balance):
+            return (False, b"")
         
         senderAcct.tempBalance -= tx.value
         recipientAcct.tempBalance += tx.value
