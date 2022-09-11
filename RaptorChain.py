@@ -1218,7 +1218,7 @@ class State(object):
         if tx.contractDeployment:
             env = EVM.CallEnv(self.getAccount, tx.sender, recipientAcct, tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
         else:
-            env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
+            env = EVM.CallEnv(self.getAccount, tx.sender, recipientAcct, tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, recipientAcct.code, False)
         if ((tx.value + tx.fee) > self.getAccount(tx.sender).balance):
             return (False, b"")
         
