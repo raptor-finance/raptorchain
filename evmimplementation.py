@@ -518,7 +518,7 @@ class Opcodes(object):
         env.pc += 1
     
     def CALLER(self, env):
-        env.stack.append(int(env.msgSender, 16))
+        env.stack.append(env.msgSender if (type(env.msgSender) == int) else int(env.msgSender, 16))
         env.consumeGas(2)
         env.pc += 1
     
