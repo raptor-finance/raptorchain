@@ -1199,6 +1199,7 @@ class State(object):
         self.execEVMCall(env)
         self.getAccount(deplAddr).code = env.returnValue
         self.getAccount(deplAddr).storage = env.storage.copy()
+        self.getAccount(deplAddr).tempStorage = env.storage.copy()
         if env.getSuccess():
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
             print(f"Deployed contract {deplAddr} in tx {tx.txid}")
