@@ -1105,7 +1105,8 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        _childEnv = CallEnv(env.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getAccount(addr).code, env.isStatic, calltype=1)
+        _acct = env.getAccount(addr)
+        _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, (_acct.code if env.tx.persist else _acct.tempcode), env.isStatic, calltype=1)
         result = env.callFallback(_childEnv)
         retValue = result[1]
         env.lastCallReturn = retValue
