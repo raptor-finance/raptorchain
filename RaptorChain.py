@@ -1198,6 +1198,7 @@ class State(object):
         env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(deplAddr), deplAddr, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
         self.getAccount(deplAddr).balance += tx.value
         self.execEVMCall(env)
+        self.getAccount(deplAddr).tempcode = env.returnValue
         self.getAccount(deplAddr).code = env.returnValue
         self.getAccount(deplAddr).storage = env.storage.copy()
         self.getAccount(deplAddr).tempStorage = env.storage.copy()
@@ -1304,6 +1305,7 @@ class State(object):
             # except:
                 # break
         if (msg.getSuccess() and msg.calltype != 2):
+            self.getAccount(msg.recipient).tempcode = msg.returnValue
             self.getAccount(msg.recipient).tempStorage = msg.storage.copy()
             if (msg.calltype == 3) and msg.tx.persist and msg.tx.notTry:
                 self.getAccount(msg.recipient).makeChangesPermanent()
