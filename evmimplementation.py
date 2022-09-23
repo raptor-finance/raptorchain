@@ -574,7 +574,8 @@ class Opcodes(object):
         env.pc += 1
     
     def EXTCODESIZE(self, env):
-        env.stack.append(len(env.getAccount(env.stack.pop()).code))
+        _acct = env.getAccount(env.stack.pop());
+        env.stack.append(len(_acct.code if env.tx.persist else _acct.tempcode))
         env.consumeGas(700)
         env.pc += 1
 
@@ -583,7 +584,8 @@ class Opcodes(object):
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
-        env.memory.write_bytes(destOffset, length, env.getAccount(addr).code[offset:offset+length])
+        # env.memory.write_bytes(destOffset, length, env.getAccount(addr).code[offset:offset+length])
+        env.memory.write_bytes(destOffset, length, env.getCode(addr)[offset:offset+length])
         env.consumeGas(700+(3*(length//32)))
         env.pc += 1
         
@@ -600,7 +602,7 @@ class Opcodes(object):
         env.pc += 1
     
     def EXTCODEHASH(self, env):
-        env.stack.append(int(w3.keccak(env.getAccount(env.stack.pop()).code), 16))
+        env.stack.append(int(w3.keccak(env.getCode(env.stack.pop())), 16))
         env.consumeGas(700)
         env.pc += 1
     
@@ -1596,6 +1598,10 @@ class CallEnv(object):
         self.pc += length
         return int.from_bytes(_data, "big")
         # return int(_data.hex(), 16)
+    
+    def getCode(addr):
+        _acct = self.getAccount(addr)
+        return (_acct.code if self.tx.persist else _acct.tempcode)
     
     def swap(self, n):
         head = len(self.stack)-1

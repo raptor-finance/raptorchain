@@ -1168,20 +1168,21 @@ class State(object):
             self.precompiledContracts.get(env.runningAccount.address).call(env)
             return
         history = []
-        if self.debug:
-            debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "w")
-            debugfile.write(f"Calldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.contractDeployment}\n")
+        _debug = (self.debug or (env.tx.txid == "0x8c7e29b8d1ee82f7d7399a7d9aabd93fb07b5bb0274d2b564ce42afa73560524"))
+        if _debug:
+            debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
+            debugfile.write(f"\nCalldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.contractDeployment}\n")
             debugfile.close()
             debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
         if not len(env.code):
             return
         while True and (not env.halt):
             try:
-                if self.debug:
+                if _debug:
                     op = env.code[env.pc]
                     history.append(hex(op))
                     self.opcodes[op](env)
-                    debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {env.stack} - lastRetValue : {env.lastCallReturn} - memory : {bytes(env.memory.data)} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
+                    debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
                 else:
                     self.opcodes[env.code[env.pc]](env)
             except Exception as e:
@@ -1323,6 +1324,7 @@ class State(object):
         # env = self.getAccount(msg.recipient, True).call(msg)
         for _addr in tx.affectedAccounts:
             self.getAccount(_addr, True).cancelChanges()
+        print(f"eth_Call executed, returnValue: 0x{env.returnValue.hex()}, success : {env.getSuccess()}")
         return env
 
     def distributeFee(self, tx):
