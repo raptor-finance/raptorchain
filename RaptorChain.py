@@ -705,6 +705,7 @@ class State(object):
             self.mined = snapshotData.get("mined", [])
             self.bio = snapshotData.get("bio", "")
             self.code = bytes.fromhex(snapshotData.get("code", ""))
+            self.tempcode = bytes.fromhex(snapshotData.get("code", ""))
             self.storage = snapshotData.get("storage", {})
             self.tempStorage = snapshotData.get("tempStorage", {})
             self.hash = ""
