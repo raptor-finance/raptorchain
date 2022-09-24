@@ -2338,7 +2338,7 @@ class HttpUrlRedirectMiddleware:
 
 if __name__ == "__main__":
     node = Node(config)
-    print(node.config)
+    # print(node.config)
     thread = threading.Thread(target=node.networkBackgroundRoutine)
     thread.start()
 
