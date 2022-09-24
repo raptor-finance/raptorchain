@@ -1302,7 +1302,7 @@ class State(object):
         # if len(env.code):
         self.execEVMCall(env)
         tx.returnValue = env.returnValue
-        if showMessage:
+        if showMessage and self.verbose:
             print(f"Success : {env.getSuccess()}\nReturnValue : {env.returnValue}")
         if env.getSuccess():
             self.getAccount(env.recipient).tempStorage = env.storage.copy()
@@ -2594,7 +2594,8 @@ def handleWeb3Request(data: Web3Body):
     _begin = time.time()
     
     # data = flask.request.get_json()
-    print(f"/web3 POST received, data : {data}")
+    if node.state.verbose:
+        print(f"/web3 POST received, data : {data}")
     
     
     # _id = data.get("id")
@@ -2643,8 +2644,9 @@ def handleWeb3Request(data: Web3Body):
         result = node.ethGetTransactionByHash(data.params[0])
     _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
     _resp = json.dumps(_respdict)
-    print(f"{data.method} request completed in {round((time.time() - _begin)*1000, 3)}ms")
-    print(f"Response : {_resp}")
+    if node.state.verbose:
+        print(f"{data.method} request completed in {round((time.time() - _begin)*1000, 3)}ms")
+        print(f"Response : {_resp}")
     return fastapi.Response(content=_resp, media_type='application/json');
     
 def runAPI():
