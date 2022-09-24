@@ -556,7 +556,6 @@ class BeaconChain(object):
 
     def __init__(self, testnet=True):
         self.testnet = testnet
-        self.tempCodeUpgradeBlock = 9
         self.difficulty = 1
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.blocks = [self.GenesisBeacon(self.testnet)]
