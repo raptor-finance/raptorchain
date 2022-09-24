@@ -1,4 +1,4 @@
-import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys, fastapi
+import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys, fastapi, pydantic, uvicorn
 from fastapi.middleware.cors import CORSMiddleware
 global config
 from web3.auto import w3
@@ -2293,42 +2293,59 @@ if __name__ == "__main__":
 
 
 # HTTP INBOUND PARAMS
-app = flask.Flask(__name__)
-app.config["DEBUG"] = False
-CORS(app)
+# app = flask.Flask(__name__)
+# app.config["DEBUG"] = False
+# CORS(app)
+app = fastapi.FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.route("/")
+def jsonify(result, success=True, message=None):
+    responseBody = {"result": result, "success": success}
+    if (type(message) == str):
+        responseBody["message"] = message
+    return fastapi.Response(content=json.dumps(responseBody), media_type="application/json")
+
+def retPlainText(data):
+    return fastapi.response(content=data, media_type="text/plain")
+
+@app.get("/")
 def basicInfoHttp():
-    return f"RaptorChain {'testnet' if node.state.testnet else 'mainnet'} node running on port {node.listenPort}"
+    return retPlainText(f"RaptorChain {'testnet' if node.state.testnet else 'mainnet'} node running on port {node.listenPort}")
 
-@app.route("/ping")
+@app.get("/ping")
 def getping():
-    return json.dumps({"result": "Pong !", "success": True})
+    return jsonify(result="Pong !", success=True)
 
-@app.route("/stats")
+@app.get("/stats")
 def getStats():
     _stats_ = {"coin": {"transactions": len(node.txsOrder), "supply": node.state.totalSupply, "holders": len(node.state.holders)}, "chain" : {"length": len(node.state.beaconChain.blocks), "difficulty" : node.state.beaconChain.difficulty, "target": node.state.beaconChain.miningTarget, "lastBlockHash": node.state.beaconChain.getLastBeacon().proof}, "software": {"version": node.state.version}}
-    return flask.jsonify(result=_stats_, success=True)
+    return jsonify(result=_stats_, success=True)
 
-@app.route("/VMRoot")
+@app.get("/VMRoot")
 def getVMRoot():
-    return node.state.beaconChain.getLastBeacon().txsRoot().hex()
+    return retPlainText(node.state.beaconChain.getLastBeacon().txsRoot().hex())
 
 # HTTP GENERAL GETTERS - pulled from `Node` class
-@app.route("/get/transactions", methods=["GET"]) # get all transactions in node
+@app.get("/get/transactions") # get all transactions in node
 def getTransactions():
-    return flask.jsonify(result=node.transactions, success=True)
+    return jsonify(result=node.transactions, success=True)
 
-@app.route("/get/nFirstTxs/<n>", methods=["GET"]) # GET N first transactions
+@app.get("/get/nFirstTxs/{n}") # GET N first transactions
 def nFirstTxs(n):
     _n = min(len(node.txsOrder), int(n))
     txs = []
     for txid in txsOrder[0:int(n)-1]:
         txs.append(node.transactions.get(txid))
-    return flask.jsonify(result=txs, success=True)
+    return jsonify(result=txs, success=True)
     
-@app.route("/get/nLastTxs/<n>", methods=["GET"]) # GET N last transactions
+@app.get("/get/nLastTxs/{n>") # GET N last transactions
 def nLastTxs(n):
     _n = min(len(node.txsOrder), int(n))
     _n = len(node.txsOrder)-int(_n)
@@ -2336,33 +2353,33 @@ def nLastTxs(n):
     for txid in node.txsOrder[_n:len(node.txsOrder)]:
         txs.append(node.transactions.get(txid))
         
-    return flask.jsonify(result=txs, success=True)
+    return jsonify(result=txs, success=True)
 
-@app.route("/get/txsByBounds/<upperBound>/<lowerBound>", methods=["GET"]) # get txs from upperBound to lowerBound (in index)
+@app.get("/get/txsByBounds/{upperBound>}{lowerBound>") # get txs from upperBound to lowerBound (in index)
 def getTxsByBound(upperBound, lowerBound):
     upperBound = min(upperBound, len(node.txsOrder)-1)
     lowerBound = max(lowerBound, 0)
     for txid in node.txsOrder[lowerBound:upperBound]:
         txs.append(node.transactions.get(txid))
-    return flask.jsonify(result=txs, success=True)
+    return jsonify(result=txs, success=True)
 
-@app.route("/get/txIndex/<index>")
+@app.get("/get/txIndex/{index>")
 def getTxIndex(txid):
     _index = node.state.txIndex.get(tx)
     if _index != None:
-        return flask.jsonify(result=_index, success=True)
+        return jsonify(result=_index, success=True)
     else:
-        return (flask.jsonify(message="TX_NOT_FOUND", success=False), 404)
+        return (jsonify(message="TX_NOT_FOUND", success=False), 404)
 
-@app.route("/get/transaction/<txhash>", methods=["GET"]) # get specific tx by hash
+@app.get("/get/transaction/{txhash>") # get specific tx by hash
 def getTransactionByHash(txhash):
     tx = node.getTransaction(txhash)
     if (tx != None):
-        return flask.jsonify(result=tx, success=True)
+        return jsonify(result=tx, success=True)
     else:
-        return (flask.jsonify(message="TX_NOT_FOUND", success=False), 404)
+        return (jsonify(message="TX_NOT_FOUND", success=False), 404)
 
-@app.route("/get/transactions/<txhashes>", methods=["GET"]) # get specific tx by hash
+@app.get("/get/transactions/{txhashes>") # get specific tx by hash
 def getMultipleTransactionsByHashes(txhashes):
     txs = []
     oneSucceeded = False
@@ -2372,16 +2389,16 @@ def getMultipleTransactionsByHashes(txhashes):
         if (tx):
             txs.append(tx)
             oneSucceeded = True
-    return flask.jsonify(result=txs, success=oneSucceeded)
+    return jsonify(result=txs, success=oneSucceeded)
 
-@app.route("/get/numberOfReferencedTxs") # get number of referenced transactions
+@app.get("/get/numberOfReferencedTxs") # get number of referenced transactions
 def numberOfTxs():
-    return flask.jsonify(result=len(node.txsOrder), success=True)
+    return jsonify(result=len(node.txsOrder), success=True)
 
 
 
 # ACCOUNT-BASED GETTERS (obtained from `State` class)
-@app.route("/accounts/accountInfo/<account>") # Get account info (balance and transaction hashes)
+@app.get("/accounts/accountInfo/{account>") # Get account info (balance and transaction hashes)
 def accountInfo(account):
     _address = w3.toChecksumAddress(account)
     acct = node.state.getAccount(_address, True)
@@ -2394,14 +2411,14 @@ def accountInfo(account):
     code = acct.code.hex()
     storage = acct.storage
     nonce = len(acct.sent)
-    return flask.jsonify(result={"balance": (balance or 0), "tempBalance": acct.tempBalance, "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
+    return jsonify(result={"balance": (balance or 0), "tempBalance": acct.tempBalance, "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
 
-@app.route("/accounts/sent/<account>")
+@app.get("/accounts/sent/{account>")
 def sentByAccount(account):
     _address = w3.toChecksumAddress(account)    
-    return flask.jsonify(result=node.state.getAccount(_address, True).sent, success=True)
+    return jsonify(result=node.state.getAccount(_address, True).sent, success=True)
 
-@app.route("/accounts/accountBalance/<account>")
+@app.get("/accounts/accountBalance/{account>")
 def accountBalance(account):
     _address = w3.toChecksumAddress(account)
     balance = 0
@@ -2409,18 +2426,18 @@ def accountBalance(account):
         balance = node.state.accounts.get(_address).balance
     except:
         balance = 0
-    return flask.jsonify(result={"balance": (balance or 0)}, success=True)
+    return jsonify(result={"balance": (balance or 0)}, success=True)
 
-@app.route("/accounts/txChilds/<tx>")
+@app.get("/accounts/txChilds/{tx>")
 def txParent(tx):
     _kids = node.state.txChilds.get(tx)
     if _kids != None:
-        return flask.jsonify(result=_kids, success=True)
+        return jsonify(result=_kids, success=True)
     else:
-        return flask.jsonify(message="TX_NOT_FOUND", success=False)
+        return jsonify(message="TX_NOT_FOUND", success=False)
 
 # SEND TRANSACTION STUFF (redirected to `Node` class)
-@app.route("/send/rawtransaction/") # allows sending a raw (signed) transaction
+@app.get("/send/rawtransaction/") # allows sending a raw (signed) transaction
 def sendRawTransactions():
     rawtxs = str(flask.request.args.get('tx', None))
     rawtxs = rawtxs.split(",")
@@ -2436,136 +2453,148 @@ def sendRawTransactions():
         txs.append(tx)
         hashes.append(tx["hash"])
     node.checkTxs(txs, True)
-    return flask.jsonify(result=hashes, success=True)
+    return jsonify(result=hashes, success=True)
 
-@app.route("/send/buildtransaction/")
+@app.get("/send/buildtransaction/")
 def buildTransactionAndSend():
     privkey = str(flask.request.args.get('privkey', None))
     _from = str(flask.request.args.get('from', None))
     _to = str(flask.request.args.get('to', None))
     tokens = str(flask.request.args.get('value', None))
     result = buildTransaction(self, privkey, _from, _to, tokens)[0]
-    return flask.jsonify(result=result[0], success=result[1])
+    return jsonify(result=result[0], success=result[1])
 
 
 # BEACON RELATED DATA (loaded from node/state/beaconChain)
-@app.route("/chain/block/<block>")
+@app.get("/chain/block/{block>")
 def getBlock(block):
     _block = node.state.beaconChain.getBlockByHeightJSON(int(block))
-    return flask.jsonify(result=_block, success=not not _block)
+    return jsonify(result=_block, success=not not _block)
 
-@app.route("/chain/blockByHash/<blockhash>")
+@app.get("/chain/blockByHash/{blockhash>")
 def blockByHash(blockhash):
     _block = node.state.beaconChain.blocksByHash.get(blockhash)
     if _block:
         _block = _block.exportJson()
-    return flask.jsonify(result=_block, success=not not _block)
+    return jsonify(result=_block, success=not not _block)
 
-@app.route("/chain/getlastblock")
+@app.get("/chain/getlastblock")
 def getlastblock():
-    return flask.jsonify(result=node.state.beaconChain.getLastBlockJSON(), success=True)    
+    return jsonify(result=node.state.beaconChain.getLastBlockJSON(), success=True)    
 
-@app.route("/chain/miningInfo")
+@app.get("/chain/miningInfo")
 def getMiningInfo():
     _result = {"difficulty" : node.state.beaconChain.difficulty, "target": node.state.beaconChain.miningTarget, "lastBlockHash": node.state.beaconChain.getLastBeacon().proof}
-    return flask.jsonify(result=_result, success=True)
+    return jsonify(result=_result, success=True)
 
-@app.route("/chain/length")
+@app.get("/chain/length")
 def getChainLength():
-    return flask.jsonify(result=len(node.state.beaconChain.blocks), success=True)
+    return jsonify(result=len(node.state.beaconChain.blocks), success=True)
 
-@app.route("/chain/mempool")
+@app.get("/chain/mempool")
 def getMempool():
-    return flask.jsonify(result=node.state.beaconChain.exportMempool(), success=True)
+    return jsonify(result=node.state.beaconChain.exportMempool(), success=True)
 
 
 
 # VALIDATORS RELATED STUFF - as it's part of `BeaconChain` class, it's under `/chain/validators` path
-@app.route("/chain/validators")
+@app.get("/chain/validators")
 def getListOfValidators():
-    return flask.jsonify(result=[key for key, value in node.state.beaconChain.validators.items()], success=True)
+    return jsonify(result=[key for key, value in node.state.beaconChain.validators.items()], success=True)
 
-@app.route("/chain/validators/<valoper>")
+@app.get("/chain/validators/{valoper>")
 def getValidator(valoper):
     if valoper == "whoseturn":
-        return flask.jsonify(result=node.state.beaconChain.whoseTurnAtTimestamp(int(time.time())), success=True)
+        return jsonify(result=node.state.beaconChain.whoseTurnAtTimestamp(int(time.time())), success=True)
     _val = node.state.beaconChain.validators.get(node.state.formatAddress(valoper))
     if _val:
-        return flask.jsonify(result=_val.JSONSerializable(), success=True)
+        return jsonify(result=_val.JSONSerializable(), success=True)
     else:
-        return flask.jsonify(message="VALIDATOR_NOT_FOUND", success=False)
+        return jsonify(message="VALIDATOR_NOT_FOUND", success=False)
         
 
 
 
 
 # SHARE PEERS (from `Node` class)
-@app.route("/net/getPeers")
+@app.get("/net/getPeers")
 def shareMyPeers():
-    return flask.jsonify(result=node.stringifyBatchOfPeers(node.peers), success=True)
+    return jsonify(result=node.stringifyBatchOfPeers(node.peers), success=True)
     
-@app.route("/net/getOnlinePeers")
+@app.get("/net/getOnlinePeers")
 def shareOnlinePeers():
-    return flask.jsonify(result=node.stringifyBatchOfPeers(node.goodPeers), success=True)
+    return jsonify(result=node.stringifyBatchOfPeers(node.goodPeers), success=True)
 
 
+class Web3Body(pydantic.BaseModel):
+    id: int
+    method: str
+    params: list
 
 # WEB3 COMPATIBLE RPC
-@app.route("/web3", methods=["POST"])
-def handleWeb3Request():
+@app.post("/web3")
+def handleWeb3Request(data: Web3Body):
     _begin = time.time()
+    
     data = flask.request.get_json()
     print(f"/web3 POST received, data : {data}")
-    _id = data.get("id")
-    method = data.get("method")
-    params = data.get("params")
+    
+    
+    # _id = data.get("id")
+    # method = data.get("method")
+    # params = data.get("params")
+    
+    # _id = data.id
+    # method = data.method
+    # params = data.params
+    
     result = hex(node.state.chainID)
-    if method == "eth_getBalance":
-        result = hex(int((node.state.getAccount(w3.toChecksumAddress(params[0]),True).balance)))
-    if method == "net_version":
+    if data.method == "eth_getBalance":
+        result = hex(int((node.state.getAccount(w3.toChecksumAddress(data.params[0]),True).balance)))
+    if data.method == "net_version":
         result = str(node.state.chainID)
-    if method == "eth_coinbase":
+    if data.method == "eth_coinbase":
         result = node.state.beaconChain.getLastBeacon().miner
-    if method == "eth_mining":
+    if data.method == "eth_mining":
         result = False
-    if method == "eth_gasPrice":
+    if data.method == "eth_gasPrice":
         result = hex(node.state.gasPrice)
-    if method == "eth_blockNumber":
+    if data.method == "eth_blockNumber":
         # result = hex(len(node.state.beaconChain.blocks) - 1)
         result = hex(len(node.transactions) - 1)
-    if method == "eth_getTransactionCount":
-        result = hex(len(node.state.getAccount(w3.toChecksumAddress(params[0]), True).sent))
-    if method == "eth_getCode":
+    if data.method == "eth_getTransactionCount":
+        result = hex(len(node.state.getAccount(w3.toChecksumAddress(data.params[0]), True).sent))
+    if data.method == "eth_getCode":
         result = "0x"
-    if method == "eth_estimateGas":
-        result = hex(node.state.eth_Call(params[0]).gasUsed)
+    if data.method == "eth_estimateGas":
+        result = hex(node.state.eth_Call(data.params[0]).gasUsed)
     # if method == "eth_sign":
         # result = w3.eth.account.sign_message(encode_defunct(text=), private_key="").signature.hex()
-    if method == "eth_call":
-        result = f"0x{node.state.eth_Call(params[0]).returnValue.hex()}"
-    if method == "eth_getCompilers":
+    if data.method == "eth_call":
+        result = f"0x{node.state.eth_Call(data.params[0]).returnValue.hex()}"
+    if data.method == "eth_getCompilers":
         result = []
-    if method == "eth_sendRawTransaction":
-        result = node.integrateETHTransaction(params[0])
-    if method == "eth_getTransactionReceipt":
-        result = node.txReceipt(params[0])
-    if method == "eth_getCode":
-        result = f"0x{node.state.getAccount(params[0], True).code.hex()}"
-    if method == "eth_getStorageAt":
-        result = hex(int(node.state.getAccount(params[0], True).storage[int(params[1])]))
-    if method == "eth_getTransactionByHash":
-        result = node.ethGetTransactionByHash(params[0])
-    _respdict = {"id": _id, "jsonrpc": "2.0", "result": result}
+    if data.method == "eth_sendRawTransaction":
+        result = node.integrateETHTransaction(data.params[0])
+    if data.method == "eth_getTransactionReceipt":
+        result = node.txReceipt(data.params[0])
+    if data.method == "eth_getCode":
+        result = f"0x{node.state.getAccount(data.params[0], True).code.hex()}"
+    if data.method == "eth_getStorageAt":
+        result = hex(int(node.state.getAccount(data.params[0], True).storage[int(data.params[1])]))
+    if data.method == "eth_getTransactionByHash":
+        result = node.ethGetTransactionByHash(data.params[0])
+    _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
     _resp = json.dumps(_respdict)
     print(f"{data.get('method')} request completed in {round((time.time() - _begin)*1000, 3)}ms")
     print(f"Response : {_resp}")
-    return flask.Response(_resp, mimetype='application/json');
+    return fastapi.Response(content=_resp, media_type='application/json');
     
-def runFlask():
-    app.run(host="0.0.0.0", port=node.listenPort, ssl_context=ssl_context)
+def runAPI():
+    uvicorn.run(app, port=node.listenPort)
 
 if __name__ == "__main__":
     print(ssl_context or "No SSL context defined")
-    _thread = threading.Thread(target=runFlask)
+    _thread = threading.Thread(target=runAPI)
     _thread.start()
     Terminal(node).terminalLoop()
