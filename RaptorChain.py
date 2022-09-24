@@ -1,4 +1,4 @@
-import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys, fastapi, pydantic, uvicorn, re
+import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys, fastapi, pydantic, uvicorn, re, rich, logging
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.datastructures import URL
 from starlette.responses import RedirectResponse
@@ -40,6 +40,12 @@ try:
     ssl_context = tuple(config["ssl"])
 except:
     ssl_context = None
+
+def printError(errorMessage):
+    try:
+        rich.print(f"[red]{errorMessage}[/red]")
+    except:
+        print(errorMessage)
 
 class SignatureManager(object):
     def __init__(self):
@@ -285,9 +291,10 @@ class BeaconChain(object):
             def JSONSerializable(self):
                 return {"amount": self.amount, "depositor": self.depositor, "nonce": self.nonce, "token": self.token, "data": self.data.hex(), "hash": self.hash.hex()}
     
-        def __init__(self, testnet, MasterContractAddress, tokenAddress, cacheFile="BSCcache.json"):
+        def __init__(self, testnet, MasterContractAddress, tokenAddress, cacheFile="BSCcache.json", verbose=False):
             self.testnet = testnet
             self.token = tokenAddress
+            self.verbose = verbose
             MasterContractABI = """[{"inputs":[{"components":[{"internalType":"address","name":"miner","type":"address"},{"internalType":"uint256","name":"nonce","type":"uint256"},{"internalType":"bytes[]","name":"messages","type":"bytes[]"},{"internalType":"uint256","name":"difficulty","type":"uint256"},{"internalType":"bytes32","name":"miningTarget","type":"bytes32"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bytes32","name":"parent","type":"bytes32"},{"internalType":"bytes32","name":"proof","type":"bytes32"},{"internalType":"uint256","name":"height","type":"uint256"},{"internalType":"bytes32","name":"son","type":"bytes32"},{"internalType":"bytes32","name":"parentTxRoot","type":"bytes32"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"},{"internalType":"bytes[]","name":"relayerSigs","type":"bytes[]"}],"internalType":"struct BeaconChainHandler.Beacon","name":"_genesisBeacon","type":"tuple"},{"internalType":"address","name":"stakingToken","type":"address"},{"internalType":"uint256","name":"mnCollateral","type":"uint256"}],"stateMutability":"nonpayable","type":"constructor"},{"inputs":[],"name":"beaconchain","outputs":[{"internalType":"contract BeaconChainHandler","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"custody","outputs":[{"internalType":"contract CustodyManager","name":"","type":"address"}],"stateMutability":"view","type":"function"}]"""
             # StakingContractABI = """[{"inputs": [{"internalType": "address","name": "_stakingToken","type": "address"}],"stateMutability": "nonpayable","type": "constructor"},{"inputs": [],"name": "beaconChain","outputs": [{"internalType": "contract BeaconChainHandler","name": "","type": "address"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "claimMNRewards","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "createMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "destroyMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "disableMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "nodeOperator","type": "address"}],"name": "enableMN","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "","type": "address"}],"name": "masternodes","outputs": [{"internalType": "address","name": "owner","type": "address"},{"internalType": "address","name": "operator","type": "address"},{"internalType": "uint256","name": "collateral","type": "uint256"},{"internalType": "uint256","name": "rewards","type": "uint256"},{"internalType": "bool","name": "operating","type": "bool"}],"stateMutability": "view","type": "function"},{"inputs": [{"components": [{"internalType": "address","name": "miner","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "bytes[]","name": "messages","type": "bytes[]"},{"internalType": "uint256","name": "difficulty","type": "uint256"},{"internalType": "bytes32","name": "miningTarget","type": "bytes32"},{"internalType": "uint256","name": "timestamp","type": "uint256"},{"internalType": "bytes32","name": "parent","type": "bytes32"},{"internalType": "bytes32","name": "proof","type": "bytes32"},{"internalType": "uint256","name": "height","type": "uint256"},{"internalType": "bytes32","name": "son","type": "bytes32"},{"internalType": "uint8","name": "v","type": "uint8"},{"internalType": "bytes32","name": "r","type": "bytes32"},{"internalType": "bytes32","name": "s","type": "bytes32"}],"internalType": "struct BeaconChainHandler.Beacon","name": "_block","type": "tuple"}],"name": "sendL2Block","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "contract BeaconChainHandler","name": "_handler","type": "address"}],"name": "setBeaconHandler","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [],"name": "stakingToken","outputs": [{"internalType": "contract ERC20Interface","name": "","type": "address"}],"stateMutability": "view","type": "function"}]"""
             CustodyContractABI = """[{"inputs": [{"internalType": "address","name": "_withdrawalsOperator","type": "address"}],"stateMutability": "nonpayable","type": "constructor"},{"anonymous": false,"inputs": [{"indexed": true,"internalType": "address","name": "user","type": "address"},{"indexed": true,"internalType": "address","name": "token","type": "address"},{"indexed": false,"internalType": "uint256","name": "amount","type": "uint256"},{"indexed": false,"internalType": "uint256","name": "nonce","type": "uint256"},{"indexed": false,"internalType": "bytes32","name": "hash","type": "bytes32"}],"name": "Deposited","type": "event"},{"anonymous": false,"inputs": [{"indexed": true,"internalType": "address","name": "oldOperator","type": "address"},{"indexed": true,"internalType": "address","name": "newOperator","type": "address"}],"name": "WithdrawalOperatorChanged","type": "event"},{"anonymous": false,"inputs": [{"indexed": true,"internalType": "address","name": "user","type": "address"},{"indexed": true,"internalType": "address","name": "token","type": "address"},{"indexed": false,"internalType": "uint256","name": "amount","type": "uint256"},{"indexed": false,"internalType": "uint256","name": "nonce","type": "uint256"},{"indexed": false,"internalType": "bytes32","name": "hash","type": "bytes32"}],"name": "Withdrawn","type": "event"},{"inputs": [{"internalType": "uint256","name": "","type": "uint256"}],"name": "__deposits","outputs": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "depositor","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes","name": "data","type": "bytes"},{"internalType": "bytes32","name": "hash","type": "bytes32"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "uint256","name": "","type": "uint256"}],"name": "__withdrawals","outputs": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "withdrawer","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes32","name": "hash","type": "bytes32"},{"internalType": "bool","name": "claimed","type": "bool"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "bytes32","name": "","type": "bytes32"}],"name": "_deposits","outputs": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "depositor","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes","name": "data","type": "bytes"},{"internalType": "bytes32","name": "hash","type": "bytes32"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "bytes32","name": "","type": "bytes32"}],"name": "_withdrawals","outputs": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "withdrawer","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes32","name": "hash","type": "bytes32"},{"internalType": "bool","name": "claimed","type": "bool"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "bytes","name": "_data","type": "bytes"}],"name": "bridgeFallBack","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "_newOperator","type": "address"}],"name": "changeWithdrawalOperator","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "address","name": "token","type": "address"},{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "bytes","name": "data","type": "bytes"}],"name": "deposit","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [{"internalType": "bytes32","name": "_hash","type": "bytes32"}],"name": "deposits","outputs": [{"components": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "depositor","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes","name": "data","type": "bytes"},{"internalType": "bytes32","name": "hash","type": "bytes32"}],"internalType": "struct CustodyManager.Deposit","name": "","type": "tuple"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "uint256","name": "_index","type": "uint256"}],"name": "deposits","outputs": [{"components": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "depositor","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes","name": "data","type": "bytes"},{"internalType": "bytes32","name": "hash","type": "bytes32"}],"internalType": "struct CustodyManager.Deposit","name": "","type": "tuple"}],"stateMutability": "view","type": "function"},{"inputs": [],"name": "depositsLength","outputs": [{"internalType": "uint256","name": "","type": "uint256"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "address","name": "spender","type": "address"},{"internalType": "uint256","name": "_amount","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes","name": "_data","type": "bytes"}],"name": "receiveApproval","outputs": [],"stateMutability": "nonpayable","type": "function"},{"inputs": [],"name": "totalDeposited","outputs": [{"internalType": "uint256","name": "","type": "uint256"}],"stateMutability": "view","type": "function"},{"inputs": [],"name": "transferNonce","outputs": [{"internalType": "uint256","name": "","type": "uint256"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "uint256","name": "_index","type": "uint256"}],"name": "withdrawals","outputs": [{"components": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "withdrawer","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes32","name": "hash","type": "bytes32"},{"internalType": "bool","name": "claimed","type": "bool"}],"internalType": "struct CustodyManager.Withdrawal","name": "","type": "tuple"}],"stateMutability": "view","type": "function"},{"inputs": [{"internalType": "bytes32","name": "_hash","type": "bytes32"}],"name": "withdrawals","outputs": [{"components": [{"internalType": "uint256","name": "amount","type": "uint256"},{"internalType": "address","name": "withdrawer","type": "address"},{"internalType": "uint256","name": "nonce","type": "uint256"},{"internalType": "address","name": "token","type": "address"},{"internalType": "bytes32","name": "hash","type": "bytes32"},{"internalType": "bool","name": "claimed","type": "bool"}],"internalType": "struct CustodyManager.Withdrawal","name": "","type": "tuple"}],"stateMutability": "view","type": "function"}]"""
@@ -314,13 +321,15 @@ class BeaconChain(object):
         
         def getDepositDetails(self, _hash):
             if self.cachedDeposits.get(_hash):
-                print(f"Deposit {_hash} pulled from cache")
+                if self.verbose:
+                    print(f"Deposit {_hash} pulled from cache")
                 return self.cachedDeposits.get(_hash).legacyFormat
             cachedDeposit = self.CachedDeposit(depositData=self.custodyContract.functions.deposits(_hash).call())
             # if (w3.toChecksumAddress(self.token) != w3.toChecksumAddress(returnValue["token"])):
                 # returnValue["amount"] = 0
             self.cachedDeposits[_hash] = cachedDeposit
-            print(f"Deposit {_hash} pulled from BSC")
+            if self.verbose:
+                print(f"Deposit {_hash} pulled from BSC")
             self.saveCacheFile()
             return cachedDeposit.legacyFormat
             
@@ -362,7 +371,7 @@ class BeaconChain(object):
                 self.loadCachedTokens(_data.get("tokens", {}))
                 self.loadCachedDeposits(_data.get("deposits", {}))
             except Exception as e:
-                print(f"Error encountered loading BSC cache: {e.__repr__()}")
+                printError(f"Error encountered loading BSC cache: {e.__repr__()}")
             
         def saveCacheFile(self):
             if not self.cacheFile:
@@ -607,7 +616,6 @@ class BeaconChain(object):
         try:
             beacon = self.Beacon(blockData, self.difficulty)
             _validity = self.isBeaconValid(beacon)
-            print(_validity)
             return _validity
         except Exception as e:
             return (False, f"Error checking beacon validity: {e}")
@@ -630,11 +638,12 @@ class BeaconChain(object):
         self.blocks.append(beacon)
         self.blocksByHash[beacon.proof] = beacon
         self.validators.get(w3.toChecksumAddress(beacon.miner)).blocks.append(beacon.proof)
-        print(f"\n===================================\n\nBeacon block mined !\nHeight : {beacon.number}\nProof : {beacon.proof}\nMasternode : {beacon.miner}\nMinted reward : 0 RPTR\n\n===================================\n")
+        # print(f"\n===================================\n\nBeacon block mined !\nHeight : {beacon.number}\nProof : {beacon.proof}\nMasternode : {beacon.miner}\nMinted reward : 0 RPTR\n\n===================================\n")
+        rich.print(f"\n[yellow]===================================[/yellow]\n\n[green]Beacon block mined ![/green]\n[yellow]Height :[/yellow] [green1]{beacon.number}[/green1]\n[yellow]Proof :[/yellow] [green1]{beacon.proof}[/green1]\n[yellow]Masternode :[/yellow] [green1]{beacon.miner}[/green1]\n\n[yellow]===================================[/yellow]\n")
         try:
             self.onBlockMined(beacon)
         except Exception as e:
-            print(f"Error handling new block: {e.__repr__()}")
+            printError(f"Error handling new block: {e.__repr__()}")
         # self.difficulty = self.calcDifficulty(self.blockTime, _oldtimestamp, int(beacon.timestamp), self.difficulty)
         # self.miningTarget = hex(int(min(int((2**256-1)/self.difficulty),0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)))
         return True
@@ -644,7 +653,7 @@ class BeaconChain(object):
         try:
             _beacon = self.Beacon(block, self.difficulty)
         except Exception as e:
-            print(f"Exception submitting a block : {e}")
+            printError(f"Exception submitting a block : {e}")
             return False
         beaconValidity = self.isBeaconValid(_beacon)
         if beaconValidity[0]:
@@ -663,7 +672,7 @@ class BeaconChain(object):
         try:
             return self.blocks[height].exportJson()
         except Exception as e:
-            print(f"Exception happened while pulling block {height}: {e.__repr__()}")
+            printError(f"Exception happened while pulling block {height}: {e.__repr__()}")
             return None
     
     def getLastBlockJSON(self):
@@ -1045,7 +1054,7 @@ class State(object):
             try:
                 self.checkOutDepositByIndex(tx, i)
             except Exception as e:
-                print(e)
+                printError(e)
                 pass
             self.lastIndex = i+1
 
@@ -1234,7 +1243,8 @@ class State(object):
         self.getAccount(deplAddr).tempStorage = env.storage.copy()
         if env.getSuccess():
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
-            print(f"Deployed contract {deplAddr} in tx {tx.txid}")
+            if self.verbose:
+                print(f"Deployed contract {deplAddr} in tx {tx.txid}")
         else:
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
         for _addr in tx.affectedAccounts:
@@ -1722,7 +1732,8 @@ class Node(object):
     def syncByBlock(self):
         # self.checkTxs(self.pullSetOfTxs(self.pullTxsByBlockNumber(0)))
         for blockNumber in range(self.bestBlockChecked,self.getChainLength()):
-            print(f"Checking out block number {blockNumber}")
+            if self.state.verbose:
+                print(f"Checking out block number {blockNumber}")
             _txids = self.pullTxsByBlockNumber(blockNumber)
             _toCheck_ = self.pullSetOfTxs(_txids)
             self.checkTxs(_toCheck_, False)
@@ -1752,7 +1763,7 @@ class Node(object):
                 self.createRefreshTx()
                 time.sleep(60)
             except Exception as e:
-                    print(e.__repr__())
+                    printError(e.__repr__())
 
     def txReceipt(self, txid):
         try:
@@ -1917,7 +1928,7 @@ class RaptorBlockProducer(object):
                 self.produceNewBlock()
                 time.sleep(60)
             except Exception as e:
-                print(f"Exception caught : {e}")
+                printError(f"Exception caught : {e}")
 
 class Wallet(object):
     def __init__(self, node, configfile):
@@ -2101,7 +2112,7 @@ class Wallet(object):
                 print("Wallet is encrypted, please enter password to decrypt it !")
                 self.decrypt()
             except Exception as e:
-                print(f"Exception occured decrypting wallet: {e.__repr__()}")
+                printError(f"Exception occured decrypting wallet: {e.__repr__()}")
                 return False
         return True
 
@@ -2271,7 +2282,7 @@ class Terminal(object):
             else:
                 print(json.dumps(self.node.state.beaconChain.blockByHash.get(_id).ABIEncodable()))
         except Exception as e:
-            print(e.__repr__())
+            printError(e.__repr__())
     
     def balance(self, keyInput):
         addr = keyInput[1]
@@ -2300,10 +2311,11 @@ class Terminal(object):
     def terminalLoop(self):
         while True:
             try:
-                cmd = input("RaptorChain Terminal - $ ")
+                rich.print("[yellow]RaptorChain Terminal - $[/yellow] ", end="")
+                cmd = input()
                 self.execCommand(cmd)
             except Exception as e:
-                print(f"Exception occured executing command: {e.__repr__()}")
+                printError(f"Exception occured executing command: {e.__repr__()}")
 
 class HttpUrlRedirectMiddleware:
   """
@@ -2637,6 +2649,9 @@ def handleWeb3Request(data: Web3Body):
     return fastapi.Response(content=_resp, media_type='application/json');
     
 def runAPI():
+    if not node.state.verbose:
+        logging.getLogger("uvicorn.error").disabled = True
+        logging.getLogger("uvicorn.access").disabled = True
     uvicorn.run(app, port=node.listenPort)
 
 if __name__ == "__main__":
