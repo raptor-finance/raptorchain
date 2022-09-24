@@ -574,8 +574,8 @@ class Opcodes(object):
         env.pc += 1
     
     def EXTCODESIZE(self, env):
-        _acct = env.getAccount(env.stack.pop());
-        env.stack.append(len(_acct.code if env.tx.persist else _acct.tempcode))
+        _addr = env.stack.pop()
+        env.stack.append(len(env.getCode(_addr)))
         env.consumeGas(700)
         env.pc += 1
 
@@ -1108,7 +1108,7 @@ class Opcodes(object):
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
         _acct = env.getAccount(addr)
-        _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, (_acct.code if env.tx.persist else _acct.tempcode), env.isStatic, calltype=1)
+        _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getCode(addr), env.isStatic, calltype=1)
         result = env.callFallback(_childEnv)
         retValue = result[1]
         env.lastCallReturn = retValue
@@ -1179,7 +1179,7 @@ class Opcodes(object):
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
         _acct = env.getAccount(addr)
-        _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, (_acct.code if env.tx.persist else _acct.tempcode), True, calltype=1)
+        _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getCode(addr), True, calltype=1)
         result = env.callFallback(_childEnv)
         retValue = result[1]
         env.lastCallReturn = retValue
@@ -1599,9 +1599,9 @@ class CallEnv(object):
         return int.from_bytes(_data, "big")
         # return int(_data.hex(), 16)
     
-    def getCode(addr):
+    def getCode(self, addr):
         _acct = self.getAccount(addr)
-        return (_acct.code if self.tx.persist else _acct.tempcode)
+        return (_acct.tempcode if ((not self.tx.persist) and (len(self.chain.blocks) >= self.chain.tempCodeUpgradeBlock)) else _acct.code)
     
     def swap(self, n):
         head = len(self.stack)-1
