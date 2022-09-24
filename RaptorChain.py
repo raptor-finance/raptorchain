@@ -605,6 +605,7 @@ class BeaconChain(object):
         self.blocks.append(beacon)
         self.blocksByHash[beacon.proof] = beacon
         self.validators.get(w3.toChecksumAddress(beacon.miner)).blocks.append(beacon.proof)
+        print(f"\n===================================\n\nBeacon block mined !\nHeight : {beacon.number}\nProof : {beacon.proof}\nMasternode : {beacon.miner}\nMinted reward : 0 RPTR\n\n===================================\n")
         try:
             self.onBlockMined(beacon)
         except Exception as e:
@@ -826,6 +827,8 @@ class State(object):
 
     def __init__(self, initTxID, testnet=True):
         self.testnet = testnet
+        self.verbose = False
+        self.ticker = "tRPTR" if testnet else "RPTR"
         self.messages = {}
         self.opcodes = EVM.Opcodes().opcodes
         self.initTxID = initTxID
@@ -891,7 +894,8 @@ class State(object):
     def ensureExistence(self, _user):
         user = self.formatAddress(_user)
         if not self.accounts.get(user):
-            print(f"Created account {user}")
+            if self.verbose:
+                print(f"Created account {user}")
             self.accounts[user] = self.Account(user, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)
 
     def checkParent(self, tx):
@@ -985,12 +989,12 @@ class State(object):
         depositInfo = self.beaconChain.bsc.getDepositDetails(int(_index))
         if not depositInfo["hash"] in self.processedL2Hashes:
             self.ensureExistence(depositInfo["depositor"])
-            
-            print(depositInfo)
+            if self.verbose:
+                print(depositInfo)
             if (depositInfo["token"] == self.beaconChain.bsc.token):
                 self.accounts[depositInfo["depositor"]].balance += depositInfo["amount"]
                 self.accounts[depositInfo["depositor"]].tempBalance += depositInfo["amount"]
-                print(f"Depositing {depositInfo['amount']} to {depositInfo['depositor']}")
+                print(f"Depositing {depositInfo['amount'] / (10**18)} {self.ticker} to {depositInfo['depositor']}")
                 self.totalSupply += depositInfo["amount"]
             else:
                 _calculatedAddress = self.precompiledContractsHandler.calcBridgedAddress(depositInfo["token"])
@@ -1137,7 +1141,7 @@ class State(object):
             self.accounts[tx.recipient].balance += tx.value
         
         if (showMessage):
-            print(f"Transfer executed !\nAmount transferred : {(tx.value/(10**18))} RPTR\nFrom: {tx.sender}\nTo: {tx.recipient}")
+            print(f"Transfer executed !\nAmount transferred : {(tx.value/(10**18))} {self.ticker}\nFrom: {tx.sender}\nTo: {tx.recipient}")
         return (True, "Transfer succeeded")
 
     def mineBlock(self, tx):
@@ -1168,7 +1172,7 @@ class State(object):
             self.precompiledContracts.get(env.runningAccount.address).call(env)
             return
         history = []
-        _debug = (self.debug or (env.tx.txid == "0x8c7e29b8d1ee82f7d7399a7d9aabd93fb07b5bb0274d2b564ce42afa73560524"))
+        _debug = self.debug
         if _debug:
             debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
             debugfile.write(f"\nCalldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.contractDeployment}\n")
@@ -1383,7 +1387,8 @@ class State(object):
         self.distributeFee(_tx)
         self.calcStateRoot()
         self.updateHolders()
-        print(f"Transaction {_tx.txid} completed in {round((time.time()-_begin_)*1000, 3)}ms")
+        if self.verbose:
+            print(f"Transaction {_tx.txid} completed in {round((time.time()-_begin_)*1000, 3)}ms")
         return feedback
 
     def getLastUserTx(self, _user):
@@ -1544,7 +1549,8 @@ class Node(object):
         for tx in txs:
             playable = self.canBePlayed(tx) if (not self.transactions.get(tx["hash"])) else False
             # print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
-            print(not self.transactions.get(tx["hash"]))
+            if self.state.verbose:
+                print(not self.transactions.get(tx["hash"]))
             if ((not self.transactions.get(tx["hash"])) and playable[0]):
                 self.transactions[tx["hash"]] = tx
                 self.txsOrder.append(tx["hash"])
@@ -1840,7 +1846,7 @@ class RaptorBlockProducer(object):
         
         abiencodedmessages = eth_abi.encode_abi(["bytes[]"], [pulledMessages])
         
-        blockData = {"parentTxRoot": parentTxRoot.hex(), "miningData" : {"miner": self.acct.address,"nonce": 0,"difficulty": 1,"miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","proof": None}, "height": blockHeight,"parent": lastBlockHash,"messages": abiencodedmessages.hex(), "timestamp": int(time.time()), "son": "0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": None, "r": None, "s": None, "sig": None}}
+        blockData = {"parentTxRoot": parentTxRoot.hex(), "miningData" : {"miner": self.acct.address,"nonce": 0,"difficulty": 1,"miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","proof": None}, "height": blockHeight,"parent": lastBlockHash,"messages": abiencodedmessages.hex(), "timestamp": int(time.time()), "son": "0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": None, "r": None, "s": None, "sig": None}, "extdata": self.node.state.version.encode()}
         blockData["miningData"]["proof"] = self.blockHash(blockData)
         _sig = self.acct.signHash(blockData["miningData"]["proof"])
         blockData["signature"]["v"] = _sig.v
