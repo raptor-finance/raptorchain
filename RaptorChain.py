@@ -1881,7 +1881,7 @@ class RaptorBlockProducer(object):
         
         abiencodedmessages = eth_abi.encode_abi(["bytes[]"], [pulledMessages])
         
-        blockData = {"parentTxRoot": parentTxRoot.hex(), "miningData" : {"miner": self.acct.address,"nonce": 0,"difficulty": 1,"miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","proof": None}, "height": blockHeight,"parent": lastBlockHash,"messages": abiencodedmessages.hex(), "timestamp": int(time.time()), "son": "0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": None, "r": None, "s": None, "sig": None}, "extdata": self.node.state.version.encode()}
+        blockData = {"parentTxRoot": parentTxRoot.hex(), "miningData" : {"miner": self.acct.address,"nonce": 0,"difficulty": 1,"miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","proof": None}, "height": blockHeight,"parent": lastBlockHash,"messages": abiencodedmessages.hex(), "timestamp": int(time.time()), "son": "0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": None, "r": None, "s": None, "sig": None}, "minerVersion": self.node.state.version}
         blockData["miningData"]["proof"] = self.blockHash(blockData)
         _sig = self.acct.signHash(blockData["miningData"]["proof"])
         blockData["signature"]["v"] = _sig.v
