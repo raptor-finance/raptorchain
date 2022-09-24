@@ -638,7 +638,7 @@ class BeaconChain(object):
         self.blocksByHash[beacon.proof] = beacon
         self.validators.get(w3.toChecksumAddress(beacon.miner)).blocks.append(beacon.proof)
         # print(f"\n===================================\n\nBeacon block mined !\nHeight : {beacon.number}\nProof : {beacon.proof}\nMasternode : {beacon.miner}\nMinted reward : 0 RPTR\n\n===================================\n")
-        rich.print(f"\n[yellow]===================================[/yellow]\n\n[green]Beacon block mined ![/green]\n[yellow]Height :[/yellow] [green1]{beacon.number}[/green1]\n[yellow]Proof :[/yellow] [green1]{beacon.proof}[/green1]\n[yellow]Masternode :[/yellow] [green1]{beacon.miner}[/green1]\n\n[yellow]===================================[/yellow]\n")
+        rich.print(f"\n[light_sea_green]===================================[/light_sea_green]\n\n[green]Beacon block mined ![/green]\n[yellow]Height :[/yellow] [green1]{beacon.number}[/green1]\n[yellow]Proof :[/yellow] [green1]{beacon.proof}[/green1]\n[yellow]Masternode :[/yellow] [green1]{beacon.miner}[/green1]\n\n[light_sea_green]===================================[/light_sea_green]\n")
         try:
             self.onBlockMined(beacon)
         except Exception as e:
@@ -1027,7 +1027,7 @@ class State(object):
             if (depositInfo["token"] == self.beaconChain.bsc.token):
                 self.accounts[depositInfo["depositor"]].balance += depositInfo["amount"]
                 self.accounts[depositInfo["depositor"]].tempBalance += depositInfo["amount"]
-                print(f"Depositing {depositInfo['amount'] / (10**18)} {self.ticker} to {depositInfo['depositor']}")
+                rich.print(f"[orange_red1]Cross-chain[/orange_red1][yellow] deposit of[/yellow] [green1]{depositInfo['amount'] / (10**18)} {self.ticker}[/green1] [yellow]to[/yellow] [green1]{depositInfo['depositor']}[/green1]")
                 self.totalSupply += depositInfo["amount"]
             else:
                 _calculatedAddress = self.precompiledContractsHandler.calcBridgedAddress(depositInfo["token"])
