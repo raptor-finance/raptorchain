@@ -6,7 +6,7 @@ from web3 import Web3
 from eth_account.messages import encode_defunct
 from flask_cors import CORS
 from dataclasses import asdict, dataclass
-from typing import Optional
+from typing import Optional, Any
 from eth_utils import keccak
 from rlp.sedes import Binary, big_endian_int, binary
 import evmimplementation as EVM
@@ -396,6 +396,7 @@ class BeaconChain(object):
             self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
             self.transactions = []
             self.depCheckerTxs = []
+            self.fullTxList = []
             self.son = ""
             self.number = 0
             self.nextBlockTx = None
@@ -421,6 +422,15 @@ class BeaconChain(object):
                 _msgs.append(f"0x{_msg_.hex()}")
             return _msgs
 
+        def addTransaction(self, txid):
+            self.transactions.append(txid)
+            self.fullTxList.append(txid)
+            
+        def addDepCheckerTx(self, txid):
+            self.depCheckerTxs.append(txid)
+            self.fullTxList.append(txid)
+
+
         def difficultyMatched(self):
             return int(self.proofOfWork(), 16) < self.miningTarget
 
@@ -434,7 +444,7 @@ class BeaconChain(object):
             return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
 
         def exportJson(self):
-            return {"transactions": (self.depCheckerTxs + self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"0x{s}" for r, s in self.relayerSigs.items()]}
+            return {"transactions": (self.fullTxList + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"0x{s}" for r, s in self.relayerSigs.items()]}
 
 
     class Beacon(object):
@@ -451,6 +461,7 @@ class BeaconChain(object):
         
         def __init__(self, data, difficulty, stateRoot="0x0000000000000000000000000000000000000000000000000000000000000000"):
             miningData = data["miningData"]
+            self.fullTxList = []
             self.depCheckerTxs = []
             self.miner = w3.toChecksumAddress(miningData["miner"])
             self.parentTxRoot = data.get("parentTxRoot", "0x0000000000000000000000000000000000000000000000000000000000000000")
@@ -511,6 +522,14 @@ class BeaconChain(object):
             for _msg_ in self.decodedMessages:
                 _msgs.append(f"0x{_msg_.hex()}")
             return _msgs
+            
+        def addTransaction(self, txid):
+            self.transactions.append(txid)
+            self.fullTxList.append(txid)
+            
+        def addDepCheckerTx(self, txid):
+            self.depCheckerTxs.append(txid)
+            self.fullTxList.append(txid)
 
         def txsRoot(self):
             return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
@@ -520,11 +539,12 @@ class BeaconChain(object):
 
         def exportJson(self):
             # return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
-            return {"transactions": (self.depCheckerTxs + self.transactions + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"0x{s}" for r, s in self.relayerSigs.items()]}
+            return {"transactions": (self.fullTxList + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"0x{s}" for r, s in self.relayerSigs.items()]}
 
 
     def __init__(self, testnet=True):
         self.testnet = testnet
+        self.tempCodeUpgradeBlock = 9
         self.difficulty = 1
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.blocks = [self.GenesisBeacon(self.testnet)]
@@ -584,6 +604,7 @@ class BeaconChain(object):
         try:
             beacon = self.Beacon(blockData, self.difficulty)
             _validity = self.isBeaconValid(beacon)
+            print(_validity)
             return _validity
         except Exception as e:
             return (False, f"Error checking beacon validity: {e}")
@@ -1081,7 +1102,7 @@ class State(object):
         if self.beaconChain.blocksByHash.get(tx.epoch):
             if tx.txtype != 1:
                 if not tx.txid in self.beaconChain.blocksByHash[tx.epoch].transactions:
-                    self.beaconChain.blocksByHash[tx.epoch].transactions.append(tx.txid)
+                    self.beaconChain.blocksByHash[tx.epoch].addTransaction(tx.txid)
             else:
                 self.beaconChain.blocksByHash[tx.epoch].nextBlockTx = tx.txid
         else:
@@ -1369,7 +1390,7 @@ class State(object):
         elif _tx.txtype == 5:
             feedback = self.destroyMN(_tx)
         elif _tx.txtype == 6:
-            self.beaconChain.getLastBeacon().depCheckerTxs.append(_tx.txid)
+            self.beaconChain.getLastBeacon().addDepCheckerTx(_tx.txid)
         elif _tx.txtype == 7:
             self.beaconChain.addRelayerSig(_tx.sender, _tx.blockhash, _tx.blocksig)
         
@@ -2313,7 +2334,7 @@ def jsonify(result, success=True, message=None):
     return fastapi.Response(content=json.dumps(responseBody), media_type="application/json")
 
 def retPlainText(data):
-    return fastapi.response(content=data, media_type="text/plain")
+    return fastapi.Response(content=data, media_type="text/plain")
 
 @app.get("/")
 def basicInfoHttp():
@@ -2345,7 +2366,7 @@ def nFirstTxs(n):
         txs.append(node.transactions.get(txid))
     return jsonify(result=txs, success=True)
     
-@app.get("/get/nLastTxs/{n>") # GET N last transactions
+@app.get("/get/nLastTxs/{n}") # GET N last transactions
 def nLastTxs(n):
     _n = min(len(node.txsOrder), int(n))
     _n = len(node.txsOrder)-int(_n)
@@ -2355,7 +2376,7 @@ def nLastTxs(n):
         
     return jsonify(result=txs, success=True)
 
-@app.get("/get/txsByBounds/{upperBound>}{lowerBound>") # get txs from upperBound to lowerBound (in index)
+@app.get("/get/txsByBounds/{upperBound}/{lowerBound}") # get txs from upperBound to lowerBound (in index)
 def getTxsByBound(upperBound, lowerBound):
     upperBound = min(upperBound, len(node.txsOrder)-1)
     lowerBound = max(lowerBound, 0)
@@ -2363,7 +2384,7 @@ def getTxsByBound(upperBound, lowerBound):
         txs.append(node.transactions.get(txid))
     return jsonify(result=txs, success=True)
 
-@app.get("/get/txIndex/{index>")
+@app.get("/get/txIndex/{index}")
 def getTxIndex(txid):
     _index = node.state.txIndex.get(tx)
     if _index != None:
@@ -2371,7 +2392,7 @@ def getTxIndex(txid):
     else:
         return (jsonify(message="TX_NOT_FOUND", success=False), 404)
 
-@app.get("/get/transaction/{txhash>") # get specific tx by hash
+@app.get("/get/transaction/{txhash}") # get specific tx by hash
 def getTransactionByHash(txhash):
     tx = node.getTransaction(txhash)
     if (tx != None):
@@ -2379,7 +2400,7 @@ def getTransactionByHash(txhash):
     else:
         return (jsonify(message="TX_NOT_FOUND", success=False), 404)
 
-@app.get("/get/transactions/{txhashes>") # get specific tx by hash
+@app.get("/get/transactions/{txhashes}") # get specific tx by hash
 def getMultipleTransactionsByHashes(txhashes):
     txs = []
     oneSucceeded = False
@@ -2398,7 +2419,7 @@ def numberOfTxs():
 
 
 # ACCOUNT-BASED GETTERS (obtained from `State` class)
-@app.get("/accounts/accountInfo/{account>") # Get account info (balance and transaction hashes)
+@app.get("/accounts/accountInfo/{account}") # Get account info (balance and transaction hashes)
 def accountInfo(account):
     _address = w3.toChecksumAddress(account)
     acct = node.state.getAccount(_address, True)
@@ -2413,12 +2434,12 @@ def accountInfo(account):
     nonce = len(acct.sent)
     return jsonify(result={"balance": (balance or 0), "tempBalance": acct.tempBalance, "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
 
-@app.get("/accounts/sent/{account>")
+@app.get("/accounts/sent/{account}")
 def sentByAccount(account):
     _address = w3.toChecksumAddress(account)    
     return jsonify(result=node.state.getAccount(_address, True).sent, success=True)
 
-@app.get("/accounts/accountBalance/{account>")
+@app.get("/accounts/accountBalance/{account}")
 def accountBalance(account):
     _address = w3.toChecksumAddress(account)
     balance = 0
@@ -2428,7 +2449,7 @@ def accountBalance(account):
         balance = 0
     return jsonify(result={"balance": (balance or 0)}, success=True)
 
-@app.get("/accounts/txChilds/{tx>")
+@app.get("/accounts/txChilds/{tx}")
 def txParent(tx):
     _kids = node.state.txChilds.get(tx)
     if _kids != None:
@@ -2466,12 +2487,12 @@ def buildTransactionAndSend():
 
 
 # BEACON RELATED DATA (loaded from node/state/beaconChain)
-@app.get("/chain/block/{block>")
+@app.get("/chain/block/{block}")
 def getBlock(block):
     _block = node.state.beaconChain.getBlockByHeightJSON(int(block))
     return jsonify(result=_block, success=not not _block)
 
-@app.get("/chain/blockByHash/{blockhash>")
+@app.get("/chain/blockByHash/{blockhash}")
 def blockByHash(blockhash):
     _block = node.state.beaconChain.blocksByHash.get(blockhash)
     if _block:
@@ -2502,7 +2523,7 @@ def getMempool():
 def getListOfValidators():
     return jsonify(result=[key for key, value in node.state.beaconChain.validators.items()], success=True)
 
-@app.get("/chain/validators/{valoper>")
+@app.get("/chain/validators/{valoper}")
 def getValidator(valoper):
     if valoper == "whoseturn":
         return jsonify(result=node.state.beaconChain.whoseTurnAtTimestamp(int(time.time())), success=True)
@@ -2527,7 +2548,7 @@ def shareOnlinePeers():
 
 
 class Web3Body(pydantic.BaseModel):
-    id: int
+    id: Any
     method: str
     params: list
 
@@ -2536,7 +2557,7 @@ class Web3Body(pydantic.BaseModel):
 def handleWeb3Request(data: Web3Body):
     _begin = time.time()
     
-    data = flask.request.get_json()
+    # data = flask.request.get_json()
     print(f"/web3 POST received, data : {data}")
     
     
@@ -2586,7 +2607,7 @@ def handleWeb3Request(data: Web3Body):
         result = node.ethGetTransactionByHash(data.params[0])
     _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
     _resp = json.dumps(_respdict)
-    print(f"{data.get('method')} request completed in {round((time.time() - _begin)*1000, 3)}ms")
+    print(f"{data.method} request completed in {round((time.time() - _begin)*1000, 3)}ms")
     print(f"Response : {_resp}")
     return fastapi.Response(content=_resp, media_type='application/json');
     
