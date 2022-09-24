@@ -1,4 +1,5 @@
-import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys
+import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys, fastapi
+from fastapi.middleware.cors import CORSMiddleware
 global config
 from web3.auto import w3
 from web3 import Web3

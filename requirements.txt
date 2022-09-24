@@ -8,3 +8,4 @@ eth_utils
 rlp
 cryptography
 secrets
+fastapi
