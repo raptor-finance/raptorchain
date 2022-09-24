@@ -1,4 +1,7 @@
-import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys, fastapi, pydantic, uvicorn
+import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys, fastapi, pydantic, uvicorn, re
+from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.datastructures import URL
+from starlette.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 global config
 from web3.auto import w3
@@ -2302,13 +2305,31 @@ class Terminal(object):
             except Exception as e:
                 print(f"Exception occured executing command: {e.__repr__()}")
 
+class HttpUrlRedirectMiddleware:
+  """
+  This http middleware redirects urls with repeated slashes to the cleaned up
+  versions of the urls
+  """
+
+  def __init__(self, app: ASGIApp) -> None:
+    self.app = app
+    self.repeated = re.compile('//+')
+
+  async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+
+    if scope["type"] == "http" and self.repeated.search(URL(scope=scope).path):
+      url = URL(scope=scope)
+      url = url.replace(path=self.repeated.sub('/', url.path))
+      response = RedirectResponse(url, status_code=307)
+      await response(scope, receive, send)
+    else:
+      await self.app(scope, receive, send)
+
 if __name__ == "__main__":
     node = Node(config)
     print(node.config)
     thread = threading.Thread(target=node.networkBackgroundRoutine)
     thread.start()
-
-
 
 
 
@@ -2325,6 +2346,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+)
+
+app.add_middleware(
+    HttpUrlRedirectMiddleware,
 )
 
 def jsonify(result, success=True, message=None):
