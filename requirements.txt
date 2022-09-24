@@ -9,3 +9,4 @@ rlp
 cryptography
 secrets
 fastapi
+pydantic
