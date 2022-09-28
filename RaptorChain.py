@@ -1362,7 +1362,8 @@ class State(object):
         # env = self.getAccount(msg.recipient, True).call(msg)
         for _addr in tx.affectedAccounts:
             self.getAccount(_addr, True).cancelChanges()
-        print(f"eth_Call executed, returnValue: 0x{env.returnValue.hex()}, success : {env.getSuccess()}")
+        if self.verbose:
+            print(f"eth_Call executed, returnValue: 0x{env.returnValue.hex()}, success : {env.getSuccess()}")
         return env
 
     def distributeFee(self, tx):
