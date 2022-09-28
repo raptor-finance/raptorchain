@@ -2495,9 +2495,9 @@ def txParent(tx):
 
 # SEND TRANSACTION STUFF (redirected to `Node` class)
 @app.get("/send/rawtransaction/") # allows sending a raw (signed) transaction
-def sendRawTransactions():
-    rawtxs = str(flask.request.args.get('tx', None))
-    rawtxs = rawtxs.split(",")
+def sendRawTransactions(tx: str = None):
+#    rawtxs = str(flask.request.args.get('tx', None))
+    rawtxs = tx.split(",")
     txs = []
     hashes = []
     for rawtx in rawtxs:
