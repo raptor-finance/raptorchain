@@ -2513,6 +2513,28 @@ def sendRawTransactions(tx: str = None):
     node.checkTxs(txs, True)
     return jsonify(result=hashes, success=True)
 
+class PostTxsBody(pydantic.BaseModel):
+    txs : list
+    
+
+# SEND TRANSACTION STUFF (redirected to `Node` class)
+@app.get("/send/postrawtransaction/") # allows sending a raw (signed) transaction
+def postRawTransactions(data: PostTxsBody):
+#    rawtxs = str(flask.request.args.get('tx', None))
+    txs = data.txs
+    hashes = []
+    for tx in txs:
+        print(tx)
+        if (type(tx["data"]) == dict):
+            tx["data"] = json.dumps(tx["data"]).replace(" ", "")
+        if not tx.get("indexToCheck", None):
+            tx["indexToCheck"] = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
+        txs.append(tx)
+        hashes.append(tx["hash"])
+    node.checkTxs(txs, True)
+    return jsonify(result=hashes, success=True)
+
+
 @app.get("/send/buildtransaction/")
 def buildTransactionAndSend():
     privkey = str(flask.request.args.get('privkey', None))
