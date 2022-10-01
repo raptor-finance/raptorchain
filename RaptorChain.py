@@ -1505,7 +1505,7 @@ class Node(object):
     
     def __init__(self, config):
         self.testnet = False
-        self.propagateAtStartup = True
+        self.propagateAtStartup = False
         self.transactions = {}
         self.txsOrder = []
         self.mempool = []
