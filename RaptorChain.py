@@ -2522,6 +2522,7 @@ class PostTxsBody(pydantic.BaseModel):
 def postRawTransactions(data: PostTxsBody):
 #    rawtxs = str(flask.request.args.get('tx', None))
     txs = data.txs
+    print(txs)
     hashes = []
     for tx in txs:
         if (type(tx["data"]) == dict):
