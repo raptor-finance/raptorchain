@@ -2495,9 +2495,9 @@ def txParent(tx):
     else:
         return jsonify(message="TX_NOT_FOUND", success=False)
 
-def processListOfTxs(self, txs):
+def processListOfTxs(self, _txs):
     hashes = []
-    for _tx in txs:
+    for _tx in _txs:
         if (type(_tx["data"]) == dict):
             _tx["data"] = json.dumps(_tx["data"]).replace(" ", "")
         if not _tx.get("indexToCheck", None):
