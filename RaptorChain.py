@@ -2497,6 +2497,7 @@ def txParent(tx):
 
 def processListOfTxs(self, _txs):
     hashes = []
+    txs = []
     for _tx in _txs:
         if (type(_tx["data"]) == dict):
             _tx["data"] = json.dumps(_tx["data"]).replace(" ", "")
