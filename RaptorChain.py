@@ -2508,6 +2508,7 @@ def processListOfTxs(self, _txs):
         txs.append(_tx)
         hashes.append(_tx["hash"])
     node.checkTxs(txs, True)
+    return hashes
     
 # SEND TRANSACTION STUFF (redirected to `Node` class)
 @app.get("/send/rawtransaction/") # allows sending a raw (signed) transaction
@@ -2536,7 +2537,7 @@ class PostTxsBody(pydantic.BaseModel):
 def postRawTransactions(data: PostTxsBody):
 #    rawtxs = str(flask.request.args.get('tx', None))
     print(data.txs)
-    processListOfTxs(data.txs)
+    hashes = processListOfTxs(data.txs)
     return jsonify(result=hashes, success=True)
 
 
