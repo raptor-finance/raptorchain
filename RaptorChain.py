@@ -2495,6 +2495,17 @@ def txParent(tx):
     else:
         return jsonify(message="TX_NOT_FOUND", success=False)
 
+def processListOfTxs(self, txs):
+    hashes = []
+    for _tx in txs:
+        if (type(_tx["data"]) == dict):
+            _tx["data"] = json.dumps(_tx["data"]).replace(" ", "")
+        if not _tx.get("indexToCheck", None):
+            _tx["indexToCheck"] = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
+        txs.append(_tx)
+        hashes.append(_tx["hash"])
+    node.checkTxs(txs, True)
+    
 # SEND TRANSACTION STUFF (redirected to `Node` class)
 @app.get("/send/rawtransaction/") # allows sending a raw (signed) transaction
 def sendRawTransactions(tx: str = None):
@@ -2521,17 +2532,7 @@ class PostTxsBody(pydantic.BaseModel):
 @app.post("/send/postrawtransaction/") # allows sending a raw (signed) transaction
 def postRawTransactions(data: PostTxsBody):
 #    rawtxs = str(flask.request.args.get('tx', None))
-    txs = data.txs
-    print(txs)
-    hashes = []
-    for _tx in txs:
-        if (type(_tx["data"]) == dict):
-            _tx["data"] = json.dumps(_tx["data"]).replace(" ", "")
-        if not _tx.get("indexToCheck", None):
-            _tx["indexToCheck"] = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
-        txs.append(_tx)
-        hashes.append(_tx["hash"])
-    node.checkTxs(txs, True)
+    processListOfTxs(data.txs)
     return jsonify(result=hashes, success=True)
 
 
