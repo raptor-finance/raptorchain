@@ -1743,14 +1743,15 @@ class Node(object):
     def propagateTransactions(self,txs):
         self.checkGuys()
         toPush = []
-        for tx in txs:
-            txString = json.dumps(tx)
-            txHex = txString.encode().hex()
-            toPush.append(txHex)
-        toPush = ",".join(toPush)
+        
+        # for tx in txs:
+            # txString = json.dumps(tx)
+            # txHex = txString.encode().hex()
+            # toPush.append(txHex)
+        # toPush = ",".join(toPush)
         for node in self.goodPeers:
             try:
-                requests.get(f"{str(node)}/send/rawtransaction/?tx={toPush}")
+                requests.post(f"{str(node)}/send/postrawtransaction/", json={"txs": txs})
             except Exception as e:
                 print(e.__repr__())
     
@@ -2515,16 +2516,14 @@ def sendRawTransactions(tx: str = None):
 
 class PostTxsBody(pydantic.BaseModel):
     txs : list
-    
 
 # SEND TRANSACTION STUFF (redirected to `Node` class)
-@app.get("/send/postrawtransaction/") # allows sending a raw (signed) transaction
+@app.post("/send/postrawtransaction/") # allows sending a raw (signed) transaction
 def postRawTransactions(data: PostTxsBody):
 #    rawtxs = str(flask.request.args.get('tx', None))
     txs = data.txs
     hashes = []
     for tx in txs:
-        print(tx)
         if (type(tx["data"]) == dict):
             tx["data"] = json.dumps(tx["data"]).replace(" ", "")
         if not tx.get("indexToCheck", None):
