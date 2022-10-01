@@ -2524,13 +2524,13 @@ def postRawTransactions(data: PostTxsBody):
     txs = data.txs
     print(txs)
     hashes = []
-    for tx in txs:
-        if (type(tx["data"]) == dict):
-            tx["data"] = json.dumps(tx["data"]).replace(" ", "")
-        if not tx.get("indexToCheck", None):
-            tx["indexToCheck"] = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
-        txs.append(tx)
-        hashes.append(tx["hash"])
+    for _tx in txs:
+        if (type(_tx["data"]) == dict):
+            _tx["data"] = json.dumps(_tx["data"]).replace(" ", "")
+        if not _tx.get("indexToCheck", None):
+            _tx["indexToCheck"] = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
+        txs.append(_tx)
+        hashes.append(_tx["hash"])
     node.checkTxs(txs, True)
     return jsonify(result=hashes, success=True)
 
