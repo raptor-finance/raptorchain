@@ -1751,7 +1751,8 @@ class Node(object):
         # toPush = ",".join(toPush)
         for node in self.goodPeers:
             try:
-                requests.post(f"{str(node)}/send/postrawtransaction/", json={"txs": toPush})
+                r = requests.post(f"{str(node)}/send/postrawtransaction/", json={"txs": toPush})
+                print(r)
             except Exception as e:
                 print(e.__repr__())
     
@@ -2495,7 +2496,7 @@ def txParent(tx):
     else:
         return jsonify(message="TX_NOT_FOUND", success=False)
 
-def processListOfTxs(self, _txs):
+def processListOfTxs(_txs):
     hashes = []
     txs = []
     _depsLength = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
