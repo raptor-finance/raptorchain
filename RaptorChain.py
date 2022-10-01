@@ -1742,7 +1742,7 @@ class Node(object):
     
     def propagateTransactions(self,txs):
         self.checkGuys()
-        toPush = []
+        toPush = [json.dumps(tx) for tx in txs]
         
         # for tx in txs:
             # txString = json.dumps(tx)
@@ -1751,7 +1751,7 @@ class Node(object):
         # toPush = ",".join(toPush)
         for node in self.goodPeers:
             try:
-                requests.post(f"{str(node)}/send/postrawtransaction/", json={"txs": txs})
+                requests.post(f"{str(node)}/send/postrawtransaction/", json={"txs": toPush})
             except Exception as e:
                 print(e.__repr__())
     
@@ -2498,11 +2498,13 @@ def txParent(tx):
 def processListOfTxs(self, _txs):
     hashes = []
     txs = []
-    for _tx in _txs:
+    _depsLength = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
+    for tx in _txs:
+        _tx = json.loads(tx)
         if (type(_tx["data"]) == dict):
             _tx["data"] = json.dumps(_tx["data"]).replace(" ", "")
         if not _tx.get("indexToCheck", None):
-            _tx["indexToCheck"] = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
+            _tx["indexToCheck"] = _depsLength
         txs.append(_tx)
         hashes.append(_tx["hash"])
     node.checkTxs(txs, True)
@@ -2533,6 +2535,7 @@ class PostTxsBody(pydantic.BaseModel):
 @app.post("/send/postrawtransaction/") # allows sending a raw (signed) transaction
 def postRawTransactions(data: PostTxsBody):
 #    rawtxs = str(flask.request.args.get('tx', None))
+    print(data.txs)
     processListOfTxs(data.txs)
     return jsonify(result=hashes, success=True)
 
