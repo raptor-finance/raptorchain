@@ -1145,7 +1145,7 @@ class Opcodes(object):
         retValue = result[1]
         env.lastCallReturn = retValue
         if result[0]:
-            env.storage = _subCallEnv.storage.copy()
+            env.storage = _subCallEnv.storage
             env.messages = env.messages + _childEnv.messages
             env.systemMessages = env.systemMessages + _childEnv.systemMessages
         env.stack.append(int(result[0]))
@@ -1521,9 +1521,11 @@ class CallEnv(object):
         self.lastCallReturn = b""
         self.systemMessages = []
         if storage:
-            self.storage = storage.copy()
+            self.storage = storage
+            self.storageBefore = self.storage.copy()
         else:
-            self.storage = runningAccount.tempStorage.copy()
+            self.storage = runningAccount.tempStorage
+            self.storageBefore = runningAccount.tempStorage.copy()
         self.value = value
         self.chainid = 499597202514
         try:
@@ -1613,7 +1615,7 @@ class CallEnv(object):
         self.returnValue = data
     
     def revert(self, data):
-        self.storage = self.runningAccount.tempStorage.copy()
+        self.storage = self.storageBefore.copy()
         self.halt = True
         self.success = False
         self.returnValue = data

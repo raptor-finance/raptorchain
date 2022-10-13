@@ -1034,7 +1034,7 @@ class State(object):
                 env = EVM.CallEnv(self.getAccount, self.crossChainAddress, self.getAccount(_calculatedAddress), _calculatedAddress, self.beaconChain, 0, 69000, tx, b"", self.executeChildCall, b"", False, calltype=1)
                 self.precompiledContractsHandler.mintCrossChainToken(env, depositInfo["token"], depositInfo['depositor'], depositInfo["amount"])
                 if env.getSuccess():
-                    env.getAccount(_calculatedAddress).tempStorage = env.storage.copy()
+                    env.getAccount(_calculatedAddress).tempStorage = env.storage
                     env.getAccount(_calculatedAddress).makeChangesPermanent()
             # if tx.sender != depositInfo["depositor"]:
                 # transactions[depositInfo["depositor"]].append(tx.txid)
@@ -1305,7 +1305,7 @@ class State(object):
         if showMessage and self.verbose:
             print(f"Success : {env.getSuccess()}\nReturnValue : {env.returnValue}")
         if env.getSuccess():
-            self.getAccount(env.recipient).tempStorage = env.storage.copy()
+            self.getAccount(env.recipient).tempStorage = env.storage
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).makeChangesPermanent()
                 self.getAccount(_addr).addParent(tx.txid)
@@ -1345,12 +1345,15 @@ class State(object):
                 # break
         if (msg.getSuccess() and msg.calltype != 2):
             self.getAccount(msg.recipient).tempcode = msg.returnValue
-            self.getAccount(msg.recipient).tempStorage = msg.storage.copy()
+            self.getAccount(msg.recipient).tempStorage = msg.storage
             if (msg.calltype == 3) and msg.tx.persist and msg.tx.notTry:
                 self.getAccount(msg.recipient).makeChangesPermanent()
                 self.getAccount(msg.recipient).code = msg.returnValue
+        else:
+            self.getAccount(msg.recipient).tempStorage = msg.storageBefore
+            
         return (msg.getSuccess(), msg.returnValue)
-
+            
     def eth_Call(self, call):
         tx = self.CallBlankTransaction(call)
         # msg = EVM.Msg(sender=tx.sender, recipient=tx.recipient, value=tx.value, gas=tx.gasLimit, data=tx.data, tx=tx, calltype=0, shallSaveData=False)
