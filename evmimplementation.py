@@ -1165,7 +1165,7 @@ class Opcodes(object):
         _initBytecode = env.memory.read_bytes(offset, length)
         if env.tx.persist:
             env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
-        deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([0xFF, bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(salt), _initBytecode]))[12:])
+        deplAddr = w3.toChecksumAddress(w3.keccak(((b'\xff' + bytes.fromhex(env.runningAccount.address.replace("0x", "")) + int(salt).to_bytes(32, "big") + w3.keccak(_initBytecode))))[12:])
         result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3))
         env.stack.append(int(deplAddr, 16))
         env.consumeGas(32000)
