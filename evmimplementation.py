@@ -508,7 +508,7 @@ class Opcodes(object):
         env.pc += 1
     
     def BALANCE(self, env):
-        env.stack.append(env.getAccount(env.stack.pop()).balance)
+        env.stack.append(env.getAccount(env.stack.pop()).tempBalance)
         env.consumeGas(400)
         env.pc += 1
     
@@ -642,7 +642,7 @@ class Opcodes(object):
         env.pc += 1
     
     def SELFBALANCE(self, env):
-        env.stack.append(env.runningAccount.balance)
+        env.stack.append(env.runningAccount.tempBalance)
         env.consumeGas(5)
         env.pc += 1
         
@@ -1110,7 +1110,7 @@ class Opcodes(object):
         _acct = env.getAccount(addr)
         _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getCode(addr), env.isStatic, calltype=1)
         result = env.callFallback(_childEnv)
-        retValue = result[1]
+        retValue = _childEnv.returnValue
         env.lastCallReturn = retValue
         env.stack.append(int(result[0]))
         if result[0]:
@@ -1142,7 +1142,7 @@ class Opcodes(object):
         retLength = env.stack.pop()
         _subCallEnv = CallEnv(env.getAccount, env.msgSender, env.getAccount(env.recipient), env.recipient, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.isStatic, calltype=2)
         result = env.callFallback(_subCallEnv)
-        retValue = result[1]
+        retValue = _subCallEnv.returnValue
         env.lastCallReturn = retValue
         if result[0]:
             env.storage = _subCallEnv.storage
@@ -1166,6 +1166,7 @@ class Opcodes(object):
         if env.tx.persist:
             env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
         deplAddr = w3.toChecksumAddress(w3.keccak(((b'\xff' + bytes.fromhex(env.runningAccount.address.replace("0x", "")) + int(salt).to_bytes(32, "big") + w3.keccak(_initBytecode))))[12:])
+        print(f"CREATE2 called to deploy address {deplAddr}")
         result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3))
         env.stack.append(int(deplAddr, 16))
         env.consumeGas(32000)
@@ -1181,7 +1182,7 @@ class Opcodes(object):
         _acct = env.getAccount(addr)
         _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getCode(addr), True, calltype=1)
         result = env.callFallback(_childEnv)
-        retValue = result[1]
+        retValue = _childEnv.returnValue
         env.lastCallReturn = retValue
         env.stack.append(int(result[0]))
         env.memory.write_bytes(retOffset, retLength, retValue)
@@ -1513,6 +1514,7 @@ class CallEnv(object):
         self.getAccount = accountGetter
         self.memory = CallMemory()
         self.msgSender = caller
+        self.debugfile = None # set by other parts of code, better to have one here
         self.txorigin = tx.sender
         self.recipient = recipient
         self.chain = beaconchain
