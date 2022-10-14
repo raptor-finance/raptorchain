@@ -1778,7 +1778,6 @@ class Node(object):
             _txid = txid
             if self.state.type2ToType0Hash.get(txid):
                 _txid = self.state.type2ToType0Hash.get(txid)
-            print(_txid)
             _tx_ = Transaction(self.transactions.get(_txid))
             _blockHash = _tx_.epoch or self.state.getGenesisEpoch()
             _beacon_ = self.state.beaconChain.blocksByHash.get(_blockHash)
