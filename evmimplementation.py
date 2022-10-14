@@ -1557,6 +1557,11 @@ class CallEnv(object):
     def blockNumber(self):
         return (len(self.chain.blocks)-1)
     
+    def refreshDebugFile(self):
+        if self.debugfile:
+            self.debugfile.close()
+            self.debugfile = open(f"raptorevmdebug-{self.tx.txid}.log", "a")
+    
     def consumeGas(self, units):
         self.gasUsed += units
         if (self.gasUsed > self.gaslimit):
@@ -1613,6 +1618,8 @@ class CallEnv(object):
     def returnCall(self, data):
         self.halt = True
         self.returnValue = data
+        if self.debugfile:
+            self.debugfile.write(f"Call ended, returnValue: {data.hex()}\n\n\n")
     
     def revert(self, data):
         self.storage = self.storageBefore.copy()

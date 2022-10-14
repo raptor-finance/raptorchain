@@ -1207,10 +1207,11 @@ class State(object):
         history = []
         _debug = self.debug
         if _debug:
-            debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
-            debugfile.write(f"\nCalldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.contractDeployment}\n")
-            debugfile.close()
-            debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
+            env.debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
+            env.refreshDebugFile()
+            env.debugfile.write(f"\nCalldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.contractDeployment}\n")
+            env.debugfile.close()
+            env.debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
         if not len(env.code):
             return
         while True and (not env.halt):
@@ -1219,7 +1220,7 @@ class State(object):
                     op = env.code[env.pc]
                     history.append(hex(op))
                     self.opcodes[op](env)
-                    debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
+                    env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
                 else:
                     self.opcodes[env.code[env.pc]](env)
             except Exception as e:
@@ -2482,6 +2483,12 @@ def accountInfo(account):
 def sentByAccount(account):
     _address = w3.toChecksumAddress(account)    
     return jsonify(result=node.state.getAccount(_address, True).sent, success=True)
+
+@app.get("/accounts/tempcode/{account}")
+def sentByAccount(account):
+    _address = w3.toChecksumAddress(account)    
+    return jsonify(result=node.state.getAccount(_address, True).tempcode.hex(), success=True)
+
 
 @app.get("/accounts/accountBalance/{account}")
 def accountBalance(account):
