@@ -805,6 +805,7 @@ class State(object):
             if (((env.calltype == 3) or (env.tx.contractDeployment)) and env.tx.persist):
                 self.makeChangesPermanent()
                 if persist:
+                    self.tempcode = env.returnValue
                     self.code = env.returnValue
         
         
