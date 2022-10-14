@@ -1347,7 +1347,7 @@ class State(object):
                 # break
         recipientAcct = self.getAccount(msg.recipient) # works well since it returns an object (aka a pointer)
         if (msg.getSuccess() and msg.calltype != 2): # calltype 2 is for delegateCall - should not save to current address when call is delegated to another one
-            recipientAcct.tempcode = msg.returnValue
+            recipientAcct.tempcode = msg.returnValue if (msg.calltype == 3) else recipientAcct.tempcode
             recipientAcct.tempStorage = msg.storage
             if (msg.calltype == 3) and msg.tx.persist and msg.tx.notTry:
                 recipientAcct.makeChangesPermanent()
