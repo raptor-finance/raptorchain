@@ -1,4 +1,5 @@
 import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys, fastapi, pydantic, uvicorn, re, rich, logging
+from datetime import datetime
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.datastructures import URL
 from starlette.responses import RedirectResponse
@@ -639,7 +640,9 @@ class BeaconChain(object):
         self.blocksByHash[beacon.proof] = beacon
         self.validators.get(w3.toChecksumAddress(beacon.miner)).blocks.append(beacon.proof)
         # print(f"\n===================================\n\nBeacon block mined !\nHeight : {beacon.number}\nProof : {beacon.proof}\nMasternode : {beacon.miner}\nMinted reward : 0 RPTR\n\n===================================\n")
-        rich.print(f"\n[light_sea_green]===================================[/light_sea_green]\n\n[green]Beacon block mined ![/green]\n[yellow]Height :[/yellow] [green1]{beacon.number}[/green1]\n[yellow]Proof :[/yellow] [green1]{beacon.proof}[/green1]\n[yellow]Masternode :[/yellow] [green1]{beacon.miner}[/green1]\n\n[light_sea_green]===================================[/light_sea_green]\n")
+        _orderedTime = datetime.fromtimestamp(beacon.timestamp)
+        _timestamp = _orderedTime.strftime("%d %h %Y - %H:%M:%S")
+        rich.print(f"\n[light_sea_green]===================================[/light_sea_green]\n\n[green]Beacon block mined ![/green]\n[yellow]Height :[/yellow] [green1]{beacon.number}[/green1]\n[yellow]Proof :[/yellow] [green1]{beacon.proof}[/green1]\n[yellow]Masternode :[/yellow] [green1]{beacon.miner}[/green1]\n[yellow]UNIX Timestamp: [/yellow][green]{beacon.timestamp}[/green][yellow]\nTimestamp: [/yellow][green]{_timestamp}[/green]\n\n[light_sea_green]===================================[/light_sea_green]\n")
         try:
             self.onBlockMined(beacon)
         except Exception as e:
