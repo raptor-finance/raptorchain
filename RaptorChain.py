@@ -987,7 +987,7 @@ class State(object):
         
     def createMN(self, tx):
         self.applyParentStuff(tx)
-        willSucceed = self.estimateCreateMNSuccess(tx)
+        willSucceed = self.estimateCreateMNSuccess(tx)[0]
         if not willSucceed:
             return False
         self.getAccount(tx.sender).balance -= 1000000000000000000000000
@@ -996,7 +996,7 @@ class State(object):
     
     def destroyMN(self, tx):
         self.applyParentStuff(tx)
-        if not self.estimateDestroyMNSuccess(tx):
+        if not self.estimateDestroyMNSuccess(tx)[0]:
             return False
         self.getAccount(self.beaconChain.validators.get(tx.recipient).owner).balance += 1000000000000000000000000
         self.getAccount(tx.sender).masternodes = list(filter(tx.recipient.__ne__, self.getAccount(tx.sender).masternodes))
