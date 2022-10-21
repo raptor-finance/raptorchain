@@ -1064,7 +1064,7 @@ class Opcodes(object):
         topic1 = env.stack.pop()
         env.pc += 1
 
-    def LOG3(self, env): # TOOD
+    def LOG3(self, env): # TODO
         offset = env.stack.pop()
         length = env.stack.pop()
         topic0 = env.stack.pop()
