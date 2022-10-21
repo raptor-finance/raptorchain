@@ -1078,7 +1078,7 @@ class State(object):
         correctParent = self.checkParent(_tx)
         correctBeacon = self.isBeaconCorrect(_tx)
         correctGasPrice = (_tx.gasprice >= self.gasPrice) if (_tx.txtype in [2]) else True
-        correctChainId = (_tx.chainId >= self.chainID) if (_tx.txtype in [2]) else True
+        correctChainId = (_tx.chainId == self.chainID) if (_tx.txtype in [2]) else True
         if _tx.txtype == 0:
             underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
         if _tx.txtype == 1:
