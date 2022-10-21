@@ -805,7 +805,7 @@ class State(object):
                         print(hex(op))
                     self.opcodes[op](env)
                 except Exception as e:
-                    raise
+                    env.revert((f"Error occured during execution: {e}").encode())
             if (((env.calltype == 3) or (env.tx.contractDeployment)) and env.tx.persist):
                 self.makeChangesPermanent()
                 if persist:
@@ -1231,7 +1231,7 @@ class State(object):
                     self.opcodes[env.code[env.pc]](env)
             except Exception as e:
                 self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}")
-                raise
+                env.revert((f"Error occured during execution: {e}").encode())
 
     def deployContract(self, tx):
         self.applyParentStuff(tx)
