@@ -568,8 +568,9 @@ class BeaconChain(object):
         self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": self.Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.bsc = self.BSCInterface(True, "0x96aEF4543F0D4b2706DCF2cddAf4aB107e9497Ac", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21") if self.testnet else self.BSCInterface(False, "0x410fdf2756cbd237351186c3aebf1a9a8bab2229", "0x44C99Ca267C2b2646cEEc72e898273085aB87ca5")
-        self.STIUpgradeBlock = 1
-        self.chainIdUpgradeBlock = 10
+        self.STIUpgradeBlock = 1 # STI hard fork (txsRoot strict checking)
+        self.persistencyUpgradeBlock = 7 # persistency hard fork (contract nonce persistency upgrade)
+        self.chainIdUpgradeBlock = 10 # chainID hard fork (strict chainID checking)
 
     def whoseTurnAtTimestamp(self, _timestamp):
         _vals = [key for key, value in self.validators.items()]
@@ -893,7 +894,7 @@ class State(object):
         self.chainID = 499597202514 if self.testnet else 1380996178
         self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
         self.burnAddress = "0x000000000000000000000000000000000000dEaD"
-        self.persistencyUpgradeBlock = 7
+#        self.persistencyUpgradeBlock = 7
         self.version = "1.4.0-mainnet-beta"
 
     def formatAddress(self, _addr):
@@ -1077,7 +1078,7 @@ class State(object):
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
         _tx.notTry = False
-        _tx.persist = (len(self.beaconChain.blocks) < self.persistencyUpgradeBlock)
+        _tx.persist = (len(self.beaconChain.blocks) < self.beaconChain.persistencyUpgradeBlock)
         underlyingOperationSuccess = (False, None)
         correctParent = self.checkParent(_tx)
         correctBeacon = self.isBeaconCorrect(_tx)
