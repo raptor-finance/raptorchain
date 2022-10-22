@@ -6,3 +6,4 @@ wallet.dat
 *.dat
 raptorchain-mainnet-beta.json
 *.log
+BSCcache.json
