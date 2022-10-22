@@ -987,7 +987,7 @@ class State(object):
     
     def estimateDestroyMNSuccess(self, tx):
         if ((not (self.beaconChain.validators.get(tx.recipient)))):
-            return False
+            return (False, "")
         return (self.beaconChain.validators.get(tx.recipient).owner == tx.sender, "")
         
     def createMN(self, tx):
