@@ -823,86 +823,61 @@ class Opcodes(object):
         
         
         
+    def DUP(self, env, nItem): # function to manage them all !
+        env.stack.append(env.stack[len(env.stack)-nItem])
+        env.consumeGas(3)
+        env.pc += 1
         
     def DUP1(self, env):
-        env.stack.append(env.stack[len(env.stack)-1])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 1)
+        # env.stack.append(env.stack[len(env.stack)-1])
+        # env.consumeGas(3)
+        # env.pc += 1
 
     def DUP2(self, env):
-        env.stack.append(env.stack[len(env.stack)-2])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 2)
 
     def DUP3(self, env):
-        env.stack.append(env.stack[len(env.stack)-3])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 3)
 
     def DUP4(self, env):
-        env.stack.append(env.stack[len(env.stack)-4])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 4)
 
     def DUP5(self, env):
-        env.stack.append(env.stack[len(env.stack)-5])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 5)
 
     def DUP6(self, env):
-        env.stack.append(env.stack[len(env.stack)-6])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 6)
 
     def DUP7(self, env):
-        env.stack.append(env.stack[len(env.stack)-7])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 7)
 
     def DUP8(self, env):
-        env.stack.append(env.stack[len(env.stack)-8])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 8)
 
     def DUP9(self, env):
-        env.stack.append(env.stack[len(env.stack)-9])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 9)
 
     def DUP10(self, env):
-        env.stack.append(env.stack[len(env.stack)-10])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 10)
 
     def DUP11(self, env):
-        env.stack.append(env.stack[len(env.stack)-11])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 11)
 
     def DUP12(self, env):
-        env.stack.append(env.stack[len(env.stack)-12])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 12)
 
     def DUP13(self, env):
-        env.stack.append(env.stack[len(env.stack)-13])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 13)
 
     def DUP14(self, env):
-        env.stack.append(env.stack[len(env.stack)-14])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 14)
 
     def DUP15(self, env):
-        env.stack.append(env.stack[len(env.stack)-15])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 15)
 
     def DUP16(self, env):
-        env.stack.append(env.stack[len(env.stack)-16])
-        env.consumeGas(3)
-        env.pc += 1
+        self.DUP(env, 16)
 
 
 
