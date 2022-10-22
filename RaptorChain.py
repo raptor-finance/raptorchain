@@ -569,6 +569,7 @@ class BeaconChain(object):
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.bsc = self.BSCInterface(True, "0x96aEF4543F0D4b2706DCF2cddAf4aB107e9497Ac", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21") if self.testnet else self.BSCInterface(False, "0x410fdf2756cbd237351186c3aebf1a9a8bab2229", "0x44C99Ca267C2b2646cEEc72e898273085aB87ca5")
         self.STIUpgradeBlock = 1
+        self.chainIdUpgradeBlock = 10
 
     def whoseTurnAtTimestamp(self, _timestamp):
         _vals = [key for key, value in self.validators.items()]
@@ -1081,7 +1082,7 @@ class State(object):
         correctParent = self.checkParent(_tx)
         correctBeacon = self.isBeaconCorrect(_tx)
         correctGasPrice = (_tx.gasprice >= self.gasPrice) if (_tx.txtype in [2]) else True
-        correctChainId = (_tx.chainId == self.chainID) if (_tx.txtype in [2]  and (len(self.beaconChain.blocks) > 10)) else True
+        correctChainId = (_tx.chainId == self.chainID) if (_tx.txtype in [2]  and (len(self.beaconChain.blocks) > self.beaconChain.chainIdUpgradeBlock)) else True
         if _tx.txtype == 0:
             underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
         if _tx.txtype == 1:
