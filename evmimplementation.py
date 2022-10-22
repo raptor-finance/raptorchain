@@ -720,165 +720,109 @@ class Opcodes(object):
     def JUMPDEST(self, env):
         env.pc += 1
     
-    def PUSH1(self, env):
-        env.stack.append(env.getPushData(env.pc, 1))
+    def PUSH(self, env, nBytes):
+        env.stack.append(env.getPushData(env.pc, nBytes))
         env.consumeGas(3)
         env.pc += 1
     
+    def PUSH1(self, env):
+        self.PUSH(env, 1)
+#        env.stack.append(env.getPushData(env.pc, 1))
+        # env.consumeGas(3)
+#        env.pc += 1
+    
     def PUSH2(self, env):
-        env.stack.append(env.getPushData(env.pc, 2))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 2)
         
     def PUSH3(self, env):
-        env.stack.append(env.getPushData(env.pc, 3))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 3)
         
     def PUSH4(self, env):
-        env.stack.append(env.getPushData(env.pc, 4))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 4)
         
     def PUSH5(self, env):
-        env.stack.append(env.getPushData(env.pc, 5))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 5)
         
     def PUSH6(self, env):
-        env.stack.append(env.getPushData(env.pc, 6))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 6)
         
     def PUSH7(self, env):
-        env.stack.append(env.getPushData(env.pc, 7))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 7)
         
     def PUSH8(self, env):
-        env.stack.append(env.getPushData(env.pc, 8))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 8)
         
     def PUSH9(self, env):
-        env.stack.append(env.getPushData(env.pc, 9))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 9)
         
     def PUSH10(self, env):
-        env.stack.append(env.getPushData(env.pc, 10))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 10)
         
     def PUSH11(self, env):
-        env.stack.append(env.getPushData(env.pc, 11))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 11)
         
     def PUSH12(self, env):
-        env.stack.append(env.getPushData(env.pc, 12))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 12)
         
     def PUSH13(self, env):
-        env.stack.append(env.getPushData(env.pc, 13))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 13)
         
     def PUSH14(self, env):
-        env.stack.append(env.getPushData(env.pc, 14))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 14)
         
     def PUSH15(self, env):
-        env.stack.append(env.getPushData(env.pc, 15))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 15)
         
     def PUSH16(self, env):
-        env.stack.append(env.getPushData(env.pc, 16))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 16)
         
     def PUSH17(self, env):
-        env.stack.append(env.getPushData(env.pc, 17))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 17)
         
     def PUSH18(self, env):
-        env.stack.append(env.getPushData(env.pc, 18))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 18)
         
     def PUSH19(self, env):
-        env.stack.append(env.getPushData(env.pc, 19))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 19)
         
     def PUSH20(self, env):
-        env.stack.append(env.getPushData(env.pc, 20))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 20)
         
     def PUSH21(self, env):
-        env.stack.append(env.getPushData(env.pc, 21))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 21)
         
     def PUSH22(self, env):
-        env.stack.append(env.getPushData(env.pc, 22))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 22)
         
     def PUSH23(self, env):
-        env.stack.append(env.getPushData(env.pc, 23))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 23)
         
     def PUSH24(self, env):
-        env.stack.append(env.getPushData(env.pc, 24))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 24)
         
     def PUSH25(self, env):
-        env.stack.append(env.getPushData(env.pc, 25))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 25)
         
     def PUSH26(self, env):
-        env.stack.append(env.getPushData(env.pc, 26))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 26)
         
     def PUSH27(self, env):
-        env.stack.append(env.getPushData(env.pc, 27))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 27)
         
     def PUSH28(self, env):
-        env.stack.append(env.getPushData(env.pc, 28))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 28)
         
     def PUSH29(self, env):
-        env.stack.append(env.getPushData(env.pc, 29))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 29)
         
     def PUSH30(self, env):
-        env.stack.append(env.getPushData(env.pc, 30))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 30)
         
     def PUSH31(self, env):
-        env.stack.append(env.getPushData(env.pc, 31))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 31)
         
     def PUSH32(self, env):
-        env.stack.append(env.getPushData(env.pc, 32))
-        env.consumeGas(3)
-        env.pc += 1
+        self.PUSH(env, 32)
         
         
         
