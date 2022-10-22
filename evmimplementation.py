@@ -720,7 +720,7 @@ class Opcodes(object):
     def JUMPDEST(self, env):
         env.pc += 1
     
-    def PUSH(self, env, nBytes):
+    def PUSH(self, env, nBytes): # single method for all PUSH<n> opcodes (cleaner !)
         env.stack.append(env.getPushData(env.pc, nBytes))
         env.consumeGas(3)
         env.pc += 1
