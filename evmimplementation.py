@@ -727,9 +727,6 @@ class Opcodes(object):
     
     def PUSH1(self, env):
         self.PUSH(env, 1)
-#        env.stack.append(env.getPushData(env.pc, 1))
-        # env.consumeGas(3)
-#        env.pc += 1
     
     def PUSH2(self, env):
         self.PUSH(env, 2)
@@ -823,7 +820,6 @@ class Opcodes(object):
         
     def PUSH32(self, env):
         self.PUSH(env, 32)
-        
         
         
         
