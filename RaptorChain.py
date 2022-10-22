@@ -573,7 +573,10 @@ class BeaconChain(object):
         self.chainIdUpgradeBlock = 10 # chainID hard fork (strict chainID checking)
 
     def whoseTurnAtTimestamp(self, _timestamp):
-        _vals = [key for key, value in self.validators.items()]
+        _vals = [key for key, value in self.validators.items()] # gets a list of validator addresses
+        # first, it divides timestamp by block time, to get a kind of "round number"
+        # then, it takes modulo of it and number of validators to get a valid index
+        # and finally, it returns corresponding validator
         return _vals[int(_timestamp//self.blockTime)%len(_vals)]
 
     def checkBeaconMessages(self, beacon):
@@ -1004,7 +1007,7 @@ class State(object):
         if not self.estimateDestroyMNSuccess(tx)[0]:
             return False
         self.getAccount(self.beaconChain.validators.get(tx.recipient).owner).balance += 1000000000000000000000000
-        self.getAccount(tx.sender).masternodes = list(filter(tx.recipient.__ne__, self.getAccount(tx.sender).masternodes))
+        self.getAccount(tx.sender).masternodes = list(filter(tx.recipient.__ne__, self.getAccount(tx.sender).masternodes)) # removes tx.recipient (aka the removed MN) from MNs list with a filter (removes element matching the removed MN)
         self.beaconChain.destroyValidator(tx.recipient)
     
 
