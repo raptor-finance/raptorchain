@@ -1081,7 +1081,7 @@ class State(object):
         correctParent = self.checkParent(_tx)
         correctBeacon = self.isBeaconCorrect(_tx)
         correctGasPrice = (_tx.gasprice >= self.gasPrice) if (_tx.txtype in [2]) else True
-        correctChainId = (_tx.chainId == self.chainID) if (_tx.txtype in [2]) else True
+        correctChainId = (_tx.chainId == self.chainID) if (_tx.txtype in [2]  and (len(self.beaconChain.blocks) > 10)) else True
         if _tx.txtype == 0:
             underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
         if _tx.txtype == 1:
@@ -1100,7 +1100,7 @@ class State(object):
         if _tx.txtype == 7:
             underlyingOperationSuccess = self.beaconChain.estimateRelayerSuccess(_tx.blockhash, _tx.blocksig)
         # print(correctBeacon, correctParent, underlyingOperationSuccess, correctGasPrice)
-        return (underlyingOperationSuccess[0] and correctBeacon and correctParent and correctGasPrice)
+        return (underlyingOperationSuccess[0] and correctBeacon and correctParent and correctGasPrice and correctChainId)
         
 
     # def mineBlock(self, blockData):
