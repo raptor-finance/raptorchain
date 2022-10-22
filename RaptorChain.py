@@ -1239,15 +1239,18 @@ class State(object):
         deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(tx.sender.replace("0x", "")), int(tx.nonce)]))[12:])
         self.ensureExistence(tx.sender)
         self.ensureExistence(deplAddr)
+        
         senderAcct = self.getAccount(tx.sender)
+        deplAcct = self.getAccount(deplAddr) # objects are so USEFUL
+        
         senderAcct.balance -= (tx.fee + tx.value)
-        env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(deplAddr), deplAddr, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
-        self.getAccount(deplAddr).balance += tx.value
+        env = EVM.CallEnv(self.getAccount, tx.sender, deplAcct, deplAddr, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
+        deplAcct.balance += tx.value
         self.execEVMCall(env)
-        self.getAccount(deplAddr).tempcode = env.returnValue
-        self.getAccount(deplAddr).code = env.returnValue
-        self.getAccount(deplAddr).storage = env.storage.copy()
-        self.getAccount(deplAddr).tempStorage = env.storage.copy()
+        deplAcct.tempcode = env.returnValue
+        deplAcct.code = env.returnValue
+        deplAcct.storage = env.storage.copy()
+        deplAcct.tempStorage = env.storage.copy()
         if env.getSuccess():
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
             if self.verbose:
