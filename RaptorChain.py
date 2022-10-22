@@ -890,7 +890,6 @@ class State(object):
         self.precompiledContracts = self.precompiledContractsHandler.contracts
         self.hash = ""
         self.debug = False
-        self.shouldLog = True
         self.chainID = 499597202514 if self.testnet else 1380996178
         self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
         self.burnAddress = "0x000000000000000000000000000000000000dEaD"
@@ -922,7 +921,7 @@ class State(object):
         
 
     def log(self, data):
-        if self.shouldLog:
+        if self.verbose:
             print(data)
 
     def getCurrentEpoch(self):
