@@ -645,8 +645,7 @@ class BeaconChain(object):
         self.blocksByHash[beacon.proof] = beacon
         self.validators.get(w3.toChecksumAddress(beacon.miner)).blocks.append(beacon.proof)
         # print(f"\n===================================\n\nBeacon block mined !\nHeight : {beacon.number}\nProof : {beacon.proof}\nMasternode : {beacon.miner}\nMinted reward : 0 RPTR\n\n===================================\n")
-        _orderedTime = datetime.fromtimestamp(beacon.timestamp)
-        _timestamp = _orderedTime.strftime("%d %h %Y - %H:%M:%S")
+        _timestamp = datetime.fromtimestamp(beacon.timestamp).strftime("%d %h %Y - %H:%M:%S") # proper timestamp format
         rich.print(f"\n[light_sea_green]===================================[/light_sea_green]\n\n[green]Beacon block mined ![/green]\n[yellow]Height :[/yellow] [green1]{beacon.number}[/green1]\n[yellow]Proof :[/yellow] [green1]{beacon.proof}[/green1]\n[yellow]Masternode :[/yellow] [green1]{beacon.miner}[/green1]\n[yellow]UNIX Timestamp: [/yellow][green]{beacon.timestamp}[/green][yellow]\nTimestamp: [/yellow][green]{_timestamp}[/green]\n\n[light_sea_green]===================================[/light_sea_green]\n")
         try:
             self.onBlockMined(beacon)
