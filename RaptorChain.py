@@ -1259,8 +1259,8 @@ class State(object):
                 print(f"Deployed contract {deplAddr} in tx {tx.txid}")
         else:
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
-        for _addr in tx.affectedAccounts:
-            self.getAccount(_addr).addParent(tx.txid)
+        # for _addr in tx.affectedAccounts:
+            # self.getAccount(_addr).addParent(tx.txid)
 
 
     def tryContractCall(self, tx):
@@ -1321,7 +1321,7 @@ class State(object):
             self.getAccount(env.recipient).tempStorage = env.storage
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).makeChangesPermanent()
-                self.getAccount(_addr).addParent(tx.txid)
+#                self.getAccount(_addr).addParent(tx.txid)
             tx.messages = tx.messages + env.messages
             tx.systemMessages = tx.systemMessages + env.systemMessages
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
