@@ -1425,6 +1425,7 @@ class State(object):
             self.beaconChain.getLastBeacon().addDepCheckerTx(_tx.txid)
         elif _tx.txtype == 7:
             self.beaconChain.addRelayerSig(_tx.sender, _tx.blockhash, _tx.blocksig)
+            self.beaconChain.getLastBeacon().addDepCheckerTx(_tx.txid)
         
         if (_tx.bio):
             self.accounts[_tx.sender].bio = _tx.bio.replace("%20", " ")
