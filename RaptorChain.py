@@ -1330,6 +1330,7 @@ class State(object):
                 self.getAccount(_addr).cancelChanges()
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
         feeToRefund = max((tx.gasprice * env.remainingGas()), 0) # can't spend more than gas limit (even if gas usage is slightly superior)
+        senderAcct.tempBalance += feeToRefund
         senderAcct.balance += feeToRefund
         tx.fee -= feeToRefund
         return (env.getSuccess(), tx.returnValue.hex())
