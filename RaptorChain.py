@@ -408,11 +408,15 @@ class BeaconChain(object):
             
         def slotExists(self, chainid, addr, key):
             cnt = self.contracts.get(int(chainid))
-            return cnt.functions.isWritten(w3.toChecksumAddress(addr), key).call() if cnt else None
+            if not cnt:
+                return None
+            return cnt.functions.isWritten(w3.toChecksumAddress(addr), key).call()
             
         def getSlotData(self, chainid, addr, key):
             cnt = self.contracts.get(int(chainid))
-            return cnt.functions.getSlotData(w3.toChecksumAddress(addr), key).call() if cnt else None
+            if not cnt:
+                return None
+            return cnt.functions.getSlotData(w3.toChecksumAddress(addr), key).call()
             
 
     class GenesisBeacon(object):
