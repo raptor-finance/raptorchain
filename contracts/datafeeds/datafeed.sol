@@ -45,7 +45,7 @@ contract DataFeed {
 		return user.slots[_var.history[_var.history.length-1]].data;
 	}
 	
-	function write(bytes32 variableKey, bytes memory slotData) public {
+	function write(bytes32 variableKey, bytes memory slotData) public returns (bytes32) {
 		bytes32 slotKey = keccak256(abi.encodePacked(variableKey, blockhash(block.number-1)));
 		require(!isWritten(msg.sender, slotKey), "ALREADY_WRITTEN");
 		User storage user = users[msg.sender];
@@ -54,5 +54,6 @@ contract DataFeed {
 		Slot memory newSlot = Slot({ owner: msg.sender, variable: variableKey, data: slotData, timestamp: block.timestamp , written: true });
 		user.slots[slotKey] = newSlot;
 		emit SlotWritten(msg.sender, variableKey, slotKey, slotData);
+		return slotKey;
 	}
 }
