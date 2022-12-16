@@ -384,6 +384,37 @@ class BeaconChain(object):
             f.close()
 
 
+    class DataFeedInterface(object):
+        def __init__(self, testnet=True):
+            self.testnet = testnet
+            self.rpcs = {"56": "https://bscrpc.com/"}
+            self.contractAddrsTestnet = {}
+            self.contractAddrsMainnet = {}
+            self.chains = {}
+            self.contracts = {}
+            self.loadChains()
+            self.chainId = chainId
+            self.abi = """[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"slotOwner","type":"address"},{"indexed":true,"internalType":"bytes32","name":"slotKey","type":"bytes32"},{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"}],"name":"SlotWritten","type":"event"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"getSlotData","outputs":[{"internalType":"bytes","name":"","type":"bytes"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"isWritten","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"slots","outputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"data","type":"bytes"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bool","name":"written","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"slotData","type":"bytes"}],"name":"writeSlot","outputs":[],"stateMutability":"nonpayable","type":"function"}]"""
+            
+            
+        def loadChains(self):
+            _chains = {}
+            for chainid, url in self.rpcs.items():
+                _chains[chainid] = Web3(Web3.HTTPProvider(url))
+                _addr = (self.contractAddrsTestnet if self.testnet else self.contractAddrsMainnet).get(chainid)
+                if _addr:
+                    self.contracts[chainid] = _chains[chainid].eth.contract(address=w3.toChecksumAddress(addr), abi=self.abi)
+            self.chains = _chains
+            
+        def slotExists(self, chainid, addr, key):
+            cnt = self.contracts.get(int(chainid))
+            return cnt.functions.isWritten(w3.toChecksumAddress(addr), key).call() if cnt else None
+            
+        def getSlotData(self, chainid, addr, key):
+            cnt = self.contracts.get(int(chainid))
+            return cnt.functions.getSlotData(w3.toChecksumAddress(addr), key).call() if cnt else None
+            
+
     class GenesisBeacon(object):
         def __init__(self, testnet=True):
             if testnet:
