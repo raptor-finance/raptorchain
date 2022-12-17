@@ -394,7 +394,6 @@ class BeaconChain(object):
             self.chains = {}
             self.contracts = {}
             self.loadChains()
-            print("Testing slot storage:", self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x10439fdee739f9e39356f7e02f241df84dc55e8e08f88610f84f5b709c5e38d7"))
             
         def loadChains(self):
             _chains = {}
@@ -416,7 +415,10 @@ class BeaconChain(object):
             if not cnt:
                 return None
             return cnt.functions.getSlotData(w3.toChecksumAddress(addr), key).call()
-            
+
+        def testFeed(self):
+            print("Testing datafeed for Polygon:", self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0xd80c1617dd4d331d0eb95194bf042d3486f3fb4ebb1e620ebc0b8d142aa2ee93"))
+            print("Testing datafeed for Polygon:", self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0xd80c1617dd4d331d0eb95194bf042d3486f3fb4ebb1e620ebc0b8d142aa2ee95"))
 
     class GenesisBeacon(object):
         def __init__(self, testnet=True):
@@ -1629,6 +1631,7 @@ class Node(object):
         self.saveDB()
         if (self.propagateAtStartup and len(_toPropagate)):
             self.propagateTransactions(_toPropagate)
+        self.state.beaconChain.datafeed.testFeed()
 
     def checkTxs(self, txs, shouldPropagate=True):
         # print("Pulling DUCO txs...")
