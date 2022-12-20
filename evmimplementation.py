@@ -1387,11 +1387,23 @@ class PrecompiledContracts(object):
         def returnSingleType(self, env, _type, _arg):
             env.returnCall(eth_abi.encode_abi([_type], [_arg]))
             
+        def fallback(self, env):
+            env.revert(b"")
+            
         def getSlotData(self, env):
             params = eth_abi.decode_abi(["uint256", "address", "bytes32"], env.data[4:]) # uint256 chainid, address dataOwner, bytes32 slotKey
+            print(params)
+            print(f"getSlotData({params[0]}, {params[1]}, {params[2]})")
             d = env.chain.datafeed.getSlotData(params[0], params[1], params[2])
             self.returnSingleType(env, "bytes", d)
-    
+        
+        def call(self, env):
+            try:
+                self.methods.get(env.data[:4], self.fallback)(env)
+            except Exception as e:
+                print(f"Exception {e.__repr__()} caught calling {self.address} with calldata {env.data}")
+                env.revert(b"")
+        
     def __init__(self, bridgeFallBack, bsc, getAccount):
         self.contracts = {}
         self.bsc = bsc
@@ -1401,6 +1413,7 @@ class PrecompiledContracts(object):
         self.setContract("0x0000000000000000000000000000000000000002", self.Sha256(), False)
         self.setContract("0x0000000000000000000000000000000000000003", self.Ripemd160(), False)
         self.setContract("0x0000000000000000000000000000000000000069", self.accountBioManager(), False)
+        self.setContract("0x000000000000000000000000000000000000FEeD", self.CrossChainDataFeed(), False)
         self.setContract(self.crossChainAddress, self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc), False)
         # self.setContract("0x0000000000000000000000000000000d0ed622a3", self.Printer())
     
