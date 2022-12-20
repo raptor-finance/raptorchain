@@ -1374,6 +1374,23 @@ class PrecompiledContracts(object):
                 self.methods.get(env.data[:4], self.fallback)(env)
             except Exception as e:
                 print(f"Exception {e.__repr__()} caught calling {self.address} with calldata {env.data}")
+                env.revert(b"")
+    
+    class CrossChainDataFeed(object):
+        def __init__(self):
+            self.methods = {}
+            self.methods[self.calcFunctionSelector("getSlotData(uint256,address,bytes32)")] = self.getSlotData
+
+        def calcFunctionSelector(self, functionName):
+            return bytes(w3.keccak(str(functionName).encode()))[0:4]
+            
+        def returnSingleType(self, env, _type, _arg):
+            env.returnCall(eth_abi.encode_abi([_type], [_arg]))
+            
+        def getSlotData(self, env):
+            params = eth_abi.decode_abi(["uint256", "address", "bytes32"], env.data[4:]) # uint256 chainid, address dataOwner, bytes32 slotKey
+            d = env.chain.datafeed.getSlotData(params[0], params[1], params[2])
+            self.returnSingleType(env, "bytes", d)
     
     def __init__(self, bridgeFallBack, bsc, getAccount):
         self.contracts = {}
