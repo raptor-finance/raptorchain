@@ -1399,6 +1399,7 @@ class PrecompiledContracts(object):
             print(f"getSlotData({params[0]}, {params[1]}, {params[2]})")
             d = env.chain.datafeed.getSlotData(params[0], params[1], params[2])
             self.returnSingleType(env, "bytes", d)
+            env.consumeGas(6900)
         
         def crossChainCall(self, env):
             params = eth_abi.decode_abi(["uint256", "address", "uint256", "bytes"], env.data[4:]) # uint256 chainid, address to, uint256 gasLimit, uint256 data
