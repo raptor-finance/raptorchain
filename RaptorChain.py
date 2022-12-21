@@ -728,8 +728,9 @@ class BeaconChain(object):
             _msgs_.append(_msg.hex())
         return _msgs_
     
-    def postMessage(self, to, data):
-        self.pendingMessages.append(eth_abi.encode_abi(["address", "uint256", "bytes"], [w3.toChecksumAddress(to), self.bsc.chainID, data]))
+    def postMessage(self, to, data, _chainid=None):
+        _chainid = self.bsc.chainID if (_chainid == None) else _chainid
+        self.pendingMessages.append(eth_abi.encode_abi(["address", "uint256", "bytes"], [w3.toChecksumAddress(to), _chainid, data]))
 #			(recipient, chainID, data) = abi.decode(_beacon.messages[n], (address, uint256, bytes));
     
     def createValidator(self, owner, operator):

@@ -1387,6 +1387,9 @@ class PrecompiledContracts(object):
         def returnSingleType(self, env, _type, _arg):
             env.returnCall(eth_abi.encode_abi([_type], [_arg]))
             
+        def encodeCrossChainMessage(self, _from, _to, gasLimit, callData):
+            return eth_abi.encode_abi(["address", "address", "uint256", "bytes"], [_from, _to, gasLimit, callData]) # decoder on solidity side : (address from, address to, uint256 gasLimit, bytes memory data) = abi.decode(_data, (address, address, uint256, bytes));
+            
         def fallback(self, env):
             env.revert(b"")
             
@@ -1396,6 +1399,9 @@ class PrecompiledContracts(object):
             print(f"getSlotData({params[0]}, {params[1]}, {params[2]})")
             d = env.chain.datafeed.getSlotData(params[0], params[1], params[2])
             self.returnSingleType(env, "bytes", d)
+        
+        def crossChainCall(self, env):
+            params = eth_abi.decode_abi(["uint256", "address", "uint256", "bytes"], env.data[4:]) # uint256 chainid, address to, uint256 gasLimit, uint256 data
         
         def call(self, env):
             try:
