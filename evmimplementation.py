@@ -1403,6 +1403,14 @@ class PrecompiledContracts(object):
         
         def crossChainCall(self, env):
             params = eth_abi.decode_abi(["uint256", "address", "uint256", "bytes"], env.data[4:]) # uint256 chainid, address to, uint256 gasLimit, uint256 data
+            _chainid = params[0]
+            _to = params[1]
+            _gas = params[2]
+            _data = params[3]
+            d = self.encodeCrossChainMessage(env.msgSender, _to, _gas, _data)
+            env.consumeGas(6900 + (_gas * 3))
+            
+            env.consumeGas()
         
         def call(self, env):
             try:
