@@ -1,12 +1,57 @@
 pragma solidity 0.7.0;
 // SPDX-License-Identifier: Unlicensed
 
-
 // this is RaptorChain data feed
 // basically, it's supposed to store immutable (only write-able once) slots of data, in order to pass them to RaptorChain
 // since they can't change after being written, it allows simpler management on raptorchain-side
 
-contract DataFeed {
+interface CrossChainFallback {
+	function crossChainCall(address from, bytes memory data) external;
+}
+
+contract Owned {
+    address public owner;
+    address public newOwner;
+
+    event OwnershipTransferred(address indexed _from, address indexed _to);
+	event OwnershipRenounced();
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    modifier onlyOwner {
+        require(msg.sender == owner);
+        _;
+    }
+
+    function transferOwnership(address _newOwner) public onlyOwner {
+        newOwner = _newOwner;
+    }
+	
+	function _chainId() internal pure returns (uint256) {
+		uint256 id;
+		assembly {
+			id := chainid()
+		}
+		return id;
+	}
+	
+    function acceptOwnership() public {
+        require(msg.sender == newOwner);
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+        newOwner = address(0);
+    }
+	
+	function renounceOwnership() public onlyOwner {
+		owner = address(0);
+		newOwner = address(0);
+		emit OwnershipRenounced();
+	}
+}
+
+contract DataFeed is Owned {
 	struct Slot {
 		address owner;
 		bytes32 variable;	// variable key
@@ -24,9 +69,17 @@ contract DataFeed {
 		mapping (bytes32 => Variable) variables;
 	}
 	
+	address public operator;
 	mapping (address => User) users;
 	
 	event SlotWritten(address indexed slotOwner, bytes32 indexed variableKey, bytes32 indexed slotKey, bytes data);
+	event OperatorChanged(address indexed newOperator);
+	event CallExecuted(address indexed from, address indexed to, bool indexed success, uint256 gasLimit, bytes data);
+	
+	modifier onlyOperator {
+		require(msg.sender == operator, "ONLY_OPERATOR_CAN_DO_THAT");
+		_;
+	}
 	
 	function isWritten(address owner, bytes32 key) public view returns (bool) {
 		return users[owner].slots[key].written;
@@ -55,5 +108,20 @@ contract DataFeed {
 		user.slots[slotKey] = newSlot;
 		emit SlotWritten(msg.sender, variableKey, slotKey, slotData);
 		return slotKey;
+	}
+	
+	function setOperator(address newOperator) public onlyOwner {
+		operator = newOperator;
+		emit OperatorChanged(newOperator);
+	}
+	
+	function decodeCall(bytes memory _call) public {
+	
+	}
+	
+	function execBridgeCall(bytes memory _data) public onlyOperator {
+		(address from, address to, uint256 gasLimit, bytes memory data) = abi.decode(_data, (address, address, uint256, bytes));
+		(bool success, ) = to.call{gas: gasLimit}(abi.encodeWithSelector(bytes4(keccak256("crossChainCall(address,bytes)")), from, data));
+		emit CallExecuted(from, to, success, gasLimit, data);
 	}
 }
