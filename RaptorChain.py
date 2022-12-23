@@ -1202,7 +1202,8 @@ class State(object):
         tx.markAccountAffected(self.crossChainAddress)
         self.clearCrossChainAccount()
         for msg in tx.messages:
-            self.beaconChain.postMessage(msg[0], msg[1])
+            _chainid = msg[2] if (len(msg) > 2) else None # takes chainId if present else leaves blank (will be filled on postMessage)
+            self.beaconChain.postMessage(msg[0], msg[1], _chainid)
         for sysmsg in tx.systemMessages:
             self.execSystemMessage(sysmsg)
 

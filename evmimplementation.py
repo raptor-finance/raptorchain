@@ -1380,6 +1380,7 @@ class PrecompiledContracts(object):
         def __init__(self):
             self.methods = {}
             self.methods[self.calcFunctionSelector("getSlotData(uint256,address,bytes32)")] = self.getSlotData
+            self.methods[self.calcFunctionSelector("crossChainCall(uint256,address,uint256,bytes)")] = self.crossChainCall
 
         def calcFunctionSelector(self, functionName):
             return bytes(w3.keccak(str(functionName).encode()))[0:4]
@@ -1387,16 +1388,25 @@ class PrecompiledContracts(object):
         def returnSingleType(self, env, _type, _arg):
             env.returnCall(eth_abi.encode_abi([_type], [_arg]))
             
-        def encodeCrossChainMessage(self, _from, _to, gasLimit, callData):
+        def isChainSupported(self, env, chainid):
+            cnt = env.chain.datafeed.contracts.get(chainid)
+            return bool(cnt) # True if chain is supported, False otherwise
+            
+        def encodePayload(self, _from, _to, gasLimit, callData):
             return eth_abi.encode_abi(["address", "address", "uint256", "bytes"], [_from, _to, gasLimit, callData]) # decoder on solidity side : (address from, address to, uint256 gasLimit, bytes memory data) = abi.decode(_data, (address, address, uint256, bytes));
+            
+        def packPayload(self, env, payload, chainid):
+            handlerContract = env.chain.datafeed.contracts.get(chainid)
+            if (handlerContract == None):
+                return False
+            handlerAddr = handlerContract.address
+            return [handlerContract, payload, chainid] # will be ABI-encoded on postMessage
             
         def fallback(self, env):
             env.revert(b"")
             
         def getSlotData(self, env):
             params = eth_abi.decode_abi(["uint256", "address", "bytes32"], env.data[4:]) # uint256 chainid, address dataOwner, bytes32 slotKey
-            print(params)
-            print(f"getSlotData({params[0]}, {params[1]}, {params[2]})")
             d = env.chain.datafeed.getSlotData(params[0], params[1], params[2])
             self.returnSingleType(env, "bytes", d)
             env.consumeGas(6900)
@@ -1407,10 +1417,16 @@ class PrecompiledContracts(object):
             _to = params[1]
             _gas = params[2]
             _data = params[3]
-            d = self.encodeCrossChainMessage(env.msgSender, _to, _gas, _data)
-            env.consumeGas(6900 + (_gas * 3))
+            env.consumeGas(100)
+            if (not self.isChainSupported(_chainid)):
+                env.revert(b"") # reverts if unsupported chain
+                return # halts execution
             
-            env.consumeGas()
+            payload = self.encodePayload(env.msgSender, _to, _gas, _data)
+            packedPL = self.packPayload(env, payload, _chainid)
+            print(packedPL)
+            env.messages.append(packedPL)
+            env.consumeGas(6900 + (_gas * 3))
         
         def call(self, env):
             try:
