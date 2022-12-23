@@ -1399,8 +1399,7 @@ class PrecompiledContracts(object):
             handlerContract = env.chain.datafeed.contracts.get(chainid)
             if (handlerContract == None):
                 return False
-            handlerAddr = handlerContract.address
-            return [handlerContract, payload, chainid] # will be ABI-encoded on postMessage
+            return [handlerContract.address, payload, chainid] # will be ABI-encoded on postMessage
             
         def fallback(self, env):
             env.revert(b"")
@@ -1418,7 +1417,7 @@ class PrecompiledContracts(object):
             _gas = params[2]
             _data = params[3]
             env.consumeGas(100)
-            if (not self.isChainSupported(_chainid)):
+            if (not self.isChainSupported(env, _chainid)):
                 env.revert(b"") # reverts if unsupported chain
                 return # halts execution
             
