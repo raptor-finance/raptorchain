@@ -193,147 +193,6 @@ library Math {
 	}
 }
 
-contract CustodyManager {
-	using SafeMath for uint256;
-	struct Deposit {
-		uint256 amount; // deposit value
-		address depositor; // address that deposits tokens
-		uint256 nonce;
-		address token; // or address 0 if you deposit BNB
-		bytes data; // data appended to deposit (could be passed to a contract on raptorchain)
-		bytes32 hash; // keccak256(abi.encodePacked(amount, depositor, token, blockhash(), data, nonce))
-	}
-	
-	struct Withdrawal {
-		uint256 amount; // withdrawal value
-		address withdrawer; // address that tokens
-		uint256 nonce;
-		address token; // withdrawn token
-		bytes32 hash;
-		bool claimed;
-	}
-	
-	
-	address masterContract;
-	Deposit[] public __deposits;
-	mapping (bytes32 => Deposit) public _deposits;
-	
-	bytes32[] public __withdrawals;
-	mapping (bytes32 => Withdrawal) public _withdrawals;
-	
-	
-	uint256 public transferNonce = 0;
-	uint256 public totalDeposited;
-	address withdrawalsOperator;
-	event WithdrawalOperatorChanged(address indexed oldOperator, address indexed newOperator);
-	// StakeManager public stakingManager;
-	
-	// constructor(StakeManager _stakingManager) {
-	constructor(address _withdrawalsOperator) {
-		masterContract = msg.sender;
-		withdrawalsOperator = _withdrawalsOperator;
-	}
-	
-	function changeWithdrawalOperator(address _newOperator) public {
-		require(msg.sender == address(withdrawalsOperator), "Only withdrawals operator address can do that :/");
-		emit WithdrawalOperatorChanged(withdrawalsOperator, _newOperator);
-		withdrawalsOperator = _newOperator;
-	}
-	
-	event Deposited(address indexed user, address indexed token, uint256 amount, uint256 nonce, bytes32 hash);
-	event Withdrawn(address indexed user, address indexed token, uint256 amount, uint256 nonce, bytes32 hash);
-	
-	function deposits(uint256 _index) public view returns (Deposit memory) {
-		return __deposits[_index];
-	}
-	
-	function deposits(bytes32 _hash) public view returns (Deposit memory) {
-		return _deposits[_hash];
-	}
-
-	function withdrawals(uint256 _index) public view returns (Withdrawal memory) {
-		return _withdrawals[__withdrawals[_index]];
-	}
-	
-	function withdrawals(bytes32 _hash) public view returns (Withdrawal memory) {
-		return _withdrawals[_hash];
-	}
-
-	function _deposit(address token, address user, uint256 amount, bytes memory data) private {
-		ERC20Interface _token = ERC20Interface(token);
-		uint256 balanceBefore = _token.balanceOf(address(this));
-		_token.transferFrom(user, address(this), amount);
-		uint256 received = _token.balanceOf(address(this)).sub(balanceBefore);
-		
-		bytes32 _hash_ = keccak256(abi.encodePacked(received, user, blockhash(block.number-1), data, transferNonce));
-		Deposit memory _newDeposit = Deposit({amount: received, depositor: user, nonce: transferNonce, token: token, data: data, hash: _hash_});
-		__deposits.push(_newDeposit);
-		_deposits[_hash_] = _newDeposit;
-		emit Deposited(user, token, received, transferNonce, _hash_);
-		transferNonce += 1;
-	}
-	
-	function deposit(address token, uint256 amount, bytes memory data) public {
-		_deposit(token, msg.sender, amount, data); // using same function for approveAndCall and "legacy" deposit
-		// ERC20Interface _token = ERC20Interface(token);
-		// uint256 balanceBefore = _token.balanceOf(address(this));
-		// _token.transferFrom(msg.sender, address(this), amount);
-		// uint256 received = _token.balanceOf(address(this)).sub(balanceBefore);
-		// bytes32 _hash_ = keccak256(abi.encodePacked(received,msg.sender, blockhash(block.number-1), transferNonce));
-		// Deposit memory _newDeposit = Deposit({amount: received, depositor: msg.sender, nonce: transferNonce, token: token, hash: _hash_});
-		// __deposits.push(_newDeposit);
-		// _deposits[_hash_] = _newDeposit;
-		// emit Deposited(msg.sender, token, received, transferNonce, _hash_);
-		// transferNonce += 1;
-	}
-	
-	function receiveApproval(address spender, uint256 _amount, address token, bytes memory _data) public {
-		require(msg.sender == token, "INVALID_TOKEN_ADDRESS");
-		_deposit(token, spender, _amount, _data);
-	}
-	
-	function requestWithdrawal(address token, address withdrawer, uint256 amount, uint256 nonce, bytes32 l2Hash) private {
-		// bytes32 _hash = keccak256(abi.encodePacked(amount, withdrawer, token, nonce));
-		// require(l2Hash == _hash, "HASH_UNMATCHED");
-		// require(!_withdrawals[l2Hash].claimed, "ALREADY_CLAIMED");
-		Withdrawal memory _newWithdrawal = Withdrawal({amount: amount, withdrawer: withdrawer, nonce: nonce, token: token, hash: l2Hash, claimed: false});
-		_withdrawals[l2Hash] = _newWithdrawal;
-		__withdrawals.push(_newWithdrawal.hash);
-		_claimWithdrawal(l2Hash);
-		emit Withdrawn(withdrawer, token, amount, nonce, l2Hash);
-	}
-	
-	function _claimWithdrawal(bytes32 hash) private returns (bool, string memory) {
-		Withdrawal storage wd = _withdrawals[hash];
-		if (wd.claimed) {
-			return (false, "ALREADY_CLAIMED");
-		}
-		(bool success, ) = wd.token.call(abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), wd.withdrawer, wd.amount));
-		if (!success) {
-			return (false, "TRANSFER_FAILED");
-		}
-		wd.claimed = true;
-		_withdrawals[hash].claimed = true;
-		return (true, "");
-	}
-	
-	function claimWithdrawal(bytes32 hash) public {
-		(bool success, string memory reason) = _claimWithdrawal(hash);
-		require(success, reason);
-	}
-	
-	function execBridgeCall(bytes memory _data) public {
-		require(msg.sender == address(withdrawalsOperator), "Only withdrawals operator address can do that :/");
-		bytes32 _hash = keccak256(_data);
-		(address token, address withdrawer, uint256 amount, uint256 nonce) = abi.decode(_data, (address, address, uint256, uint256));
-		requestWithdrawal(token, withdrawer, amount, nonce, _hash);
-	}
-	
-	function depositsLength() public view returns (uint256) {
-		return __deposits.length;
-	}
-}
-
 contract RelayerSet {
 	struct Relayer {
 		address owner;
@@ -645,7 +504,6 @@ contract BeaconChainHandler {
 
 contract MasterContract {
 	// StakeManager public staking;
-	CustodyManager public custody;
 	BeaconChainHandler public beaconchain;
     // ChainsImplementationHandler public chainInstances;
 	
@@ -677,7 +535,6 @@ contract MasterContract {
 		// staking = new StakeManager(stakingToken);
         // chainInstances = new ChainsImplementationHandler(_genesisBeacon, stakingToken);
 		beaconchain = new BeaconChainHandler(_genesisBeacon, stakingToken, mnCollateral);
-		custody = new CustodyManager(address(beaconchain));
 		// staking.setBeaconHandler(beaconchain);
 	}
 	
