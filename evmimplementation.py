@@ -1388,7 +1388,7 @@ class PrecompiledContracts(object):
         def returnSingleType(self, env, _type, _arg):
             env.returnCall(eth_abi.encode_abi([_type], [_arg]))
             
-        def isChainSupported(self, env, chainid):
+        def _isChainSupported(self, env, chainid):
             cnt = env.chain.datafeed.contracts.get(chainid)
             return bool(cnt) # True if chain is supported, False otherwise
             
@@ -1404,6 +1404,13 @@ class PrecompiledContracts(object):
         def fallback(self, env):
             env.revert(b"")
             
+        def isChainSupported(self, env):
+            params = eth_abi.decode_abi(["uint256"], env.data[4:]) # uint256 chainid
+            _chainid = params[0]
+            supported = self._isChainSupported(env, _chainid)
+            self.returnSingleType(env, "bool", supported)
+            env.consumeGas(3400)
+            
         def getSlotData(self, env):
             params = eth_abi.decode_abi(["uint256", "address", "bytes32"], env.data[4:]) # uint256 chainid, address dataOwner, bytes32 slotKey
             d = env.chain.datafeed.getSlotData(params[0], params[1], params[2])
@@ -1417,7 +1424,7 @@ class PrecompiledContracts(object):
             _gas = params[2]
             _data = params[3]
             env.consumeGas(100)
-            if (not self.isChainSupported(env, _chainid)):
+            if (not self._isChainSupported(env, _chainid)):
                 env.revert(b"") # reverts if unsupported chain
                 return # halts execution
             
