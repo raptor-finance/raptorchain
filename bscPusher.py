@@ -1,21 +1,37 @@
 from web3 import Web3
 from web3.auto import w3
-import time, requests, eth_abi
+import time, requests, eth_abi, sys
+
+class Chain(object):
+    def __init__(self, chainid, rpc, gasPrice, cntAddress):
+        self.chainid = chainid
+        self.rpc = rpc
+        self.gasPrice = int(gasPrice * (10**9))
+        self.cntAddress = cntAddress
+
+chains = {
+    "bsc" : Chain(56, "https://bscrpc.com/", 5, "0x4444F4a84d5160659E5b4D12fC2d6bC4F82B9747"),
+    "polygon" : Chain(137, "https://polygon-rpc.com/", 69, "0x2cc242AA543975a8BbE0AE86AC724659729Dd446")
+}
 
 class BSCInterface(object):
-    def __init__(self, rpc, chainId, beaconInstance):
+    def __init__(self, params):
         BeaconChainContractABI = """[{"inputs":[{"components":[{"internalType":"address","name":"miner","type":"address"},{"internalType":"uint256","name":"nonce","type":"uint256"},{"internalType":"bytes[]","name":"messages","type":"bytes[]"},{"internalType":"uint256","name":"difficulty","type":"uint256"},{"internalType":"bytes32","name":"miningTarget","type":"bytes32"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bytes32","name":"parent","type":"bytes32"},{"internalType":"bytes32","name":"proof","type":"bytes32"},{"internalType":"uint256","name":"height","type":"uint256"},{"internalType":"bytes32","name":"son","type":"bytes32"},{"internalType":"bytes32","name":"parentTxRoot","type":"bytes32"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"},{"internalType":"bytes[]","name":"relayerSigs","type":"bytes[]"}],"internalType":"struct BeaconChainHandler.Beacon","name":"_genesisBeacon","type":"tuple"},{"internalType":"address","name":"_stakingToken","type":"address"},{"internalType":"uint256","name":"mnCollateral","type":"uint256"}],"stateMutability":"nonpayable","type":"constructor"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"},{"indexed":false,"internalType":"string","name":"reason","type":"string"}],"name":"CallDismissed","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"to","type":"address"},{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"},{"indexed":false,"internalType":"bool","name":"success","type":"bool"}],"name":"CallExecuted","type":"event"},{"inputs":[{"components":[{"internalType":"address","name":"miner","type":"address"},{"internalType":"uint256","name":"nonce","type":"uint256"},{"internalType":"bytes[]","name":"messages","type":"bytes[]"},{"internalType":"uint256","name":"difficulty","type":"uint256"},{"internalType":"bytes32","name":"miningTarget","type":"bytes32"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bytes32","name":"parent","type":"bytes32"},{"internalType":"bytes32","name":"proof","type":"bytes32"},{"internalType":"uint256","name":"height","type":"uint256"},{"internalType":"bytes32","name":"son","type":"bytes32"},{"internalType":"bytes32","name":"parentTxRoot","type":"bytes32"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"},{"internalType":"bytes[]","name":"relayerSigs","type":"bytes[]"}],"internalType":"struct BeaconChainHandler.Beacon","name":"_beacon","type":"tuple"}],"name":"beaconHash","outputs":[{"internalType":"bytes32","name":"beaconRoot","type":"bytes32"}],"stateMutability":"pure","type":"function"},{"inputs":[{"internalType":"uint256","name":"","type":"uint256"}],"name":"beacons","outputs":[{"internalType":"address","name":"miner","type":"address"},{"internalType":"uint256","name":"nonce","type":"uint256"},{"internalType":"uint256","name":"difficulty","type":"uint256"},{"internalType":"bytes32","name":"miningTarget","type":"bytes32"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bytes32","name":"parent","type":"bytes32"},{"internalType":"bytes32","name":"proof","type":"bytes32"},{"internalType":"uint256","name":"height","type":"uint256"},{"internalType":"bytes32","name":"son","type":"bytes32"},{"internalType":"bytes32","name":"parentTxRoot","type":"bytes32"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"chainLength","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"components":[{"internalType":"address","name":"miner","type":"address"},{"internalType":"uint256","name":"nonce","type":"uint256"},{"internalType":"bytes[]","name":"messages","type":"bytes[]"},{"internalType":"uint256","name":"difficulty","type":"uint256"},{"internalType":"bytes32","name":"miningTarget","type":"bytes32"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bytes32","name":"parent","type":"bytes32"},{"internalType":"bytes32","name":"proof","type":"bytes32"},{"internalType":"uint256","name":"height","type":"uint256"},{"internalType":"bytes32","name":"son","type":"bytes32"},{"internalType":"bytes32","name":"parentTxRoot","type":"bytes32"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"},{"internalType":"bytes[]","name":"relayerSigs","type":"bytes[]"}],"internalType":"struct BeaconChainHandler.Beacon","name":"_beacon","type":"tuple"}],"name":"extractBeaconMessages","outputs":[{"internalType":"bytes[]","name":"messages","type":"bytes[]"},{"internalType":"uint256","name":"length","type":"uint256"}],"stateMutability":"pure","type":"function"},{"inputs":[{"components":[{"internalType":"address","name":"miner","type":"address"},{"internalType":"uint256","name":"nonce","type":"uint256"},{"internalType":"bytes[]","name":"messages","type":"bytes[]"},{"internalType":"uint256","name":"difficulty","type":"uint256"},{"internalType":"bytes32","name":"miningTarget","type":"bytes32"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bytes32","name":"parent","type":"bytes32"},{"internalType":"bytes32","name":"proof","type":"bytes32"},{"internalType":"uint256","name":"height","type":"uint256"},{"internalType":"bytes32","name":"son","type":"bytes32"},{"internalType":"bytes32","name":"parentTxRoot","type":"bytes32"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"},{"internalType":"bytes[]","name":"relayerSigs","type":"bytes[]"}],"internalType":"struct BeaconChainHandler.Beacon","name":"_beacon","type":"tuple"}],"name":"isBeaconValid","outputs":[{"internalType":"bool","name":"valid","type":"bool"},{"internalType":"string","name":"reason","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[{"components":[{"internalType":"address","name":"miner","type":"address"},{"internalType":"uint256","name":"nonce","type":"uint256"},{"internalType":"bytes[]","name":"messages","type":"bytes[]"},{"internalType":"uint256","name":"difficulty","type":"uint256"},{"internalType":"bytes32","name":"miningTarget","type":"bytes32"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bytes32","name":"parent","type":"bytes32"},{"internalType":"bytes32","name":"proof","type":"bytes32"},{"internalType":"uint256","name":"height","type":"uint256"},{"internalType":"bytes32","name":"son","type":"bytes32"},{"internalType":"bytes32","name":"parentTxRoot","type":"bytes32"},{"internalType":"uint8","name":"v","type":"uint8"},{"internalType":"bytes32","name":"r","type":"bytes32"},{"internalType":"bytes32","name":"s","type":"bytes32"},{"internalType":"bytes[]","name":"relayerSigs","type":"bytes[]"}],"internalType":"struct BeaconChainHandler.Beacon","name":"_beacon","type":"tuple"}],"name":"pushBeacon","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[],"name":"relayerSet","outputs":[{"internalType":"contract RelayerSet","name":"","type":"address"}],"stateMutability":"view","type":"function"}]"""
         
-        
+        rpc = params.rpc
+        self.gasPrice = params.gasPrice
         self.rpcurl = rpc
-        self.chainID = chainId
+        self.chainID = params.chainid
         
         if (rpc.split(":")[0]) in ["ws", "wss"]:
             self.chain = Web3(Web3.WebsocketProvider(rpc))
         elif (rpc.split(":")[0]) in ["http", "https"]:
             self.chain = Web3(Web3.HTTPProvider(rpc))
-        self.beaconInstance = self.chain.eth.contract(address=Web3.toChecksumAddress(beaconInstance), abi=BeaconChainContractABI)
+        self.beaconInstance = self.chain.eth.contract(address=Web3.toChecksumAddress(params.cntAddress), abi=BeaconChainContractABI)
         
+        
+    def buildTx(self, call, _from):
+        return call.buildTransaction({'nonce': self.chain.eth.get_transaction_count(_from),'chainId': self.chainID,'gasPrice': self.gasPrice, 'from':_from})
         
     def chainLength(self):
         return self.beaconInstance.functions.chainLength().call()
@@ -60,7 +76,7 @@ class BSCPusher(object):
                 _data.append(x)
         print(_data)
 
-        tx = self.bsc.beaconInstance.functions.pushBeacon(data).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.acct.address),'chainId': self.bsc.chainID, 'gas': 2000000,'gasPrice': int(5*(10**9)), 'from':self.acct.address})
+        tx = self.bsc.buildTx(self.bsc.beaconInstance.functions.pushBeacon(data), self.acct.address)
         # tx = self.bsc.stakingContract.functions.sendL2Block(self.acct.address, int(0), eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"])), 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), bytes.fromhex(block["parent"].replace("0x", "")), bytes.fromhex(block["miningData"]["proof"].replace("0x", "")), int(block["height"]), bytes.fromhex(block["son"].replace("0x", "")), int(block["signature"]["v"]), bytes.fromhex(hex(block["signature"]["r"])[2:]), bytes.fromhex(hex(block["signature"]["s"])[2:])).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.acct.address),'chainId': self.bsc.chainID, 'gasPrice': 10, 'from':self.acct.address})
         signedtx = self.acct.signTransaction(tx)
         self.bsc.chain.eth.send_raw_transaction(signedtx.rawTransaction)
@@ -76,7 +92,9 @@ class BSCPusher(object):
             self.pushBlockOnBSC(_block)
 
 privkey = input("Enter private key : ")
-relayer = BSCPusher("http://localhost:6969/", privkey, BSCInterface("https://bscrpc.com/", 56, "0x4444F4a84d5160659E5b4D12fC2d6bC4F82B9747")) # Beacon instance to deploy
+chainChoice = sys.argv[1].lower() if (len(sys.argv) > 1) else "bsc"
+_params = chains.get(chainChoice, chains["bsc"])
+relayer = BSCPusher("https://rpc.raptorchain.io/", privkey, BSCInterface(_params)) # Beacon instance to deploy
 
 while True:
     try:
