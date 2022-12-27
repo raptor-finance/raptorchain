@@ -417,8 +417,10 @@ class BeaconChain(object):
             return cnt.functions.getSlotData(w3.toChecksumAddress(addr), key).call()
 
         def testFeed(self):
-            print("Testing datafeed for Polygon:", self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0xd80c1617dd4d331d0eb95194bf042d3486f3fb4ebb1e620ebc0b8d142aa2ee93"))
-            print("Testing datafeed for Polygon:", self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0xd80c1617dd4d331d0eb95194bf042d3486f3fb4ebb1e620ebc0b8d142aa2ee95"))
+            data = self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0xd80c1617dd4d331d0eb95194bf042d3486f3fb4ebb1e620ebc0b8d142aa2ee93")
+            print("Testing datafeed for Polygon:", data)
+            if not data:
+                rich.print("[red]Warning : no data returned, node might not work properly !\nPress enter to continue startup...[/red]"); input()
 
     class GenesisBeacon(object):
         def __init__(self, testnet=True):
@@ -1619,6 +1621,7 @@ class Node(object):
         except:
             print("Error loading DB, starting from zero :/")
         # self.upgradeTxs()
+        self.state.beaconChain.datafeed.testFeed()
         _toPropagate = []
         for txHash in self.txsOrder:
             tx = self.transactions[txHash]
@@ -1633,7 +1636,6 @@ class Node(object):
         self.saveDB()
         if (self.propagateAtStartup and len(_toPropagate)):
             self.propagateTransactions(_toPropagate)
-        self.state.beaconChain.datafeed.testFeed()
 
     def checkTxs(self, txs, shouldPropagate=True):
         # print("Pulling DUCO txs...")
