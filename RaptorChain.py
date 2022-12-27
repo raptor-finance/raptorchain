@@ -934,7 +934,7 @@ class State(object):
         self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
         self.burnAddress = "0x000000000000000000000000000000000000dEaD"
 #        self.persistencyUpgradeBlock = 7
-        self.version = "1.4.4-mainnet-beta"
+        self.version = "1.5.0-mainnet-beta"
 
     def formatAddress(self, _addr):
         if (type(_addr) == int):
