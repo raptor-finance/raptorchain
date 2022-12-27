@@ -271,6 +271,7 @@ contract BridgedRaptor is Owned {
 		bytes memory data = abi.encode(to, tokens);
 		bytes32 slotKey = DataFeedInterface(bridge).write(key, data);
 		accounts[to].unwraps.push(slotKey);
+		emit UnWrap(from, to, slotKey, tokens);
 		systemNonce += 1;
 	}
 	
@@ -288,6 +289,7 @@ contract BridgedRaptor is Owned {
 	function crossChainCall(address from, bytes memory data) public onlyOperator(from) {
 		(address to, uint256 tokens) = abi.decode(data, (address, uint256)); // encoder on raptorchain-side ; data = abi.encode(to, coins)
 		_mint(to, tokens);
+		emit Wrap(to, tokens);
 	}
 	
 	// user-side view functions
