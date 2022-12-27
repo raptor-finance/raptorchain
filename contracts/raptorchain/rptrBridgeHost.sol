@@ -1,20 +1,8 @@
 pragma solidity ^0.7.0;
 
-interface ERC20Interface {
-    function totalSupply() external view returns (uint);
-    function balanceOf(address tokenOwner) external view returns (uint balance);
-    function allowance(address tokenOwner, address spender) external view returns (uint remaining);
-    function transfer(address to, uint tokens) external returns (bool success);
-    function approve(address spender, uint tokens) external returns (bool success);
-    function transferFrom(address from, address to, uint tokens) external returns (bool success);
-}
-
-interface CrossChainFallback {
-	function crossChainCall(address from, bytes memory data) external;
-}
-
-interface DataFeedInterface {
-	function write(bytes32 variableKey, bytes memory slotData) external returns (bytes32);
+interface CrossChainDataFeed {
+	function getSlotData(uint256 chainid, address slotOwner, bytes32 slotKey) external view returns (bytes memory slotData);
+	function crossChainCall(uint256 chainid, address to, uint256 gasLimit, bytes memory data) external;
 }
 
 library SafeMath {
@@ -202,111 +190,60 @@ contract Owned {
 	}
 }
 
-contract BridgedRaptor is Owned {
+contract RPTRBridgeHost is Owned {
 	using SafeMath for uint256;
+	
+	CrossChainDataFeed public datafeed = CrossChainDataFeed(address(0xfeed)); // data feed for call processing
+	address public bridgedToken;	// bridged instance on destination chain
+	uint256 public bridgedChainId;
+	uint256 public wrapGasLimit;
+	
+	mapping(bytes32 => bool) public processed;
+	
+	event BridgedTokenChanged(address indexed newToken);
+	
+	constructor(uint256 _chainid, address _bridgedtoken, uint256 _wrapGas) {
+		bridgedChainId = _chainid;
+		bridgedToken = _bridgedtoken;
+		wrapGasLimit = _wrapGas;
+	}
+	
+	function setBridgedToken(address _token) public onlyOwner {
+		 bridgedToken = _token;
+		 emit BridgedTokenChanged(_token);
+	}
+	
+	function setWrapGas(uint256 _gas) public onlyOwner {
+		wrapGasLimit = _gas;
+	}
+	
+	function getUnwrapData(bytes32 slotKey) public view returns (address to, uint256 coins) {
+		bytes memory data = datafeed.getSlotData(bridgedChainId, bridgedToken, slotKey);
+		(to, coins) = abi.decode(data, (address, uint256));
+	}
+	
+	
+	// wrapping backend
+	function _postWrapMessage(address to, uint256 coins) private {
+		data = abi.encode(to, coins);
+		datafeed.crossChainCall(bridgedChainId, bridgedToken, wrapGasLimit, data);
+	}
+	
+	// wraps msg.value
+	function wrap(address to) public payable {
+		_postWrapMessage(to, msg.value);
+	}
+	
+	// unwrap backend
+	function _unwrap(bytes32 slotKey) private {
+		require(!processed[slotKey]);
+		processed[slotKey] = true;
+		(address to, uint256 coins) = getUnwrapData(slotKey);
+		payable(to).transfer(coins);
+	}
+	
 
-	address public operator;	// operator on other side of the bridge
-	address public bridge;		// bridge
-	
-	uint256 systemNonce;
-	uint256 public totalSupply;	// starts at 0, minted on bridging
-	uint8 public decimals = 18;
-
-	struct Account {
-		uint256 balance;
-		mapping(address => uint256) allowances;
-		bytes32[] unwraps;	// unwrap history sorted by storage slot
-	}
-	
-	mapping(address => Account) public accounts;
-	
-	event Transfer(address indexed from, address indexed to, uint256 tokens);
-	event Approval(address indexed owner, address indexed spender, uint256 tokens);
-	
-	event Wrap(address indexed to, uint256 tokens);
-	event UnWrap(address indexed from, address indexed to, bytes32 indexed slotKey, uint256 tokens);
-
-	modifier onlyOperator(address from) {
-		require((msg.sender == bridge) && (from == operator), "ONLY_OPERATOR_CAN_DO_THAT");
-		_;
-	}
-	
-	// system private functions
-	function _mint(address to, uint256 tokens) private {
-		accounts[to].balance = accounts[to].balance.add(tokens);
-		totalSupply = totalSupply.add(tokens);
-		emit Transfer(address(0), to, tokens);
-	}
-	
-	function _burn(address from, uint256 tokens) private {
-		accounts[from].balance = accounts[from].balance.sub(tokens);
-		totalSupply = totalSupply.sub(tokens);
-		emit Transfer(from, address(0), tokens);
-	}
-	
-	function _unwrap(address from, address to, uint256 tokens) private {
-		_burn(from, tokens);
-		bytes32 key = keccak256(abi.encodePacked(to, systemNonce));
-		bytes memory data = abi.encode(to, tokens);
-		bytes32 slotKey = DataFeedInterface(bridge).write(key, data);
-		accounts[to].unwraps.push(slotKey);
-		systemNonce += 1;
-	}
-	
-	function _transfer(address from, address to, uint256 tokens) private {
-		if (to == address(0)) {
-			_unwrap(from, from, tokens);
-		} else {
-			accounts[from].balance = accounts[from].balance.sub(tokens, "UNSUFFICIENT_BALANCE");
-			accounts[to].balance = accounts[to].balance.add(tokens);
-		}
-		emit Transfer(from, to, tokens);
-	}
-	
-	// cross-chain call handler	
-	function crossChainCall(address from, bytes memory data) public onlyOperator(from) {
-		(address to, uint256 tokens) = abi.decode(data, (address, uint256)); // encoder on raptorchain-side ; data = abi.encode(to, coins)
-	}
-	
-	// user-side view functions
-	function allowance(address tokenOwner, address spender) public view returns (uint256) {
-		return accounts[tokenOwner].allowances[spender];
-	}
-	
-	function balanceOf(address tokenOwner) public view returns (uint256) {
-		return accounts[tokenOwner].balance;
-	}
-	
-	function unwrapHistoryOf(address tokenOwner) public view returns (bytes32[] memory) {
-		return accounts[tokenOwner].unwraps;
-	}
-	
-	
-	// user-side functions
-	function approve(address spender, uint256 tokens) public returns (bool) {
-		Account storage ownerAcct = accounts[msg.sender];
-		ownerAcct.allowances[spender] = ownerAcct.allowances[spender].add(tokens);
-		emit Approval(msg.sender, spender, tokens);
-		return true;
-	}
-	
-	function transfer(address to, uint256 tokens) public returns (bool) {
-		_transfer(msg.sender, to, tokens);
-		return true;
-	}
-	
-	function transferFrom(address from, address to, uint256 tokens) public returns (bool) {
-		Account storage ownerAcct = accounts[from];
-		ownerAcct.allowances[msg.sender] = ownerAcct.allowances[msg.sender].sub(tokens, "UNSUFFICIENT_ALLOWANCE");
-		_transfer(from, to, tokens);
-		return true;
-	}
-	
-	function bridge(uint256 tokens) public {
-		_unwrap(msg.sender, msg.sender, tokens);
-	}
-	
-	function bridge(address to, uint256 tokens) public {
-		_unwrap(msg.sender, to, tokens);
+	receive() external payable {
+		_postWrapMessage(msg.sender, msg.value);
 	}
 }
