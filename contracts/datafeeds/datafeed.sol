@@ -115,8 +115,8 @@ contract DataFeed is Owned {
 		emit OperatorChanged(newOperator);
 	}
 	
-	function decodeCall(bytes memory _call) public {
-	
+	function decodeCall(bytes memory _call) public pure returns (address from, address to, uint256 gasLimit, bytes memory data) {
+		(from, to, gasLimit, data) = abi.decode(_call, (address, address, uint256, bytes));
 	}
 	
 	function execBridgeCall(bytes memory _data) public onlyOperator {
