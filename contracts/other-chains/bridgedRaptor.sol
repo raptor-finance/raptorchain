@@ -1,4 +1,5 @@
 pragma solidity ^0.7.0;
+// SPDX-License-Identifier: MIT
 
 interface ERC20Interface {
     function totalSupply() external view returns (uint);
@@ -211,6 +212,8 @@ contract BridgedRaptor is Owned {
 	uint256 systemNonce;
 	uint256 public totalSupply;	// starts at 0, minted on bridging
 	uint8 public decimals = 18;
+	string public name = "Bridged RPTR";
+	string public symbol = "RPTR";
 
 	struct Account {
 		uint256 balance;
@@ -266,6 +269,7 @@ contract BridgedRaptor is Owned {
 	// cross-chain call handler	
 	function crossChainCall(address from, bytes memory data) public onlyOperator(from) {
 		(address to, uint256 tokens) = abi.decode(data, (address, uint256)); // encoder on raptorchain-side ; data = abi.encode(to, coins)
+		_mint(to, tokens);
 	}
 	
 	// user-side view functions
@@ -302,11 +306,11 @@ contract BridgedRaptor is Owned {
 		return true;
 	}
 	
-	function bridge(uint256 tokens) public {
+	function unwrap(uint256 tokens) public {
 		_unwrap(msg.sender, msg.sender, tokens);
 	}
 	
-	function bridge(address to, uint256 tokens) public {
+	function unwrap(address to, uint256 tokens) public {
 		_unwrap(msg.sender, to, tokens);
 	}
 }
