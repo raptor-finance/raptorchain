@@ -229,7 +229,11 @@ contract RPTRBridgeHost is Owned {
 		datafeed.crossChainCall(bridgedChainId, bridgedToken, wrapGasLimit, data);
 	}
 	
-	// wraps msg.value
+	// wraps msg.value to "to"
+	function wrap() public payable {
+		_postWrapMessage(msg.sender, msg.value);
+	}
+	
 	function wrap(address to) public payable {
 		_postWrapMessage(to, msg.value);
 	}
@@ -242,6 +246,18 @@ contract RPTRBridgeHost is Owned {
 		payable(to).transfer(coins);
 	}
 	
+	function unwrap(bytes32 slotKey) public {
+		_unwrap(slotKey);
+	}
+	
+	function unwrapmultiple(bytes32[] memory slots) public {
+		for (uint256 i = 0; i < slots.length; i++) {
+			bytes32 _slot = slots[i];
+			if (!processed[_slot]) {
+				_unwrap(_slot);
+			}
+		}
+	}
 
 	receive() external payable {
 		_postWrapMessage(msg.sender, msg.value);

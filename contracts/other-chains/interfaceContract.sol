@@ -433,6 +433,10 @@ contract BeaconChainHandler {
 	function chainLength() public view returns (uint256) {
 		return beacons.length;
 	}
+	
+	function beaconRelayerSigs(uint256 beaconHeight) public view returns (bytes[] memory) {
+		return beacons[beaconHeight].relayerSigs;
+	}
 }
 
 
