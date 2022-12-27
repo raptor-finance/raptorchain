@@ -229,9 +229,27 @@ contract BridgedRaptor is Owned {
 	event Wrap(address indexed to, uint256 tokens);
 	event UnWrap(address indexed from, address indexed to, bytes32 indexed slotKey, uint256 tokens);
 
+	event OperatorChanged(address indexed newOperator);
+	event BridgeChanged(address indexed newBridge);
+
 	modifier onlyOperator(address from) {
 		require((msg.sender == bridge) && (from == operator), "ONLY_OPERATOR_CAN_DO_THAT");
 		_;
+	}
+	
+	constructor(address _operator, address _bridge) {
+		operator = _operator;
+		bridge = _bridge;
+	}
+	
+	function setOperator(address _operator) public onlyOwner {
+		operator = _operator;
+		emit OperatorChanged(_operator);
+	}
+	
+	function setBridge(address _bridge) public onlyOwner {
+		bridge = _bridge;
+		emit BridgeChanged(_bridge);
 	}
 	
 	// system private functions
