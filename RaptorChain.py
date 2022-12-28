@@ -389,7 +389,7 @@ class BeaconChain(object):
             self.testnet = testnet
             self.rpcs = {56: "https://bscrpc.com/", 137: "https://polygon-rpc.com/"}
             self.contractAddrsTestnet = {137: "0x22264132b46365EFb0bE413144Fa4d1616D82Abe"}
-            self.contractAddrsMainnet = {137: "0x22264132b46365EFb0bE413144Fa4d1616D82Abe"}
+            self.contractAddrsMainnet = {137: "0x5e9CAE795ffC9243Ac069D27a649fFd31173E531"}
             self.abi = """[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"slotOwner","type":"address"},{"indexed":true,"internalType":"bytes32","name":"slotKey","type":"bytes32"},{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"}],"name":"SlotWritten","type":"event"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"getSlotData","outputs":[{"internalType":"bytes","name":"","type":"bytes"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"isWritten","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"slots","outputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"data","type":"bytes"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bool","name":"written","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"slotData","type":"bytes"}],"name":"writeSlot","outputs":[],"stateMutability":"nonpayable","type":"function"}]"""
             self.chains = {}
             self.contracts = {}
@@ -417,7 +417,7 @@ class BeaconChain(object):
             return cnt.functions.getSlotData(w3.toChecksumAddress(addr), key).call()
 
         def testFeed(self):
-            data = self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0xd80c1617dd4d331d0eb95194bf042d3486f3fb4ebb1e620ebc0b8d142aa2ee93")
+            data = self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0xa95049b02da42aee5e8a59a74927bafcb5a12c333b6b3f569d8d2fa5ee541636")
             print("Testing datafeed for Polygon:", data)
             if not data:
                 rich.print("[red]Warning : no data returned, node might not work properly !\nPress enter to continue startup...[/red]"); input()
