@@ -1,4 +1,25 @@
 pragma solidity ^0.7.0;
+// SPDX-License-Identifier: MIT
+
+// this is RaptorChain side of token bridge
+// holds RPTR while it's wrapped to polygon
+// processes both wrap and unwrap
+
+// WRAP
+// - RaptorChain-side custody contract (holds RPTR) calls RaptorChain-side datafeed (address(0xfeed))
+// - RaptorChain-side datafeed throws a cross-chain message
+// - a RaptorChain masternode includes it into a beacon block
+// - beacon block gets forwarded to Polygon-side handler
+// - handler unpacks call and calls token contract
+// - token contract mints token
+
+// UNWRAP
+// - user calls `unwrap` method
+// - contract burns polygon-side token
+// - contract writes data to a slot on polygon-side datafeed (slots can be accessed by raptorchain-side contracts)
+// - raptorchain-side custody contract calls raptorchain-side datafeed, which returns slot data
+// - raptorchain-side custody contract marks slot as processed (to avoid getting it processed twice)
+// - raptorchain-side custody sends RPTR to recipient
 
 interface CrossChainDataFeed {
 	function getSlotData(uint256 chainid, address slotOwner, bytes32 slotKey) external view returns (bytes memory slotData);
@@ -225,7 +246,7 @@ contract RPTRBridgeHost is Owned {
 	
 	// wrapping backend
 	function _postWrapMessage(address to, uint256 coins) private {
-		data = abi.encode(to, coins);
+		bytes memory data = abi.encode(to, coins);
 		datafeed.crossChainCall(bridgedChainId, bridgedToken, wrapGasLimit, data);
 	}
 	
