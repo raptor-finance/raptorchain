@@ -1595,7 +1595,7 @@ class CallEnv(object):
     
     def getCode(self, addr):
         _acct = self.getAccount(addr)
-        return (_acct.tempcode if (not self.tx.persist) else _acct.code)
+        return _acct.tempcode
     
     def swap(self, n):
         head = len(self.stack)-1
