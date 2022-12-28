@@ -1439,7 +1439,7 @@ class PrecompiledContracts(object):
             try:
                 self.methods.get(env.data[:4], self.fallback)(env)
             except Exception as e:
-                print(f"Exception {e.__repr__()} caught calling CrossChainDataFeed with calldata {env.data}")
+                print(f"Exception {e.__repr__()} caught calling CrossChainDataFeed with calldata {env.data.hex()}")
                 env.revert(b"")
         
     def __init__(self, bridgeFallBack, bsc, getAccount):
