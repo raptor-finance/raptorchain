@@ -11,7 +11,7 @@ class Chain(object):
 
 chains = {
     "bsc" : Chain(56, "https://bscrpc.com/", 5, "0x4444F4a84d5160659E5b4D12fC2d6bC4F82B9747"),
-    "polygon" : Chain(137, "https://polygon-rpc.com/", 69, "0x2cc242AA543975a8BbE0AE86AC724659729Dd446")
+    "polygon" : Chain(137, "https://polygon-rpc.com/", 69, "0x226cf4c77b80125bc83e8e103b758537f4b908b1")
 }
 
 class BSCInterface(object):
@@ -42,7 +42,7 @@ class BSCPusher(object):
         self.bsc = bscInterface
         self.node = node
         self.acct = w3.eth.account.from_key(privkey)
-        print(f"Relayer BSC address : {self.acct.address}")
+        print(f"Relayer address : {self.acct.address}")
 
     def bytes32Padding(self, hexStr):
         _hexstr = hexStr.replace("0x", "")
