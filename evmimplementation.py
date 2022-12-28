@@ -1381,6 +1381,7 @@ class PrecompiledContracts(object):
             self.methods = {}
             self.methods[self.calcFunctionSelector("getSlotData(uint256,address,bytes32)")] = self.getSlotData
             self.methods[self.calcFunctionSelector("crossChainCall(uint256,address,uint256,bytes)")] = self.crossChainCall
+            self.methods[self.calcFunctionSelector("isChainSupported(uint256)")] = self.isChainSupported
 
         def calcFunctionSelector(self, functionName):
             return bytes(w3.keccak(str(functionName).encode()))[0:4]
@@ -1430,7 +1431,7 @@ class PrecompiledContracts(object):
             
             payload = self.encodePayload(env.msgSender, _to, _gas, _data)
             packedPL = self.packPayload(env, payload, _chainid)
-            print(packedPL)
+#            print(packedPL)
             env.messages.append(packedPL)
             env.consumeGas(6900 + (_gas * 3))
         
