@@ -2533,7 +2533,7 @@ def accountInfo(account):
     code = acct.code.hex()
     storage = acct.storage
     nonce = len(acct.sent)
-    return jsonify(result={"balance": (balance or 0), "tempBalance": acct.tempBalance, "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
+    return jsonify(result={"address": _address, "balance": (balance or 0), "tempBalance": acct.tempBalance, "nonce": nonce, "transactions": transactions, "bio": bio, "code": code, "storage": storage}, success= True)
 
 @app.get("/accounts/sent/{account}")
 def sentByAccount(account):
