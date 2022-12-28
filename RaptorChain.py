@@ -2666,8 +2666,22 @@ def getValidator(valoper):
         return jsonify(result=_val.JSONSerializable(), success=True)
     else:
         return jsonify(message="VALIDATOR_NOT_FOUND", success=False)
-        
 
+
+# CROSS-CHAIN RELATED STUFF - as it's part of `BeaconChain` class, it's under `/chain/crosschain` path
+@app.get("/chain/crosschain")
+def crossChainList():
+    _chainsJSON = {}
+    for key, value in node.state.beaconChain.datafeed.contracts.items():
+        _chainsJSON[key] = {"handler": value.address}
+    return jsonify(result=_chainsJSON, success=True)
+
+@app.get("/chain/crosschain/{chainid}")
+def crossChainCHAINID(chainid):
+    c = node.state.beaconChain.datafeed.contracts.get(chainid)
+    if not c:
+        return jsonify(message="UNSUPPORTED_CHAIN", success=False)
+    return jsonify(result={"handler": c.address}, success=True)
 
 
 
