@@ -297,8 +297,8 @@ contract BridgedRaptor is Owned {
 		} else {
 			accounts[from].balance = accounts[from].balance.sub(tokens, "UNSUFFICIENT_BALANCE");
 			accounts[to].balance = accounts[to].balance.add(tokens);
+			emit Transfer(from, to, tokens);
 		}
-		emit Transfer(from, to, tokens);
 	}
 	
 	// cross-chain call handler	
