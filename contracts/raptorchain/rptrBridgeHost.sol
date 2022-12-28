@@ -214,7 +214,7 @@ contract Owned {
 contract RPTRBridgeHost is Owned {
 	using SafeMath for uint256;
 	
-	CrossChainDataFeed public datafeed = CrossChainDataFeed(address(0xfeed)); // data feed for call processing
+	CrossChainDataFeed public datafeed; // data feed for call processing
 	address public bridgedToken;	// bridged instance on destination chain
 	uint256 public bridgedChainId;
 	uint256 public wrapGasLimit;
@@ -227,6 +227,7 @@ contract RPTRBridgeHost is Owned {
 		bridgedChainId = _chainid;
 		bridgedToken = _bridgedtoken;
 		wrapGasLimit = _wrapGas;
+        datafeed = CrossChainDataFeed(address(0xfeed));
 	}
 	
 	function setBridgedToken(address _token) public onlyOwner {
@@ -245,8 +246,12 @@ contract RPTRBridgeHost is Owned {
 	
 	
 	// wrapping backend
+    function encodeWrapMessage(address to, uint256 coins) public pure returns (bytes memory data) {
+        return abi.encode(to, coins);
+    }
+
 	function _postWrapMessage(address to, uint256 coins) private {
-		bytes memory data = abi.encode(to, coins);
+		bytes memory data = encodeWrapMessage(to, coins);
 		datafeed.crossChainCall(bridgedChainId, bridgedToken, wrapGasLimit, data);
 	}
 	
