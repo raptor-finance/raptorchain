@@ -11,7 +11,7 @@ class Chain(object):
 
 chains = {
     "bsc" : Chain(56, "https://bscrpc.com/", 5, "0x4444F4a84d5160659E5b4D12fC2d6bC4F82B9747"),
-    "polygon" : Chain(137, "https://polygon-rpc.com/", 69, "0x226cf4c77b80125bc83e8e103b758537f4b908b1")
+    "polygon" : Chain(137, "https://polygon-rpc.com/", 69, "0xA479C9790C18392fDf5069a81e2e469d9bd598aB")
 }
 
 class BSCInterface(object):
@@ -74,7 +74,7 @@ class BSCPusher(object):
                 _data.append(str(x))
             else:
                 _data.append(x)
-        print(_data)
+        print("Attempting to push block", data[8])
 
         tx = self.bsc.buildTx(self.bsc.beaconInstance.functions.pushBeacon(data), self.acct.address)
         # tx = self.bsc.stakingContract.functions.sendL2Block(self.acct.address, int(0), eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"])), 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), bytes.fromhex(block["parent"].replace("0x", "")), bytes.fromhex(block["miningData"]["proof"].replace("0x", "")), int(block["height"]), bytes.fromhex(block["son"].replace("0x", "")), int(block["signature"]["v"]), bytes.fromhex(hex(block["signature"]["r"])[2:]), bytes.fromhex(hex(block["signature"]["s"])[2:])).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.acct.address),'chainId': self.bsc.chainID, 'gasPrice': 10, 'from':self.acct.address})
