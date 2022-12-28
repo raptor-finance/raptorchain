@@ -420,7 +420,7 @@ class BeaconChain(object):
             data = self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x99c5fd30bd0ae7473ceceebe9b03158a0401f6e5ba371131b888c7f1419c4579")
             print("Testing datafeed for Polygon:", data)
             if not data:
-                rich.print("[red]Warning : no data returned, node might not work properly !\nPress enter to continue startup...[/red]"); input()
+                rich.print("[red]Warning : no data returned, node might not work properly !\nPress enter to continue startup...[/red]", end=""); input()
 
     class GenesisBeacon(object):
         def __init__(self, testnet=True):
