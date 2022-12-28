@@ -260,7 +260,7 @@ contract BridgedRaptor is Owned {
 	}
 	
 	function _burn(address from, uint256 tokens) private {
-		accounts[from].balance = accounts[from].balance.sub(tokens);
+		accounts[from].balance = accounts[from].balance.sub(tokens, "UNSUFFICIENT_BALANCE");
 		totalSupply = totalSupply.sub(tokens);
 		emit Transfer(from, address(0), tokens);
 	}
