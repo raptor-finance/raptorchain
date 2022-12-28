@@ -258,11 +258,6 @@ contract BridgedRaptor is Owned {
 		_;
 	}
 	
-	constructor(address _operator, address _bridge) {
-		operator = _operator;
-		bridge = _bridge;
-	}
-	
 	function setOperator(address _operator) public onlyOwner {
 		operator = _operator;
 		emit OperatorChanged(_operator);
