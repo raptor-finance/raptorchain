@@ -1,5 +1,6 @@
-pragma solidity ^0.7.0;
+pragma solidity 0.7.6;
 pragma abicoder v2;
+import "datafeed.sol";
 
 //SPDX-License-Identifier: MIT
 
@@ -339,19 +340,12 @@ contract BeaconChainHandler {
 		bytes[] relayerSigs;
 	}
 	// StakeManager public stakingContract;
-	address owner;
 	Beacon[] public beacons;
 	uint256 blockTime = 600;
-	address handler;
 	RelayerSet public relayerSet;
 	
 	event CallExecuted(address indexed to, bytes data, bool success);
 	event CallDismissed(address indexed to, bytes data, string reason);
-	
-	modifier onlyOwner {
-		require(msg.sender == owner);
-		_;
-	}
 
 	function _chainId() internal pure returns (uint256) {
 		uint256 id;
@@ -364,7 +358,6 @@ contract BeaconChainHandler {
 	constructor(Beacon memory _genesisBeacon, address _stakingToken, uint256 mnCollateral) {
 		beacons.push(_genesisBeacon);
 		beacons[0].height = 0;
-		handler = msg.sender;
         address bootstrapRelayer = 0xE12Ca65C7A260bF91687A2e1763FA603eCCd812a;
 		relayerSet = new RelayerSet(_stakingToken, mnCollateral, bootstrapRelayer);
 	}
@@ -509,6 +502,7 @@ contract BeaconChainHandler {
 contract MasterContract {
 	// StakeManager public staking;
 	BeaconChainHandler public beaconchain;
+	DataFeed public datafeed;
     // ChainsImplementationHandler public chainInstances;
 	
 	// comment used as a reminder, DON'T REMOVE
@@ -540,6 +534,7 @@ contract MasterContract {
 		// staking = new StakeManager(stakingToken);
         // chainInstances = new ChainsImplementationHandler(_genesisBeacon, stakingToken);
 		beaconchain = new BeaconChainHandler(_genesisBeacon, stakingToken, mnCollateral);
+		datafeed = new DataFeed(address(beaconchain));
 		// staking.setBeaconHandler(beaconchain);
 	}
 	
