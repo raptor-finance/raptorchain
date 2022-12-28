@@ -809,6 +809,8 @@ class State(object):
 
         def setPrecompiledContract(self, contract, initialize):
             self.precompiledContract = contract
+            self.code = b"PRECOMPILED"
+            self.tempcode = b"PRECOMPILED"
             if not initialize:
                 self.initialized = False
             
@@ -828,6 +830,7 @@ class State(object):
         def cancelChanges(self):
             self.tempStorage = self.storage.copy()
             self.tempBalance = self.balance
+            self.tempcode = self.code
 
         def addParent(self, txid):
             if (self.transactions[len(self.transactions)-1] != txid):
@@ -1419,7 +1422,7 @@ class State(object):
             env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
         else:
             env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
-            self.execEVMCall(env)
+        self.execEVMCall(env)
         # env = self.getAccount(msg.recipient, True).call(msg)
         for _addr in tx.affectedAccounts:
             self.getAccount(_addr, True).cancelChanges()
