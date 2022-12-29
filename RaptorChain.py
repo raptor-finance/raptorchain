@@ -622,9 +622,11 @@ class BeaconChain(object):
         _messages = beacon.decodedMessages.copy()
         if (not len(_messages)):
             return False
+        _pendingMsgs = self.pendingMessages.copy()
         for msg in _messages:
-            if (not (msg in self.pendingMessages)):
+            if (not (msg in _pendingMsgs)):
                 return False
+            _pendingMsgs.remove(msg)
         return True
     
     def calcDifficulty(self, expectedDelay, timestamp1, timestamp2, currentDiff):
