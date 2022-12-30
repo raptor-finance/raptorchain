@@ -811,8 +811,8 @@ class State(object):
 
         def setPrecompiledContract(self, contract, initialize):
             self.precompiledContract = contract
-            self.code = b"PRECOMPILED"
-            self.tempcode = b"PRECOMPILED"
+            self.code = b"\x00PRECOMPILED"
+            self.tempcode = b"\x00PRECOMPILED"
             if not initialize:
                 self.initialized = False
             
