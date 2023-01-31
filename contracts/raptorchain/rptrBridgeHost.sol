@@ -272,6 +272,7 @@ contract RPTRBridgeHost is Owned {
 		payable(to).transfer(coins);
 	}
 	
+	// unwrap public functions
 	function unwrap(bytes32 slotKey) public {
 		_unwrap(slotKey);
 	}
@@ -285,6 +286,7 @@ contract RPTRBridgeHost is Owned {
 		}
 	}
 
+	// receive RPTR = wrap them
 	receive() external payable {
 		_postWrapMessage(msg.sender, msg.value);
 	}
