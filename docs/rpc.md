@@ -131,7 +131,7 @@ Example query : `https://rpc.raptorchain.io/chain/block/10`
 ### GET `/chain/blockByHash/<hash>` : get beacon block by hash
 Get a beacon block by hash.
 
-Example query : `https://rpc.raptorchain.io/chain/blockByHash/HASH`
+Example query : `https://rpc.raptorchain.io/chain/blockByHash/0x1ab6dfa74e01df8f73208645578bfa5accab5fabb7c632373a158ae36f6ee20e`
 
 ### GET `/chain/getlastblock` : get last beacon block
 Allows to get last beacon block.
@@ -170,7 +170,7 @@ Example query : `https://rpc.raptorchain.io/chain/validators`
 ### GET `/chain/validators/<valoper>` : search a specific validator
 Allows to search a specific validator by operator address (the address that submits blocks).
 
-Example query : `https://rpc.raptorchain.io/chain/validators/0x...`
+Example query : `https://rpc.raptorchain.io/chain/validators/0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846`
 
 ### GET `/chain/validators/whoseturn` : search current validator's turn to produce a block
 RaptorChain uses a kind of round system (timestamp round).
