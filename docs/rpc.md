@@ -116,7 +116,7 @@ WARNING : INVOLVE SENDING YOUR PRIVATE KEY TO THE NODE
 RISK OF LOSS OF FUNDS IN CASE OF ROGUE REMOTE NODE OR HACKED NODE
 
 ## BeaconChain-related queries
-Queries related to BeaconChain (the "backbone" of the network).
+Queries related to BeaconChain (the "backbone" of the network), under `/chain`
 
 BeaconChain fills the following roles
 - cross-chain message routing (message are passed through beacon blocks)
@@ -137,3 +137,70 @@ Example query : `https://rpc.raptorchain.io/chain/blockByHash/HASH`
 Allows to get last beacon block.
 
 Example query : `https://rpc.raptorchain.io/chain/getlastblock`
+
+### GET `/chain/miningInfo` : get mining infos - MIGHT BECOME DEPRECATED
+Gives informations about mining (difficulty, miningTarget and last block hash)
+
+Fun fact : RaptorChain was considered to be a PoW chain, and this endpoint was added to help miners.
+As RaptorChain uses a PoS-like consensus (masternodes, to be exact), it's now useless (but legacy)
+
+Example query : `https://rpc.raptorchain.io/chain/miningInfo`
+
+### GET `/chain/length` : beacon chain length
+Returns length of BeaconChain.
+
+Example query : `https://rpc.raptorchain.io/chain/length`
+
+### GET `/chain/mempool` : get pending cross-chain messages
+Pending cross-chain messages land here before getting included in a beacon block.
+
+This endpoint allows to retrieve them.
+
+Example query : `https://rpc.raptorchain.io/chain/mempool`
+
+## Validators-related queries
+Queries to get informations about validators (that produce blocks on beacon chains).
+As they're part of beacon chain, they're under `/chain/validators`
+
+### GET `/chain/validators` : get validator list
+Allows to get current list of validators.
+
+Example query : `https://rpc.raptorchain.io/chain/validators`
+
+### GET `/chain/validators/<valoper>` : search a specific validator
+Allows to search a specific validator by operator address (the address that submits blocks).
+
+Example query : `https://rpc.raptorchain.io/chain/validators/0x...`
+
+### GET `/chain/validators/whoseturn` : search current validator's turn to produce a block
+RaptorChain uses a kind of round system (timestamp round).
+
+Basically, each validator has a turn. Current validator index is picked by `(currentTime // 10minutes)%numberOfValidators`.
+Then it picks the validator at this index.
+That avoids getting multiple validators to submit a block at the same time (which would cause a lot of mess).
+
+## Cross-Chain stuff
+As cross-chain is embedded in BeaconChain, it's located under `/chain/crosschain`
+
+### GET `/chain/crosschain` : list of supported chains
+Returns list of supported chains, with their interface contracts (needs some code on destination chain) and used RPC (the one currently used by client to pull data).
+
+Example query : `https://rpc.raptorchain.io/chain/crosschain`
+
+### GET `/chain/crosschain/<chainid>` : get infos about a supported chain
+Returns infos about a specific chain (its interface contract address + its RPC)
+
+Example query : `https://rpc.raptorchain.io/chain/crosschain/137`
+
+## Peer-related queries
+Everything related to peers (aka the base of p2p)
+
+### GET `/net/getPeers`
+Allows to get node's known peers (both online and offline)
+
+Example query : `https://rpc.raptorchain.io/net/getPeers`
+
+### GET `/net/getOnlinePeers`
+Allows to get node's known ONLINE peers
+
+Example query : `https://rpc.raptorchain.io/net/getOnlinePeers`
