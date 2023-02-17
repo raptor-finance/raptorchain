@@ -7,6 +7,7 @@ A chain for RPTR (Raptor Token), but still under development !!!
 ### What works ?
 - Transfers (raptorchain address to another raptorchain address)
 - Using BEP20 tokens on RPTR testnet AND mainnet
+- cross-chain abilities with BSC, Polygon and Fantom
 - Multi-asset bridge (transfer any BEP20 between raptorchain and bsc)
 - EVM (ability to run smart contracts)
 
@@ -37,6 +38,11 @@ ticker : `RPTR`
 
 explorer : `https://explorer.raptorchain.io/`
 
+## INSTALL
+Linux users feel free to check it out [here](docs/install_debian.md)
+
+## RPC documentation
+Feel free to check RPC documentation in docs/rpc.md
 
 ## Note about Defi apps and WETH
 If you wanna deploy DeFi apps (like swap routers), please note that WRPTR address is [0xeF7cADE66695f4cD8a535f7916fBF659936818C4](https://explorer.raptorchain.io/address/0xeF7cADE66695f4cD8a535f7916fBF659936818C4) !
