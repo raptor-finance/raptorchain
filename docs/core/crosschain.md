@@ -42,6 +42,6 @@ On RaptorChain, call datafeed precompile's `getSlotData(chainid, slotowner, slot
 
 ## Datafeed addresses
 ### RaptorChain
-
+Precompile is at `0x000000000000000000000000000000000000FEeD`
 ### Other chains
 - Polygon : `0x47C0D110eEB1357225B707E0515B17Ab0EB1CaF6`
