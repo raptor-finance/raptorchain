@@ -1,13 +1,16 @@
+pyopenssl
 flask
 web3
 eth_account
 flask_cors
 dataclasses
 typing
+eth_abi
 eth_utils
 rlp
 cryptography
 secrets
 fastapi
+uvicorn
 pydantic
 rich
