@@ -43,7 +43,7 @@ You can add RaptorChain to metamask with RPC `https://rpc.raptorchain.io/web3`
 
 It also allows to interact with RaptorChain from web3 libraries (such as `web3.py` and `web3.js`) !
 
-## Transaction-related queries
+## Transaction retrieving queries
 The following paths are used to query raw transactions from node.
 
 These paths ALWAYS start by `/get`
@@ -57,12 +57,83 @@ Allows to query multiple transactions by txids (comma-separated without spaces).
 Example query : `https://rpc.raptorchain.io/get/transactions/0xfd6a0eae80027f47e5ee302de62e558ad415f4e679796dd771f7ca80bf337afd,0xd9e7ae43b045ba8380f4942bc6891578682b48565bcf7f5b5327de101865fa9d`
 
 ## Account-related queries
-These queries allow to query informations about RaptorChain accounts/addresses.
+These queries allow to query informations about RaptorChain accounts/addresses, plus some additional data from blockchain state.
 Address format is the same as Ethereum's one (to ensure EVM compatibility).
 
-### GET `/accounts/accountInfo/<address>`
+
+### GET `/accounts/accountInfo/<address>` : get informations about an account
 Allows to get informations about a specific RaptorChain address.
 Allows to retrieve its balance, nonce (ethereum-like) and transaction history.
 
 Example query : `https://rpc.raptorchain.io/accounts/accountInfo/0x3f119Cef08480751c47a6f59Af1AD2f90b319d44`
 
+### GET `/accounts/sent/<address>` : get transactions sent by an address
+Allows to get transactions sent by an address (mainly used for debug purposes).
+
+Example query : `https://rpc.raptorchain.io/accounts/sent/0x3f119Cef08480751c47a6f59Af1AD2f90b319d44`
+
+### GET `/accounts/accountBalance/<address>` : get balance of an account
+Allows to get ONLY balance of an account (accountInfo is pretty heavy).
+
+Example query : `https://rpc.raptorchain.io/accounts/accountBalance/0x3f119Cef08480751c47a6f59Af1AD2f90b319d44`
+
+### GET `/account/tempcode/<address>` : get temporary code of an account
+Debug query allowing to get `tempcode` variable of an account.
+Basically, RaptorChain accounts have 2 code variables (`code` and `tempcode`), where `code` is permanent (written after successful transaction execution) and `tempcode` is temporary (written regardless success, allowing to have same behavior on `eth_call`)
+
+### GET `/accounts/txChilds/{txid}` : get execution childs of a tx
+Allows to get childs of a transaction.
+
+Due to RaptorChain's nature (semi-asynchronous), tx parents/childs are part of its security model (to ensure a proper execution order).
+
+Basically, a transaction can ONLY execute if its parent (previous transaction involving sender account) is previous transaction, protecting network against re-entrancy.
+
+Example query : `https://rpc.raptorchain.io/accounts/txChilds/0xfd6a0eae80027f47e5ee302de62e558ad415f4e679796dd771f7ca80bf337afd`
+
+## Transaction sending queries
+Queries to send transactions, located under `/send`
+
+### GET `/send/rawtransaction/?tx=<comma-separated txs>` : legacy send transaction (DEPRECATED)
+Send hex encoded (json string to hex) raw (signed) transaction to a node !
+
+Example query : `https://rpc.raptorchain.io/send/rawtransaction/?tx=YOUR_TRANSACTION_HERE`
+
+### POST `/send/postrawtransaction/` : same but POST and up to date
+Send your transactions as post data in the following format :
+```
+	{
+		"txs": [tx1, tx2...] // list of transactions as string (NOT HEX)
+	}
+```
+
+Example query : post `{"txs": [yourTx]}` to `https://rpc.raptorchain.io/send/postrawtransaction/`
+
+### GET `/send/buildtransaction/` : remotely build and sign transaction - DEPRECATED
+Send params (private key, amount, sender, recipient) and sign transaction.
+
+WARNING : INVOLVE SENDING YOUR PRIVATE KEY TO THE NODE
+
+RISK OF LOSS OF FUNDS IN CASE OF ROGUE REMOTE NODE OR HACKED NODE
+
+## BeaconChain-related queries
+Queries related to BeaconChain (the "backbone" of the network).
+
+BeaconChain fills the following roles
+- cross-chain message routing (message are passed through beacon blocks)
+- data ordering (transactions use last beacon block as `epoch` param)
+- synchronization (nodes sync transactions by beacon block)
+
+### GET `/chain/block/<height>` : get beacon block by height
+Get a beacon block by height.
+
+Example query : `https://rpc.raptorchain.io/chain/block/10`
+
+### GET `/chain/blockByHash/<hash>` : get beacon block by hash
+Get a beacon block by hash.
+
+Example query : `https://rpc.raptorchain.io/chain/blockByHash/HASH`
+
+### GET `/chain/getlastblock` : get last beacon block
+Allows to get last beacon block.
+
+Example query : `https://rpc.raptorchain.io/chain/getlastblock`
