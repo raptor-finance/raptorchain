@@ -20,7 +20,7 @@ There's 2 ways to download this repo :
 - Install dependencies : `pip3 install -r requirements.txt`
 
 ### 3 - Start node
-- `python3 raptorchain.py`
+- `python3 RaptorChain.py`
 - wait for it to sync with network (approx. 20mn since blockchain isn't that big)
 
 ### 4 - Congrats !!!
