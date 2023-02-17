@@ -39,7 +39,7 @@ ticker : `RPTR`
 explorer : `https://explorer.raptorchain.io/`
 
 ## INSTALL
-Linux users feel free to check it out [here](docs/install_debian.md)
+Linux users feel free to check it out [here](docs/install/linux.md)
 
 ## RPC documentation
 Feel free to check RPC documentation in docs/rpc.md
