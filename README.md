@@ -38,9 +38,9 @@ ticker : `RPTR`
 
 explorer : `https://explorer.raptorchain.io/`
 
-## INSTALL
+## Installing RaptorChain
 Linux users feel free to check it out [here](docs/install/linux.md)
-And [here](docs/install/linux.md)'s the tutorial for windows users.
+And [here](docs/install/windows.md)'s the tutorial for windows users.
 
 ## RPC documentation
 Feel free to check RPC documentation in docs/rpc.md
