@@ -11,7 +11,8 @@ class Chain(object):
 
 chains = {
     "bsc" : Chain(56, "https://bscrpc.com/", 5, "0x4444F4a84d5160659E5b4D12fC2d6bC4F82B9747"),
-    "polygon" : Chain(137, "https://polygon-rpc.com/", 69, "0xA479C9790C18392fDf5069a81e2e469d9bd598aB")
+    "polygon" : Chain(137, "https://polygon-rpc.com/", 69, "0xA479C9790C18392fDf5069a81e2e469d9bd598aB"),
+    "fantom": Chain(250, "https://rpc.ftm.tools/", 100, "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495")
 }
 
 class BSCInterface(object):
