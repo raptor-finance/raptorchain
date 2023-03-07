@@ -135,6 +135,7 @@ class Transaction(object):
         self.messages = []
         self.systemMessages = []
         self.affectedAccounts = []
+        self.accountsToDestroy = []
         self.nonce = 0
         self.gasprice = 0
         self.epoch = txData.get("epoch")
@@ -894,6 +895,7 @@ class State(object):
             self.persist = False
             self.notTry = False
             self.contractDeployment = False
+            self.accountsToDestroy = []
             self.sender = w3.toChecksumAddress(call.get("from", "0x0000000000000000000000000000000000000000"))
             self.recipient = w3.toChecksumAddress(call.get("to", "0x0000000000000000000000000000000000000000"))
             if (self.recipient == "0x0000000000000000000000000000000000000000"):

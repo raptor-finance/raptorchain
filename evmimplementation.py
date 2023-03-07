@@ -1116,11 +1116,7 @@ class Opcodes(object):
             return
         else:
             addr = env.stack.pop()
-            env.getAccount(addr).balance += env.getAccount(env.recipient).balance
-            env.getAccount(env.recipient).balance = 0
-            env.getAccount(env.recipient).bio = ""
-            env.getAccount(env.recipient).code = b""
-            env.getAccount(env.recipient).storage = {}
+            env.tx.accountsToDestroy.append(addr)
             env.halt = True
         env.pc += 1
         
