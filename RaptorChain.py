@@ -967,6 +967,11 @@ class State(object):
             self.ensureExistence(chkaddr)
         return self.accounts.get(chkaddr, self.Account(chkaddr, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain))
 
+    def deleteAccount(self, _addr):
+        chkaddr = self.formatAddress(_addr)
+        self.accounts[chkaddr] = None
+        del self.accounts[chkaddr]      ## saves memory
+
     def calcStateRoot(self):
         accountHashes = []
         for (addr, acct) in self.accounts.items():
@@ -1453,6 +1458,10 @@ class State(object):
             self.accounts[valOwner].balance += toValOwner
         self.getAccount(self.burnAddress).balance += toBurn # sends funds to burn address
 
+    def delAccounts(self, tx):
+        for _addr in tx.accountsToDestroy:
+            self.deleteAccount(_addr)
+
     def playTransaction(self, tx, showMessage):
         _begin_ = time.time()
         _tx = Transaction(tx)
@@ -1499,6 +1508,7 @@ class State(object):
             self.getAccount(acct).calcHash()
         self.postTxMessages(_tx)
         self.distributeFee(_tx)
+        self.delAccounts(_tx)
         self.calcStateRoot()
         self.updateHolders()
         if self.verbose:
