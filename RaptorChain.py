@@ -967,10 +967,15 @@ class State(object):
             self.ensureExistence(chkaddr)
         return self.accounts.get(chkaddr, self.Account(chkaddr, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain))
 
-    def deleteAccount(self, _addr):
-        chkaddr = self.formatAddress(_addr)
-        self.accounts[chkaddr] = None
-        del self.accounts[chkaddr]      ## saves memory
+    def deleteAccount(self, addrs):
+        destroyable = self.formatAddress(addrs[0])
+        recipient = self.formatAddress(addrs[1])
+        
+        destroyableBalance = self.getAccount(destroyable).balance
+        self.getAccount(destroyable).balance = 0    # just to make sure
+        self.getAccount(recipient).balance += destroyableBalance
+        
+        del self.accounts[destroyable]      # destroys account object
 
     def calcStateRoot(self):
         accountHashes = []

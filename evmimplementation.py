@@ -1116,7 +1116,7 @@ class Opcodes(object):
             return
         else:
             addr = env.stack.pop()
-            env.tx.accountsToDestroy.append(addr)
+            env.tx.accountsToDestroy.append([env.recipient, addr])
             env.halt = True
         env.pc += 1
         
