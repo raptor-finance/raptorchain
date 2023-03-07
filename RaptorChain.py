@@ -2020,6 +2020,7 @@ class Wallet(object):
         self.encryptedkey = None
         self.privkey = None
         self.acct = None
+        self.creationAborted = False
         self.relayerCollateral = ((10**18) * 1000000)
         self.commands["info"] = [self.info, "wallet info - Get info about currently loaded wallet"]
         self.commands["balance"] = [self.balance, "wallet balance - Get wallet balance (note : might be incorrect if wallet isn't correctly synced)"]
@@ -2035,6 +2036,9 @@ class Wallet(object):
         self.commands["withdraw"] = [self.withdraw, "wallet withdraw <amount> - Cross-chain withdrawal (RaptorChain to BSC)"]
         self.commands["help"] = [self.help, "wallet help - Show this help message"]
         self.loadConfig()
+        
+    def __bool__(self):
+        return not self.creationAborted
         
     def createMNForSelf(self):
         acctTxs = self.node.state.getAccount(self.address).transactions
@@ -2116,10 +2120,13 @@ class Wallet(object):
         except:
             print("Do you want to import en existing key (e) or generate a new one (n) [default: n]")
             _a = input("Answer: ")
-            if (_a == "e"):
+            if (_a.lower() == "e"):
                 self.importKey()
-            else:
+            elif (_a.lower() == "n"):
                 self.create()
+            else:
+                print("Operation Aborted")
+                self.creationAborted = True
         else:
             self.encryptedkey = bytes.fromhex(data.get("encryptedkey"))
             self.address = data.get("address")
