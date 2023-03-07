@@ -953,7 +953,7 @@ class State(object):
         self.chainID = 499597202514 if self.testnet else 1380996178
         self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
         self.burnAddress = "0x000000000000000000000000000000000000dEaD"
-        self.version = "1.6.0-mainnet-beta"
+        self.version = "1.6.1-mainnet-beta"
 
     def formatAddress(self, _addr):
         if (type(_addr) == int):
