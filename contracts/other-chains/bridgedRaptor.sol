@@ -325,7 +325,7 @@ contract BridgedRaptor is Owned {
 	// user-side functions
 	function approve(address spender, uint256 tokens) public returns (bool) {
 		Account storage ownerAcct = accounts[msg.sender];
-		ownerAcct.allowances[spender] = ownerAcct.allowances[spender].add(tokens);
+		ownerAcct.allowances[spender] = tokens;
 		emit Approval(msg.sender, spender, tokens);
 		return true;
 	}
