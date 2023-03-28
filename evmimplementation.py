@@ -1420,6 +1420,8 @@ class PrecompiledContracts(object):
             _to = params[1]
             _gas = params[2]
             _data = params[3]
+            
+            _pricePerGas = env.chain.datafeed.gasPricings.get(_chainid, 3)  # loads proper gas pricing
             env.consumeGas(100)
             if (not self._isChainSupported(env, _chainid)):
                 env.revert(b"") # reverts if unsupported chain
@@ -1429,7 +1431,7 @@ class PrecompiledContracts(object):
             packedPL = self.packPayload(env, payload, _chainid)
 #            print(packedPL)
             env.messages.append(packedPL)
-            env.consumeGas(6900 + (_gas * 3))
+            env.consumeGas(6900 + (_gas * _pricePerGas))
         
         def call(self, env):
             try:
