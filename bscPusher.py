@@ -3,16 +3,20 @@ from web3.auto import w3
 import time, requests, eth_abi, sys
 
 class Chain(object):
-    def __init__(self, chainid, rpc, gasPrice, cntAddress):
+    def __init__(self, chainid, rpc, gasPrice, cntAddress, eip1559=False, tip=0):
         self.chainid = chainid
         self.rpc = rpc
         self.gasPrice = int(gasPrice * (10**9))
         self.cntAddress = cntAddress
+        self.eip1559 = eip1559
+        self.tip = tip
+        
 
 chains = {
     "bsc" : Chain(56, "https://bscrpc.com/", 5, "0x4444F4a84d5160659E5b4D12fC2d6bC4F82B9747"),
     "polygon" : Chain(137, "https://polygon-rpc.com/", 69, "0xA479C9790C18392fDf5069a81e2e469d9bd598aB"),
-    "fantom": Chain(250, "https://rpc.ftm.tools/", 120, "0x2f6bF313B0a8C30ce50D8cA3B1Dcb65EBaf318d6")
+    "fantom": Chain(250, "https://rpc.ftm.tools/", 120, "0x2f6bF313B0a8C30ce50D8cA3B1Dcb65EBaf318d6"),
+    "ethereum": Chain(1, "https://eth.llamarpc.com/", 40, "0xDb18De2bec4DDF3b12b01193aE9D0a35141DE159", True, 2)
 }
 
 class BSCInterface(object):
@@ -23,6 +27,9 @@ class BSCInterface(object):
         self.gasPrice = params.gasPrice
         self.rpcurl = rpc
         self.chainID = params.chainid
+        self.eip1559 = params.eip1559
+        
+        self.params = params
         
         if (rpc.split(":")[0]) in ["ws", "wss"]:
             self.chain = Web3(Web3.WebsocketProvider(rpc))
@@ -32,7 +39,7 @@ class BSCInterface(object):
         
         
     def buildTx(self, call, _from):
-        return call.buildTransaction({'nonce': self.chain.eth.get_transaction_count(_from),'chainId': self.chainID,'gasPrice': self.gasPrice, 'from':_from})
+        return call.buildTransaction({'nonce': self.chain.eth.get_transaction_count(_from),'chainId': self.chainID,'maxFeePerGas': self.gasPrice, "maxPriorityFeePerGas": self.params.tip, 'from':_from}) if self.eip1559 else call.buildTransaction({'nonce': self.chain.eth.get_transaction_count(_from),'chainId': self.chainID,'gasPrice': self.gasPrice, 'from':_from})
         
     def chainLength(self):
         return self.beaconInstance.functions.chainLength().call()
