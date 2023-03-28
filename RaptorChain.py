@@ -388,6 +388,7 @@ class BeaconChain(object):
     class DataFeedInterface(object):
         def __init__(self, testnet=True):
             self.testnet = testnet
+            self.gasPricings = {137: 3, 250: 3, 1: 69}
             self.rpcs = {56: "https://bscrpc.com/", 137: "https://polygon-rpc.com/", 250: "https://rpc.ftm.tools/", 1: "https://eth.public-rpc.com"}
             self.contractAddrsTestnet = {137: "0x22264132b46365EFb0bE413144Fa4d1616D82Abe", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x35Af22c3D78224206bdC2a4072E59593eb024322"}
             self.contractAddrsMainnet = {137: "0x47C0D110eEB1357225B707E0515B17Ab0EB1CaF6", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x35Af22c3D78224206bdC2a4072E59593eb024322"}
