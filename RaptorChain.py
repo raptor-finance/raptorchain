@@ -388,9 +388,9 @@ class BeaconChain(object):
     class DataFeedInterface(object):
         def __init__(self, testnet=True):
             self.testnet = testnet
-            self.rpcs = {56: "https://bscrpc.com/", 137: "https://polygon-rpc.com/", 250: "https://rpc.ftm.tools/"}
-            self.contractAddrsTestnet = {137: "0x22264132b46365EFb0bE413144Fa4d1616D82Abe", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495"}
-            self.contractAddrsMainnet = {137: "0x47C0D110eEB1357225B707E0515B17Ab0EB1CaF6", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495"}
+            self.rpcs = {56: "https://bscrpc.com/", 137: "https://polygon-rpc.com/", 250: "https://rpc.ftm.tools/", 1: "https://eth.public-rpc.com"}
+            self.contractAddrsTestnet = {137: "0x22264132b46365EFb0bE413144Fa4d1616D82Abe", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x35Af22c3D78224206bdC2a4072E59593eb024322"}
+            self.contractAddrsMainnet = {137: "0x47C0D110eEB1357225B707E0515B17Ab0EB1CaF6", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x35Af22c3D78224206bdC2a4072E59593eb024322"}
             self.abi = """[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"slotOwner","type":"address"},{"indexed":true,"internalType":"bytes32","name":"slotKey","type":"bytes32"},{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"}],"name":"SlotWritten","type":"event"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"getSlotData","outputs":[{"internalType":"bytes","name":"","type":"bytes"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"isWritten","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"slots","outputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"data","type":"bytes"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bool","name":"written","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"slotData","type":"bytes"}],"name":"writeSlot","outputs":[],"stateMutability":"nonpayable","type":"function"}]"""
             self.chains = {}
             self.contracts = {}
@@ -426,6 +426,7 @@ class BeaconChain(object):
         def testFeeds(self):
             self.testSpecificFeed(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x99c5fd30bd0ae7473ceceebe9b03158a0401f6e5ba371131b888c7f1419c4579", "Polygon")
             self.testSpecificFeed(250, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x2edb0fe31d6d92086b1152b80d4ba4867113a8b4514448801b7355e68d7d0a84", "Fantom")
+            self.testSpecificFeed(1, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0xaa7f97c471cd72aaa8b2665e28eeab23751323368fc92b576449fcbcb04c2e6c", "Ethereum")
 
         def testFeed(self):
             data = self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x99c5fd30bd0ae7473ceceebe9b03158a0401f6e5ba371131b888c7f1419c4579")
