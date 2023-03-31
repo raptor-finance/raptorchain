@@ -138,6 +138,7 @@ class Transaction(object):
         self.accountsToDestroy = []
         self.nonce = 0
         self.gasprice = 0
+        self.gasUsed = 0
         self.epoch = txData.get("epoch")
         _sig = tx.get("sig")
         self.sig = bytes.fromhex(_sig.replace("0x", "")) if _sig else b""
@@ -952,6 +953,9 @@ class State(object):
         self.precompiledContracts = self.precompiledContractsHandler.contracts
         self.hash = ""
         self.debug = False
+        self.benchmark = True
+        self.benchGas = 0   # total benchmarked gas (for average)
+        self.benchTime = 0  # total benchmarked execution time (for average)
         self.chainID = 499597202514 if self.testnet else 1380996178
         self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
         self.burnAddress = "0x000000000000000000000000000000000000dEaD"
@@ -1403,6 +1407,7 @@ class State(object):
         senderAcct.tempBalance += feeToRefund
         senderAcct.balance += feeToRefund
         tx.fee -= feeToRefund
+        tx.gasUsed = env.gasUsed
         return (env.getSuccess(), tx.returnValue.hex())
         # else:
             # for _addr in tx.affectedAccounts:
@@ -1518,8 +1523,10 @@ class State(object):
         self.delAccounts(_tx)
         self.calcStateRoot()
         self.updateHolders()
-        if self.verbose:
-            print(f"Transaction {_tx.txid} completed in {round((time.time()-_begin_)*1000, 3)}ms")
+        if self.benchmark:
+            _deltaT = time.time()-_begin_
+            _speed = (_tx.gasUsed / _deltaT) if _deltaT else 0
+            print(f"Transaction {_tx.txid} completed in {round((_deltaT*1000), 3)}ms ({int(_speed)}gas/second)")
         return feedback
 
     def getLastUserTx(self, _user):
