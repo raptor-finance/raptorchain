@@ -1566,6 +1566,8 @@ class CallEnv(object):
             self.returnValue = b"STATICCALL_DONT_ALLOW_SSTORE"
         else:
             self.storage[key] = value
+            if value == 0:
+                del self.storage[key]
     
     def safeIncrease(self, slot, value, errorMessage=b"INTEGER_OVERFLOW_DETECTED"):
         _prevValue = self.loadStorageKey(slot)
