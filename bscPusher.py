@@ -16,7 +16,7 @@ chains = {
     "bsc" : Chain(56, "https://bscrpc.com/", 5, "0x4444F4a84d5160659E5b4D12fC2d6bC4F82B9747"),
     "polygon" : Chain(137, "https://polygon-rpc.com/", 200, "0xA479C9790C18392fDf5069a81e2e469d9bd598aB", True, 20),
     "fantom": Chain(250, "https://rpc.ftm.tools/", 120, "0x2f6bF313B0a8C30ce50D8cA3B1Dcb65EBaf318d6"),
-    "ethereum": Chain(1, "https://eth.llamarpc.com/", 40, "0xDb18De2bec4DDF3b12b01193aE9D0a35141DE159", True, 2)
+    "ethereum": Chain(1, "https://eth.llamarpc.com/", 20, "0xDb18De2bec4DDF3b12b01193aE9D0a35141DE159", True, 0)
 }
 
 class BSCInterface(object):
