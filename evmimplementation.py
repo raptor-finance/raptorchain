@@ -1440,6 +1440,39 @@ class PrecompiledContracts(object):
                 print(f"Exception {e.__repr__()} caught calling CrossChainDataFeed with calldata {env.data.hex()}")
                 env.revert(b"")
         
+    class ConsensusInfo(object):
+        def __init__(self):
+            self.nullAddress = "0x0000000000000000000000000000000000000000"
+            self.methods = {}
+            
+        def calcFunctionSelector(self, functionName):
+            return bytes(w3.keccak(str(functionName).encode()))[0:4]
+            
+        def formatAddress(self, _addr):
+            if (type(_addr) == int):
+                hexfmt = hex(_addr)[2:]
+                return w3.toChecksumAddress("0x" + ("0" * (40-len(hexfmt))) + hexfmt)
+            return w3.toChecksumAddress(_addr)
+            
+        def returnSingleType(self, env, _type, _arg):
+            env.returnCall(eth_abi.encode_abi([_type], [_arg]))
+            
+        def isMN(self, env):
+            params = eth_abi.decode_abi(["address"], env.data[4:])
+            _addr = self.formatAddress(params[0])
+            _val = env.chain.validators.get(_addr, False)
+            _exists = bool(_val)
+            self.returnSingleType(env, "bool", _exists)
+            
+        def mnOwner(self, env):
+            params = eth_abi.decode_abi(["address"], env.data[4:])
+            _addr = self.formatAddress(params[0])
+            _val = env.chain.validators.get(_addr)
+            if _val:
+                return _val.owner
+            else:
+                self.returnSingleType(env, "address", self.nullAddress)    
+    
     def __init__(self, bridgeFallBack, bsc, getAccount):
         self.contracts = {}
         self.bsc = bsc
