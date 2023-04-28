@@ -1063,7 +1063,7 @@ class State(object):
     def estimateDestroyMNSuccess(self, tx):
         if ((not (self.beaconChain.validators.get(tx.recipient)))):
             return (False, "NOT_IN_VALIDATOR_SET")
-        return (self.beaconChain.validators.get(tx.recipient).owner == tx.sender, "")
+        return (self.beaconChain.validators.get(tx.recipient).owner == tx.sender, "VAL_OWNER")   # requires tx sender to own validator
         
     def createMN(self, tx):
         self.applyParentStuff(tx)
