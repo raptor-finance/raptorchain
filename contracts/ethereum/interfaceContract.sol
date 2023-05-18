@@ -405,6 +405,8 @@ contract RelayerSet {
 }
 
 contract BeaconChainHandler {
+	using SafeMath for uint256;
+
 	struct Beacon {
 		address miner;
 		uint256 nonce;
@@ -427,6 +429,8 @@ contract BeaconChainHandler {
 	uint256 blockTime = 600;
 	RelayerSet public relayerSet;
 	
+	uint256 public startingHeight;	// pruning, allows to skip empty blocks (typicaly ones generated before ethereum bridge launch)
+	
 	event CallExecuted(address indexed to, bytes data, bool success);
 	event CallDismissed(address indexed to, bytes data, string reason);
 
@@ -440,7 +444,8 @@ contract BeaconChainHandler {
 	
 	constructor(Beacon memory _genesisBeacon, address _stakingToken, uint256 mnCollateral) {
 		beacons.push(_genesisBeacon);
-		beacons[0].height = 0;
+		startingHeight = _genesisBeacon.height;
+		// beacons[0].height = 0;
         address bootstrapRelayer = 0xE12Ca65C7A260bF91687A2e1763FA603eCCd812a;
 		relayerSet = new RelayerSet(_stakingToken, mnCollateral, bootstrapRelayer);
 	}
@@ -507,7 +512,11 @@ contract BeaconChainHandler {
 	}
 	
 	function chainLength() public view returns (uint256) {
-		return beacons.length;
+		return (beacons.length + startingHeight);	// don't skip old beacons
+	}
+	
+	function getBeacon(uint256 height) public view returns (Beacon memory) {
+		return beacons[height.sub(startingHeight, "PRUNED_BEACON")];
 	}
 	
 	function beaconRelayerSigs(uint256 beaconHeight) public view returns (bytes[] memory) {
