@@ -378,22 +378,20 @@ contract RelayerSet {
 		bool controlSigMatch;
 		bool _controlReleased = controlSignerReleased;
 		address _controlSigner = controlSigner;
-		uint256 _systemNonce = systemNonce;
 		uint256 naka = nakamotoCoefficient();
 		
 		address prevAddr;
 		
 		for (uint256 n = 0; n<_sigs.length; n++) {
 			address addr = recoverSig(bkhash, _sigs[n]);
-			if ((addr > prevAddr) && isActive(addr)) {	// requires sigs to be in order but saves gas
+			if ((addr > prevAddr) && isActive(addr)) {	// requires sigs to be in ascending order but saves gas
 				controlSigMatch = (controlSigMatch || _controlReleased || (_controlSigner == addr));
 				prevAddr = addr;
 				validsigs++;
+				coeffmatched = ((validsigs >= naka) && controlSigMatch);
 			}
-			coeffmatched = ((validsigs >= naka) && controlSigMatch);
 			if (coeffmatched) { break; } // we don't need to keep checking once we're sure it works
 		}
-		systemNonce = _systemNonce+1; // using _systemNonce saves a gas-eating SLOAD
 	}
 	
 	function renounceControlSigner() public {
