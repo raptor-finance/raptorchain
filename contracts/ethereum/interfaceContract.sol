@@ -370,17 +370,24 @@ contract RelayerSet {
 		return ecrecover(hash, v, r, s);
 	}
 	
+	function isActive(address addr) public view returns (bool) {
+		return (relayerInfo[addr].active && relayerInfo[addr].depositBlock < block.number);
+	}
+	
 	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public returns (uint256 validsigs, bool coeffmatched) {
 		bool controlSigMatch;
 		bool _controlReleased = controlSignerReleased;
 		address _controlSigner = controlSigner;
 		uint256 _systemNonce = systemNonce;
 		uint256 naka = nakamotoCoefficient();
+		
+		address prevAddr;
+		
 		for (uint256 n = 0; n<_sigs.length; n++) {
 			address addr = recoverSig(bkhash, _sigs[n]);
-			if ((!signerCounted[_systemNonce][bkhash][addr]) && relayerInfo[addr].active) {
+			if ((addr > prevAddr) && isActive(addr)) {	// requires sigs to be in order but saves gas
 				controlSigMatch = (controlSigMatch || _controlReleased || (_controlSigner == addr));
- 				signerCounted[_systemNonce][bkhash][addr] = true;
+				prevAddr = addr;
 				validsigs++;
 			}
 			coeffmatched = ((validsigs >= naka) && controlSigMatch);
