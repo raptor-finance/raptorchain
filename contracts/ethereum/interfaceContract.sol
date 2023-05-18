@@ -374,7 +374,7 @@ contract RelayerSet {
 		return (relayerInfo[addr].active && relayerInfo[addr].depositBlock < block.number);
 	}
 	
-	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public returns (uint256 validsigs, bool coeffmatched) {
+	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public view returns (uint256 validsigs, bool coeffmatched) {
 		bool controlSigMatch;
 		bool _controlReleased = controlSignerReleased;
 		address _controlSigner = controlSigner;
