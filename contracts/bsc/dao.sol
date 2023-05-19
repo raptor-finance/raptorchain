@@ -168,6 +168,7 @@ contract RaptorDAO {
 		
 		mapping(address=>uint256) shares;				// shares per delegator
 		mapping (address => bool) everbeendelegated;	// for share value processing
+		address[] delegators;							// delegator history
 		
 		bool exists;
 	}
@@ -175,7 +176,7 @@ contract RaptorDAO {
 	struct Delegator {
 		uint256 undelegated;	// user undelegated tokens
 		uint256 depositBlock;	// delay before delegating
-		address[] delegated;
+		address[] delegated;	// list of validators user delegated to
 	}
 	
 	address public owner;
@@ -194,8 +195,23 @@ contract RaptorDAO {
 	
 	uint256 public totalBondedTokens;
 	
-	event ControlSignerReleased();
 	
+	// ERC20-compatible interface to allow display in a wallet (such as metamask)
+	// non-transferrable
+	string public name = "RaptorDAO";
+	string public symbol = "rDAO";
+	uint8 public decimals = 18;
+	
+	
+	event ControlSignerReleased();	
+	
+	event Transfer(address indexed from, address indexed to, uint256 tokens);
+	
+	event Deposit(address indexed guy, uint256 indexed tokens);
+	event Withdraw(address indexed guy, uint256 indexed tokens);
+	
+	event Delegate(address indexed delegator, address indexed relayer, uint256 tokens, uint256 shares);
+	event Undelegate(address indexed delegator, address indexed relayer, uint256 tokens, uint256 shares);
 	
 	modifier onlyRelayerOwner(address operator) {
 		require(relayerInfo[operator].owner == msg.sender, "Only relayer owner can do that");
@@ -206,15 +222,7 @@ contract RaptorDAO {
 		require(msg.sender == owner);
 		_;
 	}
-	
-	function _chainId() public pure returns (uint256) {
-		uint256 id;
-		assembly {
-			id := chainid()
-		}
-		return id;
-	}
-	
+
 	function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {
 		require(sig.length == 65, "invalid signature length");
 
@@ -281,16 +289,27 @@ contract RaptorDAO {
 	
 	function deposit(uint256 tokens) public {
 		Delegator storage delg = delegators[msg.sender];
-		stakingToken.transferFrom(msg.sender, address(this), tokens);
+		// take tokens
+		require(stakingToken.transferFrom(msg.sender, address(this), tokens), "TRANSFER_FROM_FAILED");
+		// add them to undelegated
 		delg.undelegated = delg.undelegated.add(tokens);
+		// cooldown
 		delg.depositBlock = block.number;
+		
+		emit Deposit(msg.sender, tokens);
+		emit Transfer(address(0), msg.sender, tokens);
 	}
 	
 	function withdraw(uint256 tokens) public {
 		Delegator storage delg = delegators[msg.sender];
 		require(block.number > delg.depositBlock, "UNMATCHED_COOLDOWN");
+		// subtract undelegated
 		delg.undelegated = delg.undelegated.sub(tokens, "INSUFFICIENT_UNDELEGATED");
-		stakingToken.transfer(msg.sender, tokens);
+		// send tokens
+		require(stakingToken.transfer(msg.sender, tokens), "TRANSFER_FAILED");
+		
+		emit Withdraw(msg.sender, tokens);
+		emit Transfer(msg.sender, address(0), tokens);
 	}
 	
 	function delegate(address relayer, uint256 tokens) public {
@@ -298,21 +317,28 @@ contract RaptorDAO {
 		Relayer storage rel = relayerInfo[relayer];
 		require(block.number > delg.depositBlock, "UNMATCHED_COOLDOWN");
 		require(rel.exists, "UNEXISTENT_RELAYER");
+		// subtract undelegated
 		delg.undelegated = delg.undelegated.sub(tokens, "INSUFFICIENT_UNDELEGATED");
-		
+		// compute shares
 		uint256 shares = tokensToShares(tokens, rel.tokens, rel.totalShares);
+		// add tokens and shares
 		rel.tokens = rel.tokens.add(tokens);
 		rel.totalShares = rel.totalShares.add(shares);
 		rel.shares[msg.sender] = rel.shares[msg.sender].add(shares);
 		
+		// add to history (for account value computation)
 		if (!rel.everbeendelegated[msg.sender]) {
 			rel.everbeendelegated[msg.sender] = true;
 			delg.delegated.push(relayer);
+			rel.delegators.push(msg.sender);
 		}
 		
+		// adjust total bonded tokens
 		if (rel.active) {
 			totalBondedTokens = totalBondedTokens.add(tokens);
 		}
+		
+		emit Delegate(msg.sender, relayer, tokens, shares);
 	}
 	
 	function undelegate(address relayer, uint256 tokens) public {
@@ -326,11 +352,25 @@ contract RaptorDAO {
 		rel.totalShares = rel.totalShares.sub(shares);
 		rel.tokens = rel.tokens.sub(tokens);
 		
+		// add tokens back
 		delg.undelegated = delg.undelegated.add(tokens);
 		
+		// adjust total bonded tokens
 		if (rel.active) {
 			totalBondedTokens = totalBondedTokens.sub(tokens);
 		}
+		
+		emit Undelegate(msg.sender, relayer, tokens, shares);
+	}
+	
+	function exit(address relayer, uint256 tokens) public {
+		undelegate(relayer, tokens);
+		withdraw(tokens);
+	}
+	
+	function redelegate(address sourceRelayer, address destRelayer, uint256 tokens) public {
+		undelegate(sourceRelayer, tokens);
+		delegate(destRelayer, tokens);
 	}
 	
 	
@@ -410,7 +450,7 @@ contract RaptorDAO {
 		for (uint256 n = 0; n<_sigs.length; n++) {
             addr = recoverSig(hash, _sigs[n]);
 			if (addr > prevAddress) {
-				signedTokens += sharesTotalValue(addr);	// counts share value
+				signedTokens += sharesTotalValue(addr);	// only counts share value
 				thresholdMatched = (threshold == 0) ? false : (signedTokens > threshold);	// don't break if there's no threshold
 				if (thresholdMatched) { break; }		// gas
 			}
@@ -435,7 +475,7 @@ contract RaptorDAO {
 		// take relayer tokens (reflects in share value)
 		rel.tokens = rel.tokens.sub(tokens);
 		// burn tokens
-		stakingToken.transfer(tokens, address(0xdead));
+		stakingToken.transfer(address(0xdead), tokens);
 	}
 	
 	// DAO functions
@@ -465,6 +505,15 @@ contract DAOAccount {
 		dao = RaptorDAO(_dao);
 	}
 	
+	function _chainId() public pure returns (uint256) {
+		uint256 id;
+		assembly {
+			id := chainid()
+		}
+		return id;
+	}
+	
+
 	function execCall(DAOCall memory _call, bytes[] memory _sigs) public {
 		bytes32 hash = keccak256(abi.encodePacked("execCall", _chainId(), abi.encode(_call)));
 		(, bool matched) = dao.recoverDelegatorSigs(hash, dao.daoThreshold(), _sigs);
