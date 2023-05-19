@@ -17,6 +17,14 @@ interface BridgeFallbackInterface {
 	function bridgeFallBack(bytes32 _hash, bytes memory _data) external;
 }
 
+interface DAOInterface {
+	function recoverRelayerSigs(bytes32 hash, bytes[] memory _sigs) external view returns (uint256 signedTokens, bool coeffmatched);
+	function recoverDelegatorSigs(bytes32 hash, bytes[] memory _sigs) external view returns (signedTokens);
+	
+	function totalDeposited() public view returns (uint256);
+	function daoThreshold() public view returns (uint256);
+	function totalBondedTokens() public view returns (uint256);
+}
 
 library SafeMath {
     /**
@@ -334,143 +342,6 @@ contract CustodyManager {
 	}
 }
 
-contract RelayerSet {
-	using SafeMath for uint256;
-
-	struct Relayer {
-		address owner;
-		address operator;
-		bool active;
-		
-		uint256 totalShares;	// to handle slashings/rewards/whatever
-		uint256 tokens;
-		
-		mapping(address=>uint256) shares;	// shares per delegator
-		bool exists;
-	}
-	
-	struct Delegator {
-		address user;
-		uint256 deposit;		// user tokens
-		uint256 depositBlock;	// delay before delegating
-	}
-	
-	address public owner;
-	address public controlSigner; // veto right, no right to force push data
-	bool public controlSignerReleased = false;
-	ERC20Interface public stakingToken;
-	uint256 public collateral;
-	mapping (address => Relayer) public relayerInfo;
-	address[] public relayersList;
-	uint256 public activeRelayers;
-	mapping (uint256 => mapping (bytes32 => mapping (address => bool))) signerCounted;
-	uint256 public systemNonce;
-	
-	event ControlSignerReleased();
-	
-	
-	modifier onlyRelayerOwner(address operator) {
-		require(relayerInfo[operator].owner == msg.sender, "Only relayer owner can do that");
-		_;
-	}
-	
-	modifier onlyOwner() {
-		require(msg.sender == owner);
-		_;
-	}
-	
-	function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {
-		require(sig.length == 65, "invalid signature length");
-
-		assembly {
-			// first 32 bytes, after the length prefix
-			r := mload(add(sig, 32))
-			// second 32 bytes
-			s := mload(add(sig, 64))
-			// final byte (first byte of the next 32 bytes)
-			v := byte(0, mload(add(sig, 96)))
-		}
-
-		// implicitly return (r, s, v)
-	}
-
-	function _addRelayer(address _owner, address operator, bool active) private {
-		require(!relayerInfo[operator].exists, "RELAYER_ALREADY_EXISTS");
-		Relayer storage rel = relayerInfo[operator];
-		rel.exists = true;
-		rel.owner = _owner;
-		rel.operator = operator;
-		rel.active = active;
-		
-		
-		relayersList.push(operator);
-		activeRelayers += 1;
-	}
-	
-	constructor(address _stakingToken, uint256 _collateral, address bootstrapRelayer) {
-		owner = msg.sender;
-		stakingToken = ERC20Interface(_stakingToken);
-		collateral = _collateral;
-		_addRelayer(address(0), bootstrapRelayer, true, 0);
-		controlSigner = bootstrapRelayer;
-	}
-	
-	
-	// share-related functions
-	function sharesToTokens(uint256 shares, uint256 totalTokens, uint256 totalShares) {
-		return shares.mul(totalTokens).div(totalShares);
-	}
-	
-	function tokensToShares(uint256 tokens, uint256 totalTokens, uint256 totalShares) {
-		return tokens.mul(totalShares).div(totalTokens);
-	}
-	
-	
-	// relayer-related functions
-	function nakamotoCoefficient() public view returns (uint256) {
-		return (activeRelayers/2)+1;
-	}
-	
-	function registerRelayer(address relayer) public {
-		_addRelayer(msg.sender, relayer, false);
-	}	
-	
-	
-	
-	// sig related stuff
-	
-	function recoverSig(bytes32 hash, bytes memory _sig) public pure returns (address signer) {
-		(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sig);
-		return ecrecover(hash, v, r, s);
-	}
-	
-	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public returns (uint256 validsigs, bool coeffmatched) {
-		bool controlSigMatch;
-		bool _controlReleased = controlSignerReleased;
-		address _controlSigner = controlSigner;
-		uint256 _systemNonce = systemNonce;
-		uint256 naka = nakamotoCoefficient();
-		for (uint256 n = 0; n<_sigs.length; n++) {
-			address addr = recoverSig(bkhash, _sigs[n]);
-			if ((!signerCounted[_systemNonce][bkhash][addr]) && relayerInfo[addr].active) {
-				controlSigMatch = (controlSigMatch || _controlReleased || (_controlSigner == addr));
- 				signerCounted[_systemNonce][bkhash][addr] = true;
-				validsigs++;
-			}
-			coeffmatched = ((validsigs >= naka) && controlSigMatch);
-			if (coeffmatched) { break; } // we don't need to keep checking once we're sure it works
-		}
-		systemNonce = _systemNonce+1; // using _systemNonce saves a gas-eating SLOAD
-	}
-	
-	function renounceControlSigner() public {
-		require(msg.sender == controlSigner, "UNMATCHED_CONTROL_SIGNER");
-		require(!controlSignerReleased, "ALREADY_RELEASED");
-		controlSignerReleased = true;
-		emit ControlSignerReleased();
-	}
-}
-
 contract BeaconChainHandler {
 	struct Beacon {
 		address miner;
@@ -494,7 +365,7 @@ contract BeaconChainHandler {
 	Beacon[] public beacons;
 	uint256 blockTime = 600;
 	address handler;
-	RelayerSet public relayerSet;
+	DAOInterface public dao;
 	
 	event CallExecuted(address indexed to, bytes data, bool success);
 	event CallDismissed(address indexed to, bytes data, string reason);
@@ -512,12 +383,12 @@ contract BeaconChainHandler {
 		return id;
 	}
 	
-	constructor(Beacon memory _genesisBeacon, address _stakingToken, uint256 mnCollateral) {
+	constructor(Beacon memory _genesisBeacon, address dao) {
 		beacons.push(_genesisBeacon);
 		beacons[0].height = 0;
 		handler = msg.sender;
         address bootstrapRelayer = 0xE12Ca65C7A260bF91687A2e1763FA603eCCd812a;
-		relayerSet = new RelayerSet(_stakingToken, mnCollateral, bootstrapRelayer);
+		dao = DAOInterface(dao);
 	}
 	
 	function beaconHash(Beacon memory _beacon) public pure returns (bytes32 beaconRoot) {
@@ -571,7 +442,7 @@ contract BeaconChainHandler {
 	
 	function pushBeacon(Beacon memory _beacon) public {
 		(bool _valid, string memory _reason) = isBeaconValid(_beacon);
-		(, bool sigsMatched) = relayerSet.recoverRelayerSigs(_beacon.proof, _beacon.relayerSigs);
+		(, bool sigsMatched) = dao.recoverRelayerSigs(_beacon.proof, _beacon.relayerSigs);
 		require(_valid, _reason);
 		require(sigsMatched, "UNMATCHED_RELAYER_SIGNATURES");
 		beacons.push(_beacon);
@@ -683,10 +554,10 @@ contract MasterContract {
 	// calldata to use on deployment
 	// GenesisBeacon calldata : ["0x0000000000000000000000000000000000000000",0,["0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b"],1,"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",1645457628,"0x496e697469616c697a696e672074686520526170746f72436861696e2e2e2e00","0x7d9e1f415e0084675c211687b1c8dfaee67e53128e325b5fdda9c98d7288aaeb",0,"0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000",0,"0x0000000000000000000000000000000000000000000000000000000000000000","0x0000000000000000000000000000000000000000000000000000000000000000"]
 	
-	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, address stakingToken, uint256 mnCollateral) {
+	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, address dao) {
 		// staking = new StakeManager(stakingToken);
         // chainInstances = new ChainsImplementationHandler(_genesisBeacon, stakingToken);
-		beaconchain = new BeaconChainHandler(_genesisBeacon, stakingToken, mnCollateral);
+		beaconchain = new BeaconChainHandler(_genesisBeacon, dao);
 		custody = new CustodyManager(address(beaconchain));
 		// staking.setBeaconHandler(beaconchain);
 	}

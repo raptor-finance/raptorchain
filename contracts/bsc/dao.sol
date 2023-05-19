@@ -152,33 +152,6 @@ library SafeMath {
     }
 }
 
-contract DAOAccount {
-	// This account allows executing DAO calls in a reduced permission setup
-	// Thus, it can't expose staked assets
-
-	address public dao;
-	
-	event DAOCallExecuted(address indexed to, bool indexed success, bytes memory data, bytes memory returnData);
-	
-	modifier onlyDAO {
-		require(msg.sender == dao, "NOT_DAO");
-	}
-	
-	struct DAOCall {
-		address to;
-		bytes data;
-	}
-
-	constructor() {
-		dao = msg.sender;
-	}
-	
-	function execCall(DAOCall memory _call) external onlyDAO {
-		(bool success, bytes memory returned) = _call.to.call(_call.data);
-		emit DAOCallExecuted(_call.to, success, _call.data, returned);
-	}
-}
-
 contract RaptorDAO {
 	using SafeMath for uint256;
 
@@ -218,9 +191,6 @@ contract RaptorDAO {
 	uint256 public systemNonce;
 	
 	uint256 public totalBondedTokens;
-	
-	
-	DAOAccount public immutable daoAcct;
 	
 	event ControlSignerReleased();
 	
@@ -269,8 +239,6 @@ contract RaptorDAO {
 		collateral = _collateral;
 		_addRelayer(address(0), bootstrapRelayer, true, 0);
 		controlSigner = bootstrapRelayer;
-		
-		daoAcct = new DAOAccount();
 	}
 	
 	
@@ -413,7 +381,7 @@ contract RaptorDAO {
 		return ecrecover(hash, v, r, s);
 	}
 	
-	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public returns (uint256 signedTokens, bool coeffmatched) {
+	function recoverRelayerSigs(bytes32 hash, bytes[] memory _sigs) public returns (uint256 signedTokens, bool coeffmatched) {
 		bool controlSigMatch;
 		bool _controlReleased = controlSignerReleased;
 		address _controlSigner = controlSigner;
@@ -435,13 +403,14 @@ contract RaptorDAO {
 		}
 	}
 	
-	function recoverDelegatorSigs(bytes32 hash, bytes[] memory _sigs) public returns (uint256 signedTokens) {
+	function recoverDelegatorSigs(bytes32 hash, uint256 threshold, bytes[] memory _sigs) public returns (uint256 signedTokens, bool thresholdMatched) {
 		address prevAddress = address(0);
-		uint256 naka = nakamotoCoefficient();
 		
 		for (uint256 n = 0; n<_sigs.length; n++) {
 			if (addr > prevAddress) {
 				signedTokens += votableBalanceOf(addr);	// only return signed tokens -> to be used by other contracts
+				thresholdMatched = (threshold == 0) ? false : (signedTokens > daoThreshold);	// don't break if there's no threshold
+				if (thresholdMatched) { break; }		// gas
 			}
 		}
 	}
@@ -462,23 +431,32 @@ contract RaptorDAO {
 	function daoThreshold() public view returns (uint256) {
 		return totalDeposited().div(2).add(1);	// make sure to be OVER threshold, division rounds down
 	}
+}
+
+contract DAOAccount {
+	// This account allows executing DAO calls in a reduced permission setup
+	// Thus, it can't expose staked assets
+
+	RaptorDAO public dao;
 	
-	function exec(DAOCall memory _call, bytes[] _sigs) public {
-		bytes32 _d = keccak256(abi.encodePacked(_call));
-		bytes32 hash = keccak256(abi.encodePacked("exec", _d));
-		uint256 signedTokens = recoverDelegatorSigs(hash, _sigs);
-		require(signedTokens > daoThreshold, "UNMATCHED_THRESHOLD");
-		daoAcct.execCall(_call);
+	event DAOCallExecuted(address indexed to, bool indexed success, bytes memory data, bytes memory returnData);
+	
+	modifier onlyDAO {
+		require(msg.sender == dao, "NOT_DAO");
 	}
 	
-	function execBatch(DAOCall[] memory _calls, bytes[] _sigs) public {
-		bytes32 _d = keccak256(abi.encodePacked(_calls));
-		bytes32 hash = keccak256(abi.encodePacked("exec", _d));
-		uint256 signedTokens = recoverDelegatorSigs(hash, _sigs);
-		require(signedTokens > daoThreshold, "UNMATCHED_THRESHOLD");
-		
-		for (uint256 n = 0; n<_calls.length; n++) {
-			daoAcct.execCall(_calls[n]);
-		}
+	struct DAOCall {
+		address to;
+		bytes data;
+	}
+
+	constructor(address dao) {
+		dao = _dao;
+	}
+	
+	function execCall(DAOCall memory _call, bytes[] memory _sigs) public {
+		bytes32 hash = keccak256(abi.encodePacked("exec", _call));
+		(, bool matched) = dao.recoverDelegatorSigs();
+		// TODO : implement logic
 	}
 }
