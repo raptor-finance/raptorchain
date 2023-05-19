@@ -463,7 +463,7 @@ contract BeaconChainHandler {
 		if (lastBlockHash != _beacon.parent) {
 			return (false, "UNMATCHED_PARENT");
 		}
-		if (_beacon.height != beacons.length) {
+		if (_beacon.height != chainLength()) {
 			return (false, "UNMATCHED_HEIGHT");
 		}
 		if ((_beacon.timestamp > block.timestamp) || (_beacon.timestamp < (beacons[beacons.length-1].timestamp + blockTime))) {
