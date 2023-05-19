@@ -183,7 +183,6 @@ contract RaptorDAO {
 	
 	bool public controlSignerReleased = false;
 	ERC20Interface public stakingToken;
-	uint256 public collateral;
 	
 	mapping(address => Relayer) public relayerInfo;
 	mapping(address => Delegator) public delegators;
@@ -236,10 +235,9 @@ contract RaptorDAO {
 		activeRelayers += 1;
 	}
 	
-	constructor(address _stakingToken, uint256 _collateral, address bootstrapRelayer) {
+	constructor(address _stakingToken, address bootstrapRelayer) {
 		owner = msg.sender;
 		stakingToken = ERC20Interface(_stakingToken);
-		collateral = _collateral;
 		_addRelayer(address(0), bootstrapRelayer, true);
 		controlSigner = bootstrapRelayer;
 	}
@@ -427,6 +425,19 @@ contract RaptorDAO {
 		emit ControlSignerReleased();
 	}
 	
+	// slashing
+	function _slash(address _relayer, uint256 tokens) private {
+		Relayer storage rel = relayerInfo[_relayer];
+		// disable relayer if it was enabled
+		if (rel.active) {
+			rel.active = false;
+			totalBondedTokens = totalBondedTokens.sub(rel.tokens);
+		}
+		// take relayer tokens
+		rel.tokens = rel.tokens.sub(tokens);
+		// burn tokens
+		stakingToken.transfer(tokens, address(0xdead));
+	}
 	
 	// DAO functions
 	function totalDeposited() public view returns (uint256) {
