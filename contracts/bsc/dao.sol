@@ -1,4 +1,7 @@
+// SPDX-License-Identifier: UNLICENSED
+
 pragma solidity 0.7.6;
+pragma abicoder v2;
 
 interface ERC20Interface {
     function totalSupply() external view returns (uint);
@@ -237,20 +240,20 @@ contract RaptorDAO {
 		owner = msg.sender;
 		stakingToken = ERC20Interface(_stakingToken);
 		collateral = _collateral;
-		_addRelayer(address(0), bootstrapRelayer, true, 0);
+		_addRelayer(address(0), bootstrapRelayer, true);
 		controlSigner = bootstrapRelayer;
 	}
 	
 	
 	// share-related functions
-	function sharesToTokens(uint256 shares, uint256 totalTokens, uint256 totalShares) {
+	function sharesToTokens(uint256 shares, uint256 totalTokens, uint256 totalShares) public pure returns (uint256) {
 		if (totalShares == 0) {
 			return shares;	// take rate of 1 if relayer is empty
 		}
 		return shares.mul(totalTokens).div(totalShares);
 	}
 	
-	function tokensToShares(uint256 tokens, uint256 totalTokens, uint256 totalShares) {
+	function tokensToShares(uint256 tokens, uint256 totalTokens, uint256 totalShares) public pure returns (uint256) {
 		if (totalTokens == 0) {
 			return tokens;	// use rate of 1 if empty
 		}
@@ -352,14 +355,14 @@ contract RaptorDAO {
 	}
 
 	function enableRelayer(address relayer) public onlyRelayerOwner(relayer) {
-		Relayer storage rel = relayerInfo[rel];
+		Relayer storage rel = relayerInfo[relayer];
 		require(!rel.active, "ALREADY_ACTIVE");	// no need to check existence since unexistent relayers are owned by address 0
 		rel.active = true;
 		totalBondedTokens = totalBondedTokens.add(rel.tokens);
 	}
 	
 	function disableRelayer(address relayer) public onlyRelayerOwner(relayer) {
-		Relayer storage rel = relayerInfo[rel];
+		Relayer storage rel = relayerInfo[relayer];
 		require(rel.active, "ALREADY_INACTIVE");
 		rel.active = false;
 		totalBondedTokens = totalBondedTokens.sub(rel.tokens);
@@ -381,7 +384,7 @@ contract RaptorDAO {
 		return ecrecover(hash, v, r, s);
 	}
 	
-	function recoverRelayerSigs(bytes32 hash, bytes[] memory _sigs) public returns (uint256 signedTokens, bool coeffmatched) {
+	function recoverRelayerSigs(bytes32 hash, bytes[] memory _sigs) public view returns (uint256 signedTokens, bool coeffmatched) {
 		bool controlSigMatch;
 		bool _controlReleased = controlSignerReleased;
 		address _controlSigner = controlSigner;
@@ -392,7 +395,7 @@ contract RaptorDAO {
 		
 		
 		for (uint256 n = 0; n<_sigs.length; n++) {
-			address addr = recoverSig(bkhash, _sigs[n]);
+			address addr = recoverSig(hash, _sigs[n]);
 			if (addr > prevAddress) {
 				controlSigMatch = (controlSigMatch || _controlReleased || (_controlSigner == addr));
 				signedTokens += bondedTokens(addr);
@@ -403,13 +406,15 @@ contract RaptorDAO {
 		}
 	}
 	
-	function recoverDelegatorSigs(bytes32 hash, uint256 threshold, bytes[] memory _sigs) public returns (uint256 signedTokens, bool thresholdMatched) {
+	function recoverDelegatorSigs(bytes32 hash, uint256 threshold, bytes[] memory _sigs) public view returns (uint256 signedTokens, bool thresholdMatched) {
 		address prevAddress = address(0);
-		
+		address addr;
+
 		for (uint256 n = 0; n<_sigs.length; n++) {
+            addr = recoverSig(hash, _sigs[n]);
 			if (addr > prevAddress) {
 				signedTokens += votableBalanceOf(addr);	// only return signed tokens -> to be used by other contracts
-				thresholdMatched = (threshold == 0) ? false : (signedTokens > daoThreshold);	// don't break if there's no threshold
+				thresholdMatched = (threshold == 0) ? false : (signedTokens > threshold);	// don't break if there's no threshold
 				if (thresholdMatched) { break; }		// gas
 			}
 		}
@@ -439,24 +444,24 @@ contract DAOAccount {
 
 	RaptorDAO public dao;
 	
-	event DAOCallExecuted(address indexed to, bool indexed success, bytes memory data, bytes memory returnData);
-	
-	modifier onlyDAO {
-		require(msg.sender == dao, "NOT_DAO");
-	}
+	event DAOCallExecuted(address indexed to, bool indexed success, bytes data, bytes returnData);
 	
 	struct DAOCall {
 		address to;
 		bytes data;
 	}
 
-	constructor(address dao) {
-		dao = _dao;
+	constructor(address _dao) {
+		dao = RaptorDAO(_dao);
 	}
 	
 	function execCall(DAOCall memory _call, bytes[] memory _sigs) public {
-		bytes32 hash = keccak256(abi.encodePacked("exec", _call));
-		(, bool matched) = dao.recoverDelegatorSigs();
-		// TODO : implement logic
+		bytes32 hash = keccak256(abi.encodePacked("exec", abi.encode(_call)));
+		(, bool matched) = dao.recoverDelegatorSigs(hash, dao.daoThreshold(), _sigs);
+        require(matched, "UNMATCHED_DAO_SIGS");
+        address to = _call.to;
+        bytes memory data = _call.data;
+        (bool success, bytes memory retData) = to.call(data);
+        emit DAOCallExecuted(to, success, data, retData);
 	}
 }
