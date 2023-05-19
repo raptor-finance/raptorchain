@@ -384,7 +384,7 @@ contract RelayerSet {
 		
 		for (uint256 n = 0; n<_sigs.length; n++) {
 			address addr = recoverSig(bkhash, _sigs[n]);
-			if ((addr > prevAddr) && isActive(addr)) {	// requires sigs to be in ascending order but saves gas
+			if ((addr > prevAddr) && isActive(addr)) {	// requires signers to be in ascending order but saves gas, plus allows to mark function as view
 				controlSigMatch = (controlSigMatch || _controlReleased || (_controlSigner == addr));
 				prevAddr = addr;
 				validsigs++;
