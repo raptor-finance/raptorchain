@@ -433,7 +433,7 @@ contract RaptorDAO {
 			rel.active = false;
 			totalBondedTokens = totalBondedTokens.sub(rel.tokens);
 		}
-		// take relayer tokens
+		// take relayer tokens (reflects in share value)
 		rel.tokens = rel.tokens.sub(tokens);
 		// burn tokens
 		stakingToken.transfer(tokens, address(0xdead));
