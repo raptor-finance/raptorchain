@@ -152,7 +152,34 @@ library SafeMath {
     }
 }
 
-contract RelayerSet {
+contract DAOAccount {
+	// This account allows executing DAO calls in a reduced permission setup
+	// Thus, it can't expose staked assets
+
+	address public dao;
+	
+	event DAOCallExecuted(address indexed to, bool indexed success, bytes memory data, bytes memory returnData);
+	
+	modifier onlyDAO {
+		require(msg.sender == dao, "NOT_DAO");
+	}
+	
+	struct DAOCall {
+		address to;
+		bytes data;
+	}
+
+	constructor() {
+		dao = msg.sender;
+	}
+	
+	function execCall(DAOCall memory _call) external onlyDAO {
+		(bool success, bytes memory returned) = _call.to.call(_call.data);
+		emit DAOCallExecuted(_call.to, success, _call.data, returned);
+	}
+}
+
+contract RaptorDAO {
 	using SafeMath for uint256;
 
 	struct Relayer {
@@ -163,7 +190,9 @@ contract RelayerSet {
 		uint256 totalShares;	// to handle slashings/rewards/whatever
 		uint256 tokens;
 		
-		mapping(address=>uint256) shares;	// shares per delegator
+		mapping(address=>uint256) shares;				// shares per delegator
+		mapping (address => bool) everbeendelegated;	// for share value processing
+		
 		bool exists;
 	}
 	
@@ -189,6 +218,9 @@ contract RelayerSet {
 	uint256 public systemNonce;
 	
 	uint256 public totalBondedTokens;
+	
+	
+	DAOAccount public immutable daoAcct;
 	
 	event ControlSignerReleased();
 	
@@ -237,15 +269,23 @@ contract RelayerSet {
 		collateral = _collateral;
 		_addRelayer(address(0), bootstrapRelayer, true, 0);
 		controlSigner = bootstrapRelayer;
+		
+		daoAcct = new DAOAccount();
 	}
 	
 	
 	// share-related functions
 	function sharesToTokens(uint256 shares, uint256 totalTokens, uint256 totalShares) {
+		if (totalShares == 0) {
+			return shares;	// take rate of 1 if relayer is empty
+		}
 		return shares.mul(totalTokens).div(totalShares);
 	}
 	
 	function tokensToShares(uint256 tokens, uint256 totalTokens, uint256 totalShares) {
+		if (totalTokens == 0) {
+			return tokens;	// use rate of 1 if empty
+		}
 		return tokens.mul(totalShares).div(totalTokens);
 	}
 	
@@ -280,18 +320,29 @@ contract RelayerSet {
 		Delegator storage delg = delegators[msg.sender];
 		Relayer storage rel = relayerInfo[relayer];
 		require(block.number > delg.depositBlock, "UNMATCHED_COOLDOWN");
+		require(rel.exists, "UNEXISTENT_RELAYER");
 		delg.undelegated = delg.undelegated.sub(tokens, "INSUFFICIENT_UNDELEGATED");
 		
 		uint256 shares = tokensToShares(tokens, rel.tokens, rel.totalShares);
 		rel.tokens = rel.tokens.add(tokens);
 		rel.totalShares = rel.totalShares.add(shares);
 		rel.shares[msg.sender] = rel.shares[msg.sender].add(shares);
+		
+		if (!rel.everbeendelegated[msg.sender]) {
+			rel.everbeendelegated[msg.sender] = true;
+			delg.delegated.push(relayer);
+		}
+		
+		if (rel.active) {
+			totalBondedTokens = totalBondedTokens.add(tokens);
+		}
 	}
 	
 	function undelegate(address relayer, uint256 tokens) public {
 		Delegator storage delg = delegators[msg.sender];
 		Relayer storage rel = relayerInfo[relayer];
 		require(block.number > delg.depositBlock, "UNMATCHED_COOLDOWN");
+		require(rel.exists, "UNEXISTENT_RELAYER");
 		
 		uint256 shares = tokensToShares(tokens, rel.tokens, rel.totalShares);
 		rel.shares[msg.sender] = rel.shares[msg.sender].sub(shares, "INSUFFICIENT_SHARES");
@@ -299,8 +350,29 @@ contract RelayerSet {
 		rel.tokens = rel.tokens.sub(tokens);
 		
 		delg.undelegated = delg.undelegated.add(tokens);
+		
+		if (rel.active) {
+			totalBondedTokens = totalBondedTokens.sub(tokens);
+		}
 	}
 	
+	
+	
+	
+	function balanceOf(address delegator) public view returns (uint256) {
+		uint256 undelegated = delegators[delegator].undelegated;
+		uint256 delegated = sharesTotalValue(delegator);
+		return delegated.add(undelegated);
+	}
+	
+	function votableBalanceOf(address delegator) public view returns (uint256) {
+		Delegator storage delg = delegators[delegator];
+		if (delg.depositBlock < block.number) {
+			return delg.undelegated.add(sharesTotalValue(delegator));
+		} else {
+			return sharesTotalValue(delegator);	// don't count undelegated if cooldown hasn't been reached
+		}
+	}
 	
 	// relayer-related functions
 	function nakamotoCoefficient() public view returns (uint256) {
@@ -309,6 +381,20 @@ contract RelayerSet {
 	
 	function registerRelayer(address relayer) public {
 		_addRelayer(msg.sender, relayer, false);
+	}
+
+	function enableRelayer(address relayer) public onlyRelayerOwner(relayer) {
+		Relayer storage rel = relayerInfo[rel];
+		require(!rel.active, "ALREADY_ACTIVE");	// no need to check existence since unexistent relayers are owned by address 0
+		rel.active = true;
+		totalBondedTokens = totalBondedTokens.add(rel.tokens);
+	}
+	
+	function disableRelayer(address relayer) public onlyRelayerOwner(relayer) {
+		Relayer storage rel = relayerInfo[rel];
+		require(rel.active, "ALREADY_INACTIVE");
+		rel.active = false;
+		totalBondedTokens = totalBondedTokens.sub(rel.tokens);
 	}
 	
 	
@@ -343,17 +429,19 @@ contract RelayerSet {
 				controlSigMatch = (controlSigMatch || _controlReleased || (_controlSigner == addr));
 				signedTokens += bondedTokens(addr);
 				prevAddress = addr;
+				coeffmatched = ((signedTokens >= naka) && controlSigMatch);
 			}
-			coeffmatched = ((signedTokens >= naka) && controlSigMatch);
 			if (coeffmatched) { break; } // we don't need to keep checking once we're sure it works
 		}
 	}
 	
-	function recoverDelegatorSigs(bytes32 hash, bytes[] memory _sigs) public returns (uint256 signedTokens, bool coeffmatched) {
+	function recoverDelegatorSigs(bytes32 hash, bytes[] memory _sigs) public returns (uint256 signedTokens) {
 		address prevAddress = address(0);
+		uint256 naka = nakamotoCoefficient();
+		
 		for (uint256 n = 0; n<_sigs.length; n++) {
 			if (addr > prevAddress) {
-				
+				signedTokens += votableBalanceOf(addr);	// only return signed tokens -> to be used by other contracts
 			}
 		}
 	}
@@ -363,5 +451,34 @@ contract RelayerSet {
 		require(!controlSignerReleased, "ALREADY_RELEASED");
 		controlSignerReleased = true;
 		emit ControlSignerReleased();
+	}
+	
+	
+	// DAO functions
+	function totalDeposited() public view returns (uint256) {
+		return stakingToken.balanceOf(address(this));
+	}
+	
+	function daoThreshold() public view returns (uint256) {
+		return totalDeposited().div(2).add(1);	// make sure to be OVER threshold, division rounds down
+	}
+	
+	function exec(DAOCall memory _call, bytes[] _sigs) public {
+		bytes32 _d = keccak256(abi.encodePacked(_call));
+		bytes32 hash = keccak256(abi.encodePacked("exec", _d));
+		uint256 signedTokens = recoverDelegatorSigs(hash, _sigs);
+		require(signedTokens > daoThreshold, "UNMATCHED_THRESHOLD");
+		daoAcct.execCall(_call);
+	}
+	
+	function execBatch(DAOCall[] memory _calls, bytes[] _sigs) public {
+		bytes32 _d = keccak256(abi.encodePacked(_calls));
+		bytes32 hash = keccak256(abi.encodePacked("exec", _d));
+		uint256 signedTokens = recoverDelegatorSigs(hash, _sigs);
+		require(signedTokens > daoThreshold, "UNMATCHED_THRESHOLD");
+		
+		for (uint256 n = 0; n<_calls.length; n++) {
+			daoAcct.execCall(_calls[n]);
+		}
 	}
 }
