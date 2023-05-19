@@ -1,0 +1,367 @@
+pragma solidity 0.7.6;
+
+interface ERC20Interface {
+    function totalSupply() external view returns (uint);
+    function balanceOf(address tokenOwner) external view returns (uint balance);
+    function allowance(address tokenOwner, address spender) external view returns (uint remaining);
+    function transfer(address to, uint tokens) external returns (bool success);
+    function approve(address spender, uint tokens) external returns (bool success);
+    function transferFrom(address from, address to, uint tokens) external returns (bool success);
+}
+
+library SafeMath {
+    /**
+     * @dev Returns the addition of two unsigned integers, reverting on
+     * overflow.
+     *
+     * Counterpart to Solidity's `+` operator.
+     *
+     * Requirements:
+     *
+     * - Addition cannot overflow.
+     */
+    function add(uint256 a, uint256 b) internal pure returns (uint256) {
+        uint256 c = a + b;
+        require(c >= a, "SafeMath: addition overflow");
+
+        return c;
+    }
+
+    /**
+     * @dev Returns the subtraction of two unsigned integers, reverting on
+     * overflow (when the result is negative).
+     *
+     * Counterpart to Solidity's `-` operator.
+     *
+     * Requirements:
+     *
+     * - Subtraction cannot overflow.
+     */
+    function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+        return sub(a, b, "SafeMath: subtraction overflow");
+    }
+
+    /**
+     * @dev Returns the subtraction of two unsigned integers, reverting with custom message on
+     * overflow (when the result is negative).
+     *
+     * Counterpart to Solidity's `-` operator.
+     *
+     * Requirements:
+     *
+     * - Subtraction cannot overflow.
+     */
+    function sub(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
+        require(b <= a, errorMessage);
+        uint256 c = a - b;
+
+        return c;
+    }
+
+    /**
+     * @dev Returns the multiplication of two unsigned integers, reverting on
+     * overflow.
+     *
+     * Counterpart to Solidity's `*` operator.
+     *
+     * Requirements:
+     *
+     * - Multiplication cannot overflow.
+     */
+    function mul(uint256 a, uint256 b) internal pure returns (uint256) {
+        // Gas optimization: this is cheaper than requiring 'a' not being zero, but the
+        // benefit is lost if 'b' is also tested.
+        // See: https://github.com/OpenZeppelin/openzeppelin-contracts/pull/522
+        if (a == 0) {
+            return 0;
+        }
+
+        uint256 c = a * b;
+        require(c / a == b, "SafeMath: multiplication overflow");
+
+        return c;
+    }
+
+    /**
+     * @dev Returns the integer division of two unsigned integers. Reverts on
+     * division by zero. The result is rounded towards zero.
+     *
+     * Counterpart to Solidity's `/` operator. Note: this function uses a
+     * `revert` opcode (which leaves remaining gas untouched) while Solidity
+     * uses an invalid opcode to revert (consuming all remaining gas).
+     *
+     * Requirements:
+     *
+     * - The divisor cannot be zero.
+     */
+    function div(uint256 a, uint256 b) internal pure returns (uint256) {
+        return div(a, b, "SafeMath: division by zero");
+    }
+
+    /**
+     * @dev Returns the integer division of two unsigned integers. Reverts with custom message on
+     * division by zero. The result is rounded towards zero.
+     *
+     * Counterpart to Solidity's `/` operator. Note: this function uses a
+     * `revert` opcode (which leaves remaining gas untouched) while Solidity
+     * uses an invalid opcode to revert (consuming all remaining gas).
+     *
+     * Requirements:
+     *
+     * - The divisor cannot be zero.
+     */
+    function div(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
+        require(b > 0, errorMessage);
+        uint256 c = a / b;
+        // assert(a == b * c + a % b); // There is no case in which this doesn't hold
+
+        return c;
+    }
+
+    /**
+     * @dev Returns the remainder of dividing two unsigned integers. (unsigned integer modulo),
+     * Reverts when dividing by zero.
+     *
+     * Counterpart to Solidity's `%` operator. This function uses a `revert`
+     * opcode (which leaves remaining gas untouched) while Solidity uses an
+     * invalid opcode to revert (consuming all remaining gas).
+     *
+     * Requirements:
+     *
+     * - The divisor cannot be zero.
+     */
+    function mod(uint256 a, uint256 b) internal pure returns (uint256) {
+        return mod(a, b, "SafeMath: modulo by zero");
+    }
+
+    /**
+     * @dev Returns the remainder of dividing two unsigned integers. (unsigned integer modulo),
+     * Reverts with custom message when dividing by zero.
+     *
+     * Counterpart to Solidity's `%` operator. This function uses a `revert`
+     * opcode (which leaves remaining gas untouched) while Solidity uses an
+     * invalid opcode to revert (consuming all remaining gas).
+     *
+     * Requirements:
+     *
+     * - The divisor cannot be zero.
+     */
+    function mod(uint256 a, uint256 b, string memory errorMessage) internal pure returns (uint256) {
+        require(b != 0, errorMessage);
+        return a % b;
+    }
+}
+
+contract RelayerSet {
+	using SafeMath for uint256;
+
+	struct Relayer {
+		address owner;
+		address operator;
+		bool active;
+		
+		uint256 totalShares;	// to handle slashings/rewards/whatever
+		uint256 tokens;
+		
+		mapping(address=>uint256) shares;	// shares per delegator
+		bool exists;
+	}
+	
+	struct Delegator {
+		uint256 undelegated;	// user undelegated tokens
+		uint256 depositBlock;	// delay before delegating
+		address[] delegated;
+	}
+	
+	address public owner;
+	address public controlSigner; // veto right, no right to force push data
+	
+	bool public controlSignerReleased = false;
+	ERC20Interface public stakingToken;
+	uint256 public collateral;
+	
+	mapping(address => Relayer) public relayerInfo;
+	mapping(address => Delegator) public delegators;
+	address[] public relayersList;
+	
+	uint256 public activeRelayers;
+	mapping (uint256 => mapping (bytes32 => mapping (address => bool))) signerCounted;
+	uint256 public systemNonce;
+	
+	uint256 public totalBondedTokens;
+	
+	event ControlSignerReleased();
+	
+	
+	modifier onlyRelayerOwner(address operator) {
+		require(relayerInfo[operator].owner == msg.sender, "Only relayer owner can do that");
+		_;
+	}
+	
+	modifier onlyOwner() {
+		require(msg.sender == owner);
+		_;
+	}
+	
+	function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {
+		require(sig.length == 65, "invalid signature length");
+
+		assembly {
+			// first 32 bytes, after the length prefix
+			r := mload(add(sig, 32))
+			// second 32 bytes
+			s := mload(add(sig, 64))
+			// final byte (first byte of the next 32 bytes)
+			v := byte(0, mload(add(sig, 96)))
+		}
+
+		// implicitly return (r, s, v)
+	}
+
+	function _addRelayer(address _owner, address operator, bool active) private {
+		require(!relayerInfo[operator].exists, "RELAYER_ALREADY_EXISTS");
+		Relayer storage rel = relayerInfo[operator];
+		rel.exists = true;
+		rel.owner = _owner;
+		rel.operator = operator;
+		rel.active = active;
+		
+		
+		relayersList.push(operator);
+		activeRelayers += 1;
+	}
+	
+	constructor(address _stakingToken, uint256 _collateral, address bootstrapRelayer) {
+		owner = msg.sender;
+		stakingToken = ERC20Interface(_stakingToken);
+		collateral = _collateral;
+		_addRelayer(address(0), bootstrapRelayer, true, 0);
+		controlSigner = bootstrapRelayer;
+	}
+	
+	
+	// share-related functions
+	function sharesToTokens(uint256 shares, uint256 totalTokens, uint256 totalShares) {
+		return shares.mul(totalTokens).div(totalShares);
+	}
+	
+	function tokensToShares(uint256 tokens, uint256 totalTokens, uint256 totalShares) {
+		return tokens.mul(totalShares).div(totalTokens);
+	}
+	
+	// delegator-related functions
+	function sharesValue(address _delegator, address _relayer) public view returns (uint256) {
+		Relayer storage rel = relayerInfo[_relayer];
+		return sharesToTokens(rel.shares[_delegator], rel.tokens, rel.totalShares);
+	}
+	
+	function sharesTotalValue(address _delegator) public view returns (uint256 value) {
+		Delegator storage delg = delegators[_delegator];
+		for (uint256 n = 0; n<delg.delegated.length; n++) {
+			value = value.add(sharesValue(_delegator, delg.delegated[n]));
+		}
+	}
+	
+	function deposit(uint256 tokens) public {
+		Delegator storage delg = delegators[msg.sender];
+		stakingToken.transferFrom(msg.sender, address(this), tokens);
+		delg.undelegated = delg.undelegated.add(tokens);
+		delg.depositBlock = block.number;
+	}
+	
+	function withdraw(uint256 tokens) public {
+		Delegator storage delg = delegators[msg.sender];
+		require(block.number > delg.depositBlock, "UNMATCHED_COOLDOWN");
+		delg.undelegated = delg.undelegated.sub(tokens, "INSUFFICIENT_UNDELEGATED");
+		stakingToken.transfer(msg.sender, tokens);
+	}
+	
+	function delegate(address relayer, uint256 tokens) public {
+		Delegator storage delg = delegators[msg.sender];
+		Relayer storage rel = relayerInfo[relayer];
+		require(block.number > delg.depositBlock, "UNMATCHED_COOLDOWN");
+		delg.undelegated = delg.undelegated.sub(tokens, "INSUFFICIENT_UNDELEGATED");
+		
+		uint256 shares = tokensToShares(tokens, rel.tokens, rel.totalShares);
+		rel.tokens = rel.tokens.add(tokens);
+		rel.totalShares = rel.totalShares.add(shares);
+		rel.shares[msg.sender] = rel.shares[msg.sender].add(shares);
+	}
+	
+	function undelegate(address relayer, uint256 tokens) public {
+		Delegator storage delg = delegators[msg.sender];
+		Relayer storage rel = relayerInfo[relayer];
+		require(block.number > delg.depositBlock, "UNMATCHED_COOLDOWN");
+		
+		uint256 shares = tokensToShares(tokens, rel.tokens, rel.totalShares);
+		rel.shares[msg.sender] = rel.shares[msg.sender].sub(shares, "INSUFFICIENT_SHARES");
+		rel.totalShares = rel.totalShares.sub(shares);
+		rel.tokens = rel.tokens.sub(tokens);
+		
+		delg.undelegated = delg.undelegated.add(tokens);
+	}
+	
+	
+	// relayer-related functions
+	function nakamotoCoefficient() public view returns (uint256) {
+		return (totalBondedTokens/2)+1;	// division can't overflow. as it returns a number below 2**255, addition can't overflow either
+	}
+	
+	function registerRelayer(address relayer) public {
+		_addRelayer(msg.sender, relayer, false);
+	}
+	
+	
+	
+	function bondedTokens(address addr) public view returns (uint256) {
+		if (!relayerInfo[addr].active) {
+			return 0;
+		}
+		return relayerInfo[addr].tokens;
+	}
+	
+	// sig related stuff
+	
+	function recoverSig(bytes32 hash, bytes memory _sig) public pure returns (address signer) {
+		(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sig);
+		return ecrecover(hash, v, r, s);
+	}
+	
+	function recoverRelayerSigs(bytes32 bkhash, bytes[] memory _sigs) public returns (uint256 signedTokens, bool coeffmatched) {
+		bool controlSigMatch;
+		bool _controlReleased = controlSignerReleased;
+		address _controlSigner = controlSigner;
+		
+		uint256 naka = nakamotoCoefficient();
+		
+		address prevAddress = address(0);
+		
+		
+		for (uint256 n = 0; n<_sigs.length; n++) {
+			address addr = recoverSig(bkhash, _sigs[n]);
+			if (addr > prevAddress) {
+				controlSigMatch = (controlSigMatch || _controlReleased || (_controlSigner == addr));
+				signedTokens += bondedTokens(addr);
+				prevAddress = addr;
+			}
+			coeffmatched = ((signedTokens >= naka) && controlSigMatch);
+			if (coeffmatched) { break; } // we don't need to keep checking once we're sure it works
+		}
+	}
+	
+	function recoverDelegatorSigs(bytes32 hash, bytes[] memory _sigs) public returns (uint256 signedTokens, bool coeffmatched) {
+		address prevAddress = address(0);
+		for (uint256 n = 0; n<_sigs.length; n++) {
+			if (addr > prevAddress) {
+				
+			}
+		}
+	}
+	
+	function renounceControlSigner() public {
+		require(msg.sender == controlSigner, "UNMATCHED_CONTROL_SIGNER");
+		require(!controlSignerReleased, "ALREADY_RELEASED");
+		controlSignerReleased = true;
+		emit ControlSignerReleased();
+	}
+}

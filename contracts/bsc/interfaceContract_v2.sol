@@ -335,13 +335,24 @@ contract CustodyManager {
 }
 
 contract RelayerSet {
+	using SafeMath for uint256;
+
 	struct Relayer {
 		address owner;
 		address operator;
 		bool active;
-		uint256 collateral;
-		uint256 depositBlock;
+		
+		uint256 totalShares;	// to handle slashings/rewards/whatever
+		uint256 tokens;
+		
+		mapping(address=>uint256) shares;	// shares per delegator
 		bool exists;
+	}
+	
+	struct Delegator {
+		address user;
+		uint256 deposit;		// user tokens
+		uint256 depositBlock;	// delay before delegating
 	}
 	
 	address public owner;
@@ -383,9 +394,15 @@ contract RelayerSet {
 		// implicitly return (r, s, v)
 	}
 
-	function _addRelayer(address _owner, address operator, bool active, uint256 _collateral) private {
+	function _addRelayer(address _owner, address operator, bool active) private {
 		require(!relayerInfo[operator].exists, "RELAYER_ALREADY_EXISTS");
-		relayerInfo[operator] = Relayer({owner: _owner, operator: operator, active: active, collateral: _collateral, depositBlock: block.number, exists: true});
+		Relayer storage rel = relayerInfo[operator];
+		rel.exists = true;
+		rel.owner = _owner;
+		rel.operator = operator;
+		rel.active = active;
+		
+		
 		relayersList.push(operator);
 		activeRelayers += 1;
 	}
@@ -398,36 +415,29 @@ contract RelayerSet {
 		controlSigner = bootstrapRelayer;
 	}
 	
+	
+	// share-related functions
+	function sharesToTokens(uint256 shares, uint256 totalTokens, uint256 totalShares) {
+		return shares.mul(totalTokens).div(totalShares);
+	}
+	
+	function tokensToShares(uint256 tokens, uint256 totalTokens, uint256 totalShares) {
+		return tokens.mul(totalShares).div(totalTokens);
+	}
+	
+	
+	// relayer-related functions
 	function nakamotoCoefficient() public view returns (uint256) {
 		return (activeRelayers/2)+1;
 	}
 	
-	function createRelayer(address operator) public {
-		require(stakingToken.transferFrom(msg.sender, address(this), collateral), "TRANSFER_FROM_FAILED");
-		_addRelayer(msg.sender, operator, true, collateral);
-	}
+	function registerRelayer(address relayer) public {
+		_addRelayer(msg.sender, relayer, false);
+	}	
 	
-	function enableRelayer(address operator) public onlyRelayerOwner(operator) {
-		Relayer storage relayer = relayerInfo[operator];
-		require(!relayer.active, "ALREADY_ACTIVE");
-		require(stakingToken.transferFrom(msg.sender, address(this), collateral), "TRANSFER_FROM_FAILED"); // assuming it's onlyRelayerOwner, then msg.sender == relayer.owner
-		relayer.active = true;
-		relayer.depositBlock = block.number;
-		activeRelayers += 1;
-	}
 	
-	function disableRelayer(address operator) public onlyRelayerOwner(operator) {
-		Relayer storage relayer = relayerInfo[operator];
-		require(relayer.active, "ALREADY_DISABLED");
-		require(relayer.depositBlock < block.number, "UNMATCHED_COOLDOWN");
-		relayer.active = false;
-		stakingToken.transfer(relayer.owner, relayer.collateral);
-		activeRelayers -= 1;
-	}
 	
-	function getActiveness(address addr) public view returns (bool) {
-		return relayerInfo[addr].active;
-	}
+	// sig related stuff
 	
 	function recoverSig(bytes32 hash, bytes memory _sig) public pure returns (address signer) {
 		(bytes32 r, bytes32 s, uint8 v) = splitSignature(_sig);
