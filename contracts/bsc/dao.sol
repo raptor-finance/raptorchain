@@ -207,6 +207,14 @@ contract RaptorDAO {
 		_;
 	}
 	
+	function _chainId() public pure returns (uint256) {
+		uint256 id;
+		assembly {
+			id := chainid()
+		}
+		return id;
+	}
+	
 	function splitSignature(bytes memory sig) public pure returns (bytes32 r, bytes32 s, uint8 v) {
 		require(sig.length == 65, "invalid signature length");
 
@@ -467,7 +475,7 @@ contract DAOAccount {
 	}
 	
 	function execCall(DAOCall memory _call, bytes[] memory _sigs) public {
-		bytes32 hash = keccak256(abi.encodePacked("exec", abi.encode(_call)));
+		bytes32 hash = keccak256(abi.encodePacked("execCall", _chainId(), abi.encode(_call)));
 		(, bool matched) = dao.recoverDelegatorSigs(hash, dao.daoThreshold(), _sigs);
         require(matched, "UNMATCHED_DAO_SIGS");
         address to = _call.to;
