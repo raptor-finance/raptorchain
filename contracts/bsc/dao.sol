@@ -342,15 +342,6 @@ contract RaptorDAO {
 		return delegated.add(undelegated);
 	}
 	
-	function votableBalanceOf(address delegator) public view returns (uint256) {
-		Delegator storage delg = delegators[delegator];
-		if (delg.depositBlock < block.number) {
-			return delg.undelegated.add(sharesTotalValue(delegator));
-		} else {
-			return sharesTotalValue(delegator);	// don't count undelegated if cooldown hasn't been reached
-		}
-	}
-	
 	// relayer-related functions
 	function nakamotoCoefficient() public view returns (uint256) {
 		return (totalBondedTokens/2)+1;	// division can't overflow. as it returns a number below 2**255, addition can't overflow either
@@ -419,7 +410,7 @@ contract RaptorDAO {
 		for (uint256 n = 0; n<_sigs.length; n++) {
             addr = recoverSig(hash, _sigs[n]);
 			if (addr > prevAddress) {
-				signedTokens += votableBalanceOf(addr);	// only return signed tokens -> to be used by other contracts
+				signedTokens += sharesTotalValue(addr);	// counts share value
 				thresholdMatched = (threshold == 0) ? false : (signedTokens > threshold);	// don't break if there's no threshold
 				if (thresholdMatched) { break; }		// gas
 			}
