@@ -518,7 +518,7 @@ contract BeaconChainHandler {
 	}
 	
 	function beaconRelayerSigs(uint256 beaconHeight) public view returns (bytes[] memory) {
-		return beacons[beaconHeight].relayerSigs;
+		return getBeacon(beaconHeight).relayerSigs;
 	}
 }
 

@@ -17,13 +17,8 @@ interface BridgeFallbackInterface {
 	function bridgeFallBack(bytes32 _hash, bytes memory _data) external;
 }
 
-interface DAOInterface {
-	function recoverRelayerSigs(bytes32 hash, bytes[] memory _sigs) external view returns (uint256 signedTokens, bool coeffmatched);
-	function recoverDelegatorSigs(bytes32 hash, bytes[] memory _sigs) external view returns (signedTokens);
-	
-	function totalDeposited() public view returns (uint256);
-	function daoThreshold() public view returns (uint256);
-	function totalBondedTokens() public view returns (uint256);
+interface RelayerSetInterface {
+	function recoverRelayerSigs(bytes32 hash, bytes[] memory _sigs) external view returns (uint256 signed, bool coeffmatched);
 }
 
 library SafeMath {
@@ -365,7 +360,12 @@ contract BeaconChainHandler {
 	Beacon[] public beacons;
 	uint256 blockTime = 600;
 	address handler;
-	DAOInterface public dao;
+	
+	uint256 public immutable startingHeight;	// pruning
+	
+	RelayerSetInterface public set;
+	
+	address v1custody = 0x6a200e1aA7D31F17211CD569C788Ac1d3Ab1B9f9;
 	
 	event CallExecuted(address indexed to, bytes data, bool success);
 	event CallDismissed(address indexed to, bytes data, string reason);
@@ -383,12 +383,12 @@ contract BeaconChainHandler {
 		return id;
 	}
 	
-	constructor(Beacon memory _genesisBeacon, address dao) {
+	constructor(Beacon memory _genesisBeacon, address _set) {
 		beacons.push(_genesisBeacon);
-		beacons[0].height = 0;
+		startingHeight = _genesisBeacon.height;
 		handler = msg.sender;
-        address bootstrapRelayer = 0xE12Ca65C7A260bF91687A2e1763FA603eCCd812a;
-		dao = DAOInterface(dao);
+//        address bootstrapRelayer = 0xE12Ca65C7A260bF91687A2e1763FA603eCCd812a;
+		set = RelayerSetInterface(_set);
 	}
 	
 	function beaconHash(Beacon memory _beacon) public pure returns (bytes32 beaconRoot) {
@@ -406,7 +406,7 @@ contract BeaconChainHandler {
 		if (lastBlockHash != _beacon.parent) {
 			return (false, "UNMATCHED_PARENT");
 		}
-		if (_beacon.height != beacons.length) {
+		if (_beacon.height != chainLength()) {
 			return (false, "UNMATCHED_HEIGHT");
 		}
 		if ((_beacon.timestamp > block.timestamp) || (_beacon.timestamp < (beacons[beacons.length-1].timestamp + blockTime))) {
@@ -424,13 +424,16 @@ contract BeaconChainHandler {
 	
 	function executeCall(bytes memory message) private returns (bool success) {
 		(address recipient, uint256 chainID, bytes memory data) = abi.decode(message, (address, uint256, bytes));
-		if (_chainId() == chainID) {
+		if (_chainId() != chainID) {
+			emit CallDismissed(recipient, data, "INVALID_CHAIN_ID");
+			return false;
+		} else if (recipient == v1custody) {
+			emit CallDismissed(recipient, data, "V1_CUSTODY_CALL");
+			return false;
+		} else {
 			(success, ) = recipient.call(abi.encodeWithSelector(bytes4(keccak256("execBridgeCall(bytes)")), data));
 			require(success, "MESSAGE_EXECUTION_FAILED");
 			emit CallExecuted(recipient, data, success);
-		}
-		else {
-			emit CallDismissed(recipient, data, "INVALID_CHAIN_ID");
 		}
 	}
 	
@@ -442,7 +445,7 @@ contract BeaconChainHandler {
 	
 	function pushBeacon(Beacon memory _beacon) public {
 		(bool _valid, string memory _reason) = isBeaconValid(_beacon);
-		(, bool sigsMatched) = dao.recoverRelayerSigs(_beacon.proof, _beacon.relayerSigs);
+		(, bool sigsMatched) = set.recoverRelayerSigs(_beacon.proof, _beacon.relayerSigs);
 		require(_valid, _reason);
 		require(sigsMatched, "UNMATCHED_RELAYER_SIGNATURES");
 		beacons.push(_beacon);
@@ -453,7 +456,15 @@ contract BeaconChainHandler {
 	}
 	
 	function chainLength() public view returns (uint256) {
-		return beacons.length;
+		return (beacons.length + startingHeight);
+	}
+	
+	function getBeacon(uint256 height) public view returns (Beacon memory) {
+		return beacons[height.sub(startingHeight, "PRUNED_BEACON")];
+	}
+	
+	function beaconRelayerSigs(uint256 beaconHeight) public view returns (bytes[] memory) {
+		return getBeacon(beaconHeight).relayerSigs;
 	}
 }
 
