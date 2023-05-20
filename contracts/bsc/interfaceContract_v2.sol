@@ -374,7 +374,7 @@ contract BeaconChainHandler {
 	address owner;
 	Beacon[] public beacons;
 	uint256 blockTime = 600;
-	address handler;
+	address public handler;
 	
 	uint256 public immutable startingHeight;	// pruning
 	
@@ -385,8 +385,11 @@ contract BeaconChainHandler {
 	event CallExecuted(address indexed to, bytes data, bool success);
 	event CallDismissed(address indexed to, bytes data, string reason);
 	
-	modifier onlyOwner {
-		require(msg.sender == owner);
+	event HandlerChanged(address indexed _old, address indexed _new);
+	event RelayerSetChanged(address indexed _old, address indexed _new);
+	
+	modifier onlyHandler {
+		require(msg.sender == handler);
 		_;
 	}
 
@@ -401,9 +404,19 @@ contract BeaconChainHandler {
 	constructor(Beacon memory _genesisBeacon, address _set) {
 		beacons.push(_genesisBeacon);
 		startingHeight = _genesisBeacon.height;
-		handler = msg.sender;
+		handler = tx.origin;
 //        address bootstrapRelayer = 0xE12Ca65C7A260bF91687A2e1763FA603eCCd812a;
 		set = RelayerSetInterface(_set);
+	}
+	
+	function changeHandler(address newHandler) public onlyHandler {
+		emit HandlerChanged(handler, newHandler);
+		handler = newHandler;
+	}
+	
+	function changeRelayerSet(address newSet) public onlyHandler {
+		emit RelayerSetChanged(address(set), newSet);
+		set = RelayerSetInterface(newSet);
 	}
 	
 	function beaconHash(Beacon memory _beacon) public pure returns (bytes32 beaconRoot) {
