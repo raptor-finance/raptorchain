@@ -235,11 +235,11 @@ contract CustodyManager {
 	// StakeManager public stakingManager;
 	
 	// constructor(StakeManager _stakingManager) {
-	constructor(address _withdrawalsOperator, address _v1contract) {
+	constructor(address _withdrawalsOperator) {
 		masterContract = msg.sender;
 		withdrawalsOperator = _withdrawalsOperator;
-		v1contract = _v1contract;
-		cutoff = _v1contract.depositsLength();
+		v1contract = CustodyManager(0x6a200e1aA7D31F17211CD569C788Ac1d3Ab1B9f9);
+		cutoff = v1contract.depositsLength();
 	}
 	
 	function changeWithdrawalOperator(address _newOperator) public {
@@ -255,12 +255,16 @@ contract CustodyManager {
 		if (_index < cutoff) {
 			return v1contract.deposits(_index);
 		} else {
-			return __deposits[_fullIndex];
+			return __deposits[_index - cutoff];
 		}
 	}
 	
 	function deposits(bytes32 _hash) public view returns (Deposit memory) {
-		return _deposits[_hash];
+		if (_deposits[_hash].depositor == address(0)) {
+			return v1contract.deposits(_hash);
+		} else {
+			return _deposits[_hash];
+		}
 	}
 
 	function withdrawals(uint256 _index) public view returns (Withdrawal memory) {
