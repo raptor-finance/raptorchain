@@ -224,6 +224,9 @@ contract CustodyManager {
 	bytes32[] public __withdrawals;
 	mapping (bytes32 => Withdrawal) public _withdrawals;
 	
+	CustodyManager public v1contract;
+	
+	uint256 cutoff;
 	
 	uint256 public transferNonce = 0;
 	uint256 public totalDeposited;
@@ -232,9 +235,11 @@ contract CustodyManager {
 	// StakeManager public stakingManager;
 	
 	// constructor(StakeManager _stakingManager) {
-	constructor(address _withdrawalsOperator) {
+	constructor(address _withdrawalsOperator, address _v1contract) {
 		masterContract = msg.sender;
 		withdrawalsOperator = _withdrawalsOperator;
+		v1contract = _v1contract;
+		cutoff = _v1contract.depositsLength();
 	}
 	
 	function changeWithdrawalOperator(address _newOperator) public {
@@ -247,7 +252,11 @@ contract CustodyManager {
 	event Withdrawn(address indexed user, address indexed token, uint256 amount, uint256 nonce, bytes32 hash);
 	
 	function deposits(uint256 _index) public view returns (Deposit memory) {
-		return __deposits[_index];
+		if (_index < cutoff) {
+			return v1contract.deposits(_index);
+		} else {
+			return __deposits[_fullIndex];
+		}
 	}
 	
 	function deposits(bytes32 _hash) public view returns (Deposit memory) {
@@ -268,7 +277,7 @@ contract CustodyManager {
 		_token.transferFrom(user, address(this), amount);
 		uint256 received = _token.balanceOf(address(this)).sub(balanceBefore);
 		
-		bytes32 _hash_ = keccak256(abi.encodePacked(received, user, blockhash(block.number-1), data, transferNonce));
+		bytes32 _hash_ = keccak256(abi.encodePacked(received, user, blockhash(block.number-1), data, transferNonce, address(this)));
 		Deposit memory _newDeposit = Deposit({amount: received, depositor: user, nonce: transferNonce, token: token, data: data, hash: _hash_});
 		__deposits.push(_newDeposit);
 		_deposits[_hash_] = _newDeposit;
@@ -338,6 +347,8 @@ contract CustodyManager {
 }
 
 contract BeaconChainHandler {
+	using SafeMath for uint256;
+
 	struct Beacon {
 		address miner;
 		uint256 nonce;
@@ -565,10 +576,10 @@ contract MasterContract {
 	// calldata to use on deployment
 	// GenesisBeacon calldata : ["0x0000000000000000000000000000000000000000",0,["0x48657920677579732c206a75737420747279696e6720746f20696d706c656d656e742061206b696e64206f6620726170746f7220636861696e2c206665656c206672656520746f20686176652061206c6f6f6b"],1,"0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",1645457628,"0x496e697469616c697a696e672074686520526170746f72436861696e2e2e2e00","0x7d9e1f415e0084675c211687b1c8dfaee67e53128e325b5fdda9c98d7288aaeb",0,"0x0000000000000000000000000000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000000000000000000000000000",0,"0x0000000000000000000000000000000000000000000000000000000000000000","0x0000000000000000000000000000000000000000000000000000000000000000"]
 	
-	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, address dao) {
+	constructor(BeaconChainHandler.Beacon memory _genesisBeacon, address _set) {
 		// staking = new StakeManager(stakingToken);
         // chainInstances = new ChainsImplementationHandler(_genesisBeacon, stakingToken);
-		beaconchain = new BeaconChainHandler(_genesisBeacon, dao);
+		beaconchain = new BeaconChainHandler(_genesisBeacon, _set);
 		custody = new CustodyManager(address(beaconchain));
 		// staking.setBeaconHandler(beaconchain);
 	}
