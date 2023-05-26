@@ -158,7 +158,7 @@ library SafeMath {
 contract RaptorDAO {
 	using SafeMath for uint256;
 
-	struct Relayer {
+	struct Representative {
 		address owner;
 		address operator;
 		bool active;
@@ -185,7 +185,7 @@ contract RaptorDAO {
 	bool public controlSignerReleased = false;
 	ERC20Interface public stakingToken;
 	
-	mapping(address => Relayer) public relayerInfo;
+	mapping(address => Representative) public relayerInfo;
 	mapping(address => Delegator) public delegators;
 	address[] public relayersList;
 	
@@ -210,11 +210,11 @@ contract RaptorDAO {
 	event Deposit(address indexed guy, uint256 indexed tokens);
 	event Withdraw(address indexed guy, uint256 indexed tokens);
 	
-	event Delegate(address indexed delegator, address indexed relayer, uint256 tokens, uint256 shares);
-	event Undelegate(address indexed delegator, address indexed relayer, uint256 tokens, uint256 shares);
+	event Delegate(address indexed delegator, address indexed representative, uint256 tokens, uint256 shares);
+	event Undelegate(address indexed delegator, address indexed representative, uint256 tokens, uint256 shares);
 	
-	modifier onlyRelayerOwner(address operator) {
-		require(relayerInfo[operator].owner == msg.sender, "Only relayer owner can do that");
+	modifier onlyRepresentativeOwner(address operator) {
+		require(relayerInfo[operator].owner == msg.sender, "Only representative owner can do that");
 		_;
 	}
 	
@@ -240,7 +240,7 @@ contract RaptorDAO {
 
 	function _addRelayer(address _owner, address operator, bool active) private {
 		require(!relayerInfo[operator].exists, "RELAYER_ALREADY_EXISTS");
-		Relayer storage rel = relayerInfo[operator];
+		Representative storage rel = relayerInfo[operator];
 		rel.exists = true;
 		rel.owner = _owner;
 		rel.operator = operator;
@@ -262,7 +262,7 @@ contract RaptorDAO {
 	// share-related functions
 	function sharesToTokens(uint256 shares, uint256 totalTokens, uint256 totalShares) public pure returns (uint256) {
 		if (totalShares == 0) {
-			return shares;	// take rate of 1 if relayer is empty
+			return shares;	// take rate of 1 if representative is empty
 		}
 		return shares.mul(totalTokens).div(totalShares);
 	}
@@ -276,7 +276,7 @@ contract RaptorDAO {
 	
 	// delegator-related functions
 	function sharesValue(address _delegator, address _relayer) public view returns (uint256) {
-		Relayer storage rel = relayerInfo[_relayer];
+		Representative storage rel = relayerInfo[_relayer];
 		return sharesToTokens(rel.shares[_delegator], rel.tokens, rel.totalShares);
 	}
 	
@@ -312,9 +312,9 @@ contract RaptorDAO {
 		emit Transfer(msg.sender, address(0), tokens);
 	}
 	
-	function delegate(address relayer, uint256 tokens) public {
+	function delegate(address representative, uint256 tokens) public {
 		Delegator storage delg = delegators[msg.sender];
-		Relayer storage rel = relayerInfo[relayer];
+		Representative storage rel = relayerInfo[representative];
 		require(block.number > delg.depositBlock, "UNMATCHED_COOLDOWN");
 		require(rel.exists, "UNEXISTENT_RELAYER");
 		// subtract undelegated
@@ -329,7 +329,7 @@ contract RaptorDAO {
 		// add to history (for account value computation)
 		if (!rel.everbeendelegated[msg.sender]) {
 			rel.everbeendelegated[msg.sender] = true;
-			delg.delegated.push(relayer);
+			delg.delegated.push(representative);
 			rel.delegators.push(msg.sender);
 		}
 		
@@ -338,12 +338,12 @@ contract RaptorDAO {
 			totalBondedTokens = totalBondedTokens.add(tokens);
 		}
 		
-		emit Delegate(msg.sender, relayer, tokens, shares);
+		emit Delegate(msg.sender, representative, tokens, shares);
 	}
 	
-	function undelegate(address relayer, uint256 tokens) public {
+	function undelegate(address representative, uint256 tokens) public {
 		Delegator storage delg = delegators[msg.sender];
-		Relayer storage rel = relayerInfo[relayer];
+		Representative storage rel = relayerInfo[representative];
 		require(block.number > delg.depositBlock, "UNMATCHED_COOLDOWN");
 		require(rel.exists, "UNEXISTENT_RELAYER");
 		
@@ -360,17 +360,17 @@ contract RaptorDAO {
 			totalBondedTokens = totalBondedTokens.sub(tokens);
 		}
 		
-		emit Undelegate(msg.sender, relayer, tokens, shares);
+		emit Undelegate(msg.sender, representative, tokens, shares);
 	}
 	
-	function exit(address relayer, uint256 tokens) public {
-		undelegate(relayer, tokens);
+	function exit(address representative, uint256 tokens) public {
+		undelegate(representative, tokens);
 		withdraw(tokens);
 	}
 	
-	function redelegate(address sourceRelayer, address destRelayer, uint256 tokens) public {
-		undelegate(sourceRelayer, tokens);
-		delegate(destRelayer, tokens);
+	function redelegate(address src, address dest, uint256 tokens) public {
+		undelegate(src, tokens);
+		delegate(dest, tokens);
 	}
 	
 	
@@ -387,19 +387,19 @@ contract RaptorDAO {
 		return (totalBondedTokens/2)+1;	// division can't overflow. as it returns a number below 2**255, addition can't overflow either
 	}
 	
-	function registerRelayer(address relayer) public {
-		_addRelayer(msg.sender, relayer, false);
+	function registerRepresentative(address operator) public {
+		_addRelayer(msg.sender, operator, false);
 	}
 
-	function enableRelayer(address relayer) public onlyRelayerOwner(relayer) {
-		Relayer storage rel = relayerInfo[relayer];
+	function enableRepresentative(address operator) public onlyRepresentativeOwner(operator) {
+		Representative storage rel = relayerInfo[operator];
 		require(!rel.active, "ALREADY_ACTIVE");	// no need to check existence since unexistent relayers are owned by address 0
 		rel.active = true;
 		totalBondedTokens = totalBondedTokens.add(rel.tokens);
 	}
 	
-	function disableRelayer(address relayer) public onlyRelayerOwner(relayer) {
-		Relayer storage rel = relayerInfo[relayer];
+	function disableRepresentative(address operator) public onlyRepresentativeOwner(operator) {
+		Representative storage rel = relayerInfo[operator];
 		require(rel.active, "ALREADY_INACTIVE");
 		rel.active = false;
 		totalBondedTokens = totalBondedTokens.sub(rel.tokens);
@@ -465,9 +465,9 @@ contract RaptorDAO {
 	}
 	
 	// slashing
-	function _slash(address _relayer, uint256 tokens) private {
-		Relayer storage rel = relayerInfo[_relayer];
-		// disable relayer if it was enabled
+	function _slash(address _representative, uint256 tokens) private {
+		Representative storage rel = relayerInfo[_representative];
+		// unbond representative if it was active
 		if (rel.active) {
 			rel.active = false;
 			totalBondedTokens = totalBondedTokens.sub(rel.tokens);

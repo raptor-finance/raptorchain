@@ -18,7 +18,7 @@ interface BridgeFallbackInterface {
 }
 
 interface RelayerSetInterface {
-	function recoverRelayerSigs(bytes32 hash, bytes[] memory _sigs) external view returns (uint256 signed, bool coeffmatched);
+	function recoverRelayerSigs(bytes32 hash, bytes[] memory _sigs) external returns (uint256 signed, bool coeffmatched);
 }
 
 library SafeMath {
