@@ -55,7 +55,7 @@ class SignatureManager(object):
     
     def signTransaction(self, private_key, transaction):
         message = encode_defunct(text=transaction["data"])
-        transaction["hash"] = w3.soliditySha3(["string"], [transaction["data"]]).hex()
+        transaction["hash"] = w3.solidityKeccak(["string"], [transaction["data"]]).hex()
         _signature = w3.eth.account.sign_message(message, private_key=private_key).signature.hex()
         signer = w3.eth.account.recover_message(message, signature=_signature)
         sender = w3.toChecksumAddress(json.loads(transaction["data"])["from"])
@@ -66,7 +66,7 @@ class SignatureManager(object):
         
     def verifyTransaction(self, transaction):
         message = encode_defunct(text=transaction["data"])
-        _hash = w3.soliditySha3(["string"], [transaction["data"]]).hex()
+        _hash = w3.solidityKeccak(["string"], [transaction["data"]]).hex()
         _hashInTransaction = transaction["hash"]
         signer = w3.eth.account.recover_message(message, signature=transaction["sig"])
         sender = w3.toChecksumAddress(json.loads(transaction["data"])["from"])
@@ -474,12 +474,12 @@ class BeaconChain(object):
             
         def beaconRoot(self):
             messagesHash = w3.keccak(eth_abi.encode_abi(["bytes[]"], [self.decodedMessages]))
-            bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes","address"], [self.parent, self.timestamp, messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
+            bRoot = w3.solidityKeccak(["bytes32", "uint256", "bytes","address"], [self.parent, self.timestamp, messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
             return bRoot.hex()
 
         def proofOfWork(self):
             bRoot = self.beaconRoot()
-            proof = w3.soliditySha3(["bytes32", "uint256"], [bRoot, int(self.nonce)])
+            proof = w3.solidityKeccak(["bytes32", "uint256"], [bRoot, int(self.nonce)])
             return proof.hex()
 
         def messagesToHex(self):
@@ -552,8 +552,8 @@ class BeaconChain(object):
         
 
         def beaconRoot(self):
-            messagesHash = w3.soliditySha3(["bytes"], [self.messages])
-            bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32", "bytes32","address"], [self.parent, int(self.timestamp), messagesHash, self.parentTxRoot, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
+            messagesHash = w3.solidityKeccak(["bytes"], [self.messages])
+            bRoot = w3.solidityKeccak(["bytes32", "uint256", "bytes32", "bytes32","address"], [self.parent, int(self.timestamp), messagesHash, self.parentTxRoot, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
             return bRoot.hex()
 
         def proofOfWork(self):
@@ -1896,12 +1896,12 @@ class Node(object):
         if self.state.lastIndex >= _index:
             return
         data = json.dumps({"epoch": self.state.getCurrentEpoch(), "indexToCheck": _index, "type": 6})
-        _txid_ = w3.soliditySha3(["string"], [data]).hex()
+        _txid_ = w3.solidityKeccak(["string"], [data]).hex()
         self.checkTxs([{"data": data, "hash": _txid_}], True)
 
     def integrateETHTransaction(self, ethTx):
         data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "indexToCheck": self.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 2})
-        _txid_ = w3.soliditySha3(["string"], [data]).hex()
+        _txid_ = w3.solidityKeccak(["string"], [data]).hex()
         self.checkTxs([{"data": data, "hash": _txid_}], True)
         return _txid_
 
@@ -1973,8 +1973,8 @@ class RaptorBlockProducer(object):
     
     def blockHash(self, block):
         messagesHash = w3.keccak(bytes.fromhex(block["messages"])).hex()
-        bRoot = w3.soliditySha3(["bytes32", "uint256", "bytes32", "bytes32", "address"], [block["parent"], int(block["timestamp"]), messagesHash, block["parentTxRoot"], self.acct.address]).hex() # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
-        return w3.soliditySha3(["bytes32", "uint256"], [bRoot, int(0)]).hex()
+        bRoot = w3.solidityKeccak(["bytes32", "uint256", "bytes32", "bytes32", "address"], [block["parent"], int(block["timestamp"]), messagesHash, block["parentTxRoot"], self.acct.address]).hex() # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
+        return w3.solidityKeccak(["bytes32", "uint256"], [bRoot, int(0)]).hex()
     
     def buildBlock(self):
         blockHeight = len(self.node.state.beaconChain.blocks)
