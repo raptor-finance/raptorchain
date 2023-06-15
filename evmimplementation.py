@@ -1457,21 +1457,20 @@ class PrecompiledContracts(object):
         def returnSingleType(self, env, _type, _arg):
             env.returnCall(eth_abi.encode_abi([_type], [_arg]))
             
+        # Precompiled methods
         def isMN(self, env):
             params = eth_abi.decode_abi(["address"], env.data[4:])
-            _addr = self.formatAddress(params[0])
-            _val = env.chain.validators.get(_addr, False)
-            _exists = bool(_val)
-            self.returnSingleType(env, "bool", _exists)
+            _addr = self.formatAddress(params[0])           # formats operator address
+            _val = env.chain.validators.get(_addr, False)   # attempts to load validator at address
+            _exists = bool(_val)                            # true if object exists, false if it don't
+            self.returnSingleType(env, "bool", _exists)     # ABI encoding and returning
             
         def mnOwner(self, env):
             params = eth_abi.decode_abi(["address"], env.data[4:])
-            _addr = self.formatAddress(params[0])
-            _val = env.chain.validators.get(_addr)
-            if _val:
-                return _val.owner
-            else:
-                self.returnSingleType(env, "address", self.nullAddress)    
+            _addr = self.formatAddress(params[0])   # formats operator address
+            _val = env.chain.validators.get(_addr)  # attempts to get validator address
+            # returns owner if validator exists, otherwise return address 0
+            self.returnSingleType(env, "address", _val.owner if bool(_val) else self.nullAddress)
     
     def __init__(self, bridgeFallBack, bsc, getAccount):
         self.contracts = {}
