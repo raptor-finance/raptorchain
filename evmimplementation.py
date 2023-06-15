@@ -1432,13 +1432,10 @@ class PrecompiledContracts(object):
                 print(f"Exception {e.__repr__()} caught calling CrossChainDataFeed with calldata {env.data.hex()}")
                 env.revert(b"")
         
-    class ConsensusInfo(object):
+    class ConsensusInfo(Precompile):
         def __init__(self):
             self.nullAddress = "0x0000000000000000000000000000000000000000"
             self.methods = {}
-            
-        def calcFunctionSelector(self, functionName):
-            return bytes(w3.keccak(str(functionName).encode()))[0:4]
             
         def formatAddress(self, _addr):
             if (type(_addr) == int):
