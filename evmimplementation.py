@@ -1121,6 +1121,19 @@ class Opcodes(object):
         env.pc += 1
         
 class PrecompiledContracts(object):
+    class Precompile(object):
+        def returnSingleType(self, env, _type, _arg):
+            env.returnCall(eth_abi.encode_abi([_type], [_arg]))
+        
+        def returnMultipleTypes(self, env, types, args):
+            env.returnCall(eth_abi.encode_abi(types, args))
+
+        def calcFunctionSelector(self, functionName):
+            return bytes(w3.keccak(str(functionName).encode()))[0:4]
+        
+        def printCalledFunction(self, functionName, args):
+            print(f"{functionName}({', '.join(str(i) for i in args)})")
+
     class ecRecover(object):
         def call(self, env):
             sig = env.data[63:]
@@ -1177,7 +1190,7 @@ class PrecompiledContracts(object):
             env.consumeGas(2300)
             self.selectors.get(env.data[:4], self.fallback)(env)
             
-    class CrossChainToken(object):
+    class CrossChainToken(Precompile):
         def __init__(self, env, bsc, token, _bridge):
             self.bsc = bsc
             self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
@@ -1228,18 +1241,6 @@ class PrecompiledContracts(object):
             
         def calcAllowanceAddress(self, tokenOwner, spender):
             return int.from_bytes(w3.solidityKeccak(["uint256", "address", "address"], [int(self.allowancesSlot), w3.toChecksumAddress(tokenOwner), w3.toChecksumAddress(spender)]), "big")
-            
-        def calcFunctionSelector(self, functionName):
-            return bytes(w3.keccak(str(functionName).encode()))[0:4]
-        
-        def returnSingleType(self, env, _type, _arg):
-            env.returnCall(eth_abi.encode_abi([_type], [_arg]))
-        
-        def returnMultipleTypes(self, env, types, args):
-            env.returnCall(eth_abi.encode_abi(types, args))
-        
-        def printCalledFunction(self, functionName, args):
-            print(f"{functionName}({', '.join(str(i) for i in args)})")
         
         def totalSupply(self, env):
             env.consumeGas(2300)
@@ -1349,14 +1350,11 @@ class PrecompiledContracts(object):
             hasher.update(env.data)
             env.returnCall(hasher.digest())
     
-    class RelayerSigsHandler(object):
+    class RelayerSigsHandler(Precompile):
         def __init__(self):
             self.methods = {}
             self.methods[self.calcFunctionSelector("addSig(bytes32, bytes)")]
             
-            
-        def calcFunctionSelector(self, functionName):
-            return bytes(w3.keccak(str(functionName).encode()))[0:4]
         
         def addSig(self, env):
             params = eth_abi.decode_abi(["bytes32", "bytes"], env.data[4:])
@@ -1372,18 +1370,12 @@ class PrecompiledContracts(object):
                 print(f"Exception {e.__repr__()} caught calling {self.address} with calldata {env.data}")
                 env.revert(b"")
     
-    class CrossChainDataFeed(object):
+    class CrossChainDataFeed(Precompile):
         def __init__(self):
             self.methods = {}
             self.methods[self.calcFunctionSelector("getSlotData(uint256,address,bytes32)")] = self.getSlotData
             self.methods[self.calcFunctionSelector("crossChainCall(uint256,address,uint256,bytes)")] = self.crossChainCall
             self.methods[self.calcFunctionSelector("isChainSupported(uint256)")] = self.isChainSupported
-
-        def calcFunctionSelector(self, functionName):
-            return bytes(w3.keccak(str(functionName).encode()))[0:4]
-            
-        def returnSingleType(self, env, _type, _arg):
-            env.returnCall(eth_abi.encode_abi([_type], [_arg]))
             
         def _isChainSupported(self, env, chainid):
             cnt = env.chain.datafeed.contracts.get(chainid)
