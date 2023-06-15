@@ -1357,12 +1357,11 @@ class PrecompiledContracts(object):
     
     class RelayerSigsHandler(Precompile):
         def __init__(self):
-            self.methods[self.calcFunctionSelector("addSig(bytes32, bytes)")]
-            
+            self.addMethod("addSig(bytes32,bytes)", self.addSig)
         
         def addSig(self, env):
             params = eth_abi.decode_abi(["bytes32", "bytes"], env.data[4:])
-            env.pushSystemMessage(env.SystemMessage(env.msgSender, env.recipient, 0, params))
+#            env.pushSystemMessage(env.SystemMessage(env.msgSender, env.recipient, 0, params))
         
         def fallback(self, env):
             pass
@@ -1377,9 +1376,9 @@ class PrecompiledContracts(object):
     class CrossChainDataFeed(Precompile):
         def __init__(self):
             self.methods = {}
-            self.methods[self.calcFunctionSelector("getSlotData(uint256,address,bytes32)")] = self.getSlotData
-            self.methods[self.calcFunctionSelector("crossChainCall(uint256,address,uint256,bytes)")] = self.crossChainCall
-            self.methods[self.calcFunctionSelector("isChainSupported(uint256)")] = self.isChainSupported
+            self.addMethod("getSlotData(uint256,address,bytes32)", self.getSlotData)
+            self.addMethod("crossChainCall(uint256,address,uint256,bytes)", self.crossChainCall)
+            self.addMethod("isChainSupported(uint256)", self.isChainSupported)
             
         def _isChainSupported(self, env, chainid):
             cnt = env.chain.datafeed.contracts.get(chainid)
