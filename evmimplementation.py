@@ -1122,6 +1122,9 @@ class Opcodes(object):
         
 class PrecompiledContracts(object):
     class Precompile(object):
+        methods = {}    # moves declaration to inherited class
+        # no init because it forces child classes to call it (additional burden)
+    
         def returnSingleType(self, env, _type, _arg):
             env.returnCall(eth_abi.encode_abi([_type], [_arg]))
         
@@ -1133,6 +1136,9 @@ class PrecompiledContracts(object):
         
         def printCalledFunction(self, functionName, args):
             print(f"{functionName}({', '.join(str(i) for i in args)})")
+            
+        def addMethod(self, _name, _implementation):
+            self.methods[self.calcFunctionSelector(_name)] = _implementation    # calculates selector and binds implementation
 
     class ecRecover(object):
         def call(self, env):
@@ -1195,7 +1201,6 @@ class PrecompiledContracts(object):
             self.bsc = bsc
             self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
             self.bridge = _bridge
-            self.methods = {}
             self._name = self.BEP20Instance.name
             self._symbol = self.BEP20Instance.symbol
             self._decimals = self.BEP20Instance.decimals
@@ -1352,7 +1357,6 @@ class PrecompiledContracts(object):
     
     class RelayerSigsHandler(Precompile):
         def __init__(self):
-            self.methods = {}
             self.methods[self.calcFunctionSelector("addSig(bytes32, bytes)")]
             
         
