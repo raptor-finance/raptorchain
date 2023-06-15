@@ -1140,6 +1140,12 @@ class PrecompiledContracts(object):
         def addMethod(self, _name, _implementation):
             self.methods[self.calcFunctionSelector(_name)] = _implementation    # calculates selector and binds implementation
 
+        def decodeParams(self, env, _types):
+            return eth_abi.decode_abi(_types, env.data[4:]) # wrapper around decode_abi, improves readability
+
+        def fallback(self, env):
+            env.revert(b"") # default fallback, can be overriden in child class
+
     class ecRecover(object):
         def call(self, env):
             sig = env.data[63:]
@@ -1161,11 +1167,11 @@ class PrecompiledContracts(object):
                 # return
             env.messages.append(self.fallback(self.bsc.custodyContract.address, self.bsc.token, env.msgSender, env.value, len(env.runningAccount.transactions)))
     
-    class accountBioManager(object):
+    class accountBioManager(Precompile):
         def __init__(self):
-            self.selectors = {}
-            self.selectors[b'y\xe6"\x86'] = self.setAccountBio
-            self.selectors[b'^;\x04!'] = self.getAccountBio
+            # note to myself : use normal declaration next time
+            self.methods[b'y\xe6"\x86'] = self.setAccountBio
+            self.methods[b'^;\x04!'] = self.getAccountBio
             
         def fallback(self, env):
             env.revert(b"")
@@ -1194,7 +1200,7 @@ class PrecompiledContracts(object):
             
         def call(self, env):
             env.consumeGas(2300)
-            self.selectors.get(env.data[:4], self.fallback)(env)
+            self.methods.get(env.data[:4], self.fallback)(env)
             
     class CrossChainToken(Precompile):
         def __init__(self, env, bsc, token, _bridge):
@@ -1212,14 +1218,14 @@ class PrecompiledContracts(object):
             self.balancesSlot = 1
             self.allowancesSlot = 2
             
-            self.methods[self.calcFunctionSelector("totalSupply()")] = self.totalSupply
-            self.methods[self.calcFunctionSelector("decimals()")] = self.decimals
-            self.methods[self.calcFunctionSelector("name()")] = self.name
-            self.methods[self.calcFunctionSelector("symbol()")] = self.symbol
-            self.methods[self.calcFunctionSelector("balanceOf(address)")] = self.balanceOf
-            self.methods[self.calcFunctionSelector("transfer(address,uint256)")] = self.transfer
-            self.methods[self.calcFunctionSelector("approve(address,uint256)")] = self.approve
-            self.methods[self.calcFunctionSelector("transferFrom(address,address,uint256)")] = self.transferFrom
+            self.addMethod("totalSupply()", self.totalSupply)
+            self.addMethod("decimals()", self.decimals)
+            self.addMethod("name()", self.name)
+            self.addMethod("symbol()", self.symbol)
+            self.addMethod("balanceOf(address)", self.balanceOf)
+            self.addMethod("transfer(address,uint256)", self.transfer)
+            self.addMethod("approve(address,uint256)", self.approve)
+            self.addMethod("transferFrom(address,address,uint256)", self.transferFrom)
             print(f"Token name : {self._name}\nToken Symbol : {self._symbol}\nToken decimals : {self._decimals}")
         
         
@@ -1281,14 +1287,14 @@ class PrecompiledContracts(object):
             return (self._crossChain(env, tokens) if (recipient == self.bridge.address) else env.safeIncrease(_to, int(tokens)))
                 
         def approve(self, env):
-            params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])
+            params = self.decodeParams(env, ["address", "uint256"])
             self.printCalledFunction("approve", params)
             allowanceAddress = self.calcAllowanceAddress(env.msgSender, params[0])
             env.consumeGas(16900)
             self.returnSingleType(env, "bool", True)
         
         def transfer(self, env):
-            params = eth_abi.decode_abi(["address", "uint256"], env.data[4:])
+            params = self.decodeParams(env, ["address", "uint256"])
             self.printCalledFunction("transfer", params)
             _success = self._transfer(env, env.msgSender, params[0], params[1])
             env.consumeGas(69000)
@@ -1297,7 +1303,7 @@ class PrecompiledContracts(object):
             self.returnSingleType(env, "bool", True)
 
         def transferFrom(self, env):
-            params = eth_abi.decode_abi(["address", "address", "uint256"], env.data[4:])
+            params = self.decodeParams(env, ["address", "address", "uint256"])
             env.consumeGas(69000)
             self.printCalledFunction("transferFrom", params)
             allowanceAddress = self.calcAllowanceAddress(params[0], env.msgSender)
@@ -1310,7 +1316,7 @@ class PrecompiledContracts(object):
             self.returnSingleType(env, "bool", True)
             
         def balanceOf(self, env):
-            params = eth_abi.decode_abi(["address"], env.data[4:])
+            params = self.decodeParams(env, ["address"])
             # self.printCalledFunction("balanceOf", params)
             env.consumeGas(6900)
             self.returnSingleType(env, "uint256", env.loadStorageKey(self.calcBalanceAddress(params[0])))
@@ -1352,7 +1358,7 @@ class PrecompiledContracts(object):
     class Ripemd160(object):
         def call(self, env):
             hasher = RIPEMD160.new()
-            hasher.update(env.data)
+            hasher.update(env.data) # TODO : make sure data comes raw
             env.returnCall(hasher.digest())
     
     class RelayerSigsHandler(Precompile):
@@ -1360,7 +1366,7 @@ class PrecompiledContracts(object):
             self.addMethod("addSig(bytes32,bytes)", self.addSig)
         
         def addSig(self, env):
-            params = eth_abi.decode_abi(["bytes32", "bytes"], env.data[4:])
+            params = self.decodeParams(env, ["bytes32", "bytes"])
 #            env.pushSystemMessage(env.SystemMessage(env.msgSender, env.recipient, 0, params))
         
         def fallback(self, env):
@@ -1397,20 +1403,20 @@ class PrecompiledContracts(object):
             env.revert(b"")
             
         def isChainSupported(self, env):
-            params = eth_abi.decode_abi(["uint256"], env.data[4:]) # uint256 chainid
+            params = self.decodeParams(env, ["uint256"]) # uint256 chainid
             _chainid = params[0]
             supported = self._isChainSupported(env, _chainid)
             self.returnSingleType(env, "bool", supported)
             env.consumeGas(3400)
             
         def getSlotData(self, env):
-            params = eth_abi.decode_abi(["uint256", "address", "bytes32"], env.data[4:]) # uint256 chainid, address dataOwner, bytes32 slotKey
+            params = self.decodeParams(env, ["uint256", "address", "bytes32"]) # uint256 chainid, address dataOwner, bytes32 slotKey
             d = env.chain.datafeed.getSlotData(params[0], params[1], params[2])
             self.returnSingleType(env, "bytes", d)
             env.consumeGas(6900)
         
         def crossChainCall(self, env):
-            params = eth_abi.decode_abi(["uint256", "address", "uint256", "bytes"], env.data[4:]) # uint256 chainid, address to, uint256 gasLimit, uint256 data
+            params = self.decodeParams(env, ["uint256", "address", "uint256", "bytes"]) # uint256 chainid, address to, uint256 gasLimit, uint256 data
             _chainid = params[0]
             _to = params[1]
             _gas = params[2]
@@ -1451,14 +1457,14 @@ class PrecompiledContracts(object):
             
         # Precompiled methods
         def isMN(self, env):
-            params = eth_abi.decode_abi(["address"], env.data[4:])
+            params = self.decodeParams(env, ["address"])
             _addr = self.formatAddress(params[0])           # formats operator address
             _val = env.chain.validators.get(_addr, False)   # attempts to load validator at address
             _exists = bool(_val)                            # true if object exists, false if it don't
             self.returnSingleType(env, "bool", _exists)     # ABI encoding and returning
             
         def mnOwner(self, env):
-            params = eth_abi.decode_abi(["address"], env.data[4:])
+            params = self.decodeParams(env, ["address"])
             _addr = self.formatAddress(params[0])   # formats operator address
             _val = env.chain.validators.get(_addr)  # attempts to get validator address
             # returns owner if validator exists, otherwise return address 0
