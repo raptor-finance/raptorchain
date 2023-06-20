@@ -1151,6 +1151,13 @@ class PrecompiledContracts(object):
 
         def fallback(self, env):
             env.revert(b"") # default fallback, can be overriden in child class
+            
+        def call(self, env):
+            try:
+                self.methods.get(env.data[:4], self.fallback)(env)
+            except Exception as e:
+                print(f"Exception {e.__repr__()} caught calling CrossChainDataFeed with calldata {env.data.hex()}")
+                env.revert(b"")
 
     class ecRecover(object):
         def call(self, env):
@@ -1467,6 +1474,7 @@ class PrecompiledContracts(object):
             _addr = self.formatAddress(params[0])   # formats operator address
             _val = env.chain.validators.get(_addr)  # attempts to get validator address
             # returns owner if validator exists, otherwise return address 0
+            print(f"Validator existence check : {bool(_val)}")
             self.returnSingleType(env, "address", _val.owner if bool(_val) else self.nullAddress)
     
     def __init__(self, bridgeFallBack, bsc, getAccount):
