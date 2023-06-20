@@ -1143,6 +1143,12 @@ class PrecompiledContracts(object):
         def decodeParams(self, env, _types):
             return eth_abi.decode_abi(_types, env.data[4:]) # wrapper around decode_abi, improves readability
 
+        def formatAddress(self, _addr):
+            if (type(_addr) == int):
+                hexfmt = hex(_addr)[2:]
+                return w3.toChecksumAddress("0x" + ("0" * (40-len(hexfmt))) + hexfmt)
+            return w3.toChecksumAddress(_addr)
+
         def fallback(self, env):
             env.revert(b"") # default fallback, can be overriden in child class
 
@@ -1444,17 +1450,10 @@ class PrecompiledContracts(object):
     class ConsensusInfo(Precompile):
         def __init__(self):
             self.nullAddress = "0x0000000000000000000000000000000000000000"
-            self.methods = {}
+            self.addMethod("isMN(address)", self.isMN)
+            self.addMethod("mnOwner(address)", self.mnOwner)
             
-        def formatAddress(self, _addr):
-            if (type(_addr) == int):
-                hexfmt = hex(_addr)[2:]
-                return w3.toChecksumAddress("0x" + ("0" * (40-len(hexfmt))) + hexfmt)
-            return w3.toChecksumAddress(_addr)
-            
-        def returnSingleType(self, env, _type, _arg):
-            env.returnCall(eth_abi.encode_abi([_type], [_arg]))
-            
+
         # Precompiled methods
         def isMN(self, env):
             params = self.decodeParams(env, ["address"])
@@ -1480,6 +1479,7 @@ class PrecompiledContracts(object):
         self.setContract("0x0000000000000000000000000000000000000003", self.Ripemd160(), False)
         self.setContract("0x0000000000000000000000000000000000000069", self.accountBioManager(), False)
         self.setContract("0x000000000000000000000000000000000000FEeD", self.CrossChainDataFeed(), False)
+        self.setContract("0x000000000000000000000000000000000000c01F", self.ConsensusInfo(), False) # c0nsensus 1nFo xD
         self.setContract(self.crossChainAddress, self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc), False)
         # self.setContract("0x0000000000000000000000000000000d0ed622a3", self.Printer())
     
