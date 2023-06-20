@@ -1656,6 +1656,12 @@ class CallEnv(object):
     def pushSystemMessage(self, sysmsg):
         self.systemMessages.append(sysmsg)
     
+    
+    def performExternalCall(self, addr, value, gas, _calldata):
+        _acct = self.getAccount(addr)
+        _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
+        result = env.callFallback(_childEnv)
+    
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))
     
