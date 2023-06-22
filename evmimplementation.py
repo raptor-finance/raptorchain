@@ -1057,6 +1057,7 @@ class Opcodes(object):
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
         _subCallEnv = CallEnv(env.getAccount, env.msgSender, env.getAccount(env.recipient), env.recipient, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.isStatic, calltype=2)
+        env.childEnvs.append(_subCallEnv)
         result = env.callFallback(_subCallEnv)
         retValue = _subCallEnv.returnValue
         env.lastCallReturn = retValue
@@ -1572,6 +1573,9 @@ class CallEnv(object):
         self.contractDeployment = ((self.tx.contractDeployment) or calltype == 3)
         self.messages = []
         self.childEnvs = []
+        
+        self.balanceFromBefore = self.getAccount(self.msgSender).tempBalance
+        self.balanceToBefore = self.runningAccount.tempBalance
 
     def getBlock(self, height):
         return self.chain.blocks[min(height, len(self.chain.blocks)-1)]
@@ -1645,12 +1649,17 @@ class CallEnv(object):
     def returnCall(self, data):
         self.halt = True
         self.returnValue = data
+        self.runningAccount.tempStorage = self.storage
         if self.debugfile:
             self.debugfile.write(f"Call ended, returnValue: {data.hex()}\n\n\n")
     
     def revert(self, data):
         self.storage = self.storageBefore.copy()
         self.runningAccount.tempStorage = self.storage
+        
+        self.getAccount(self.msgSender).tempBalance = self.balanceFromBefore
+        self.runningAccount.tempBalance = self.balanceToBefore
+        
         self.halt = True
         self.success = False
         self.returnValue = data
@@ -1670,4 +1679,3 @@ class CallEnv(object):
     
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))
-    
