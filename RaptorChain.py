@@ -1432,16 +1432,17 @@ class State(object):
                 # self.opcodes[msg.code[msg.pc]](msg)
             # except:
                 # break
-        recipientAcct = self.getAccount(msg.recipient) # works well since it returns an object (aka a pointer)
-        if (msg.getSuccess() and msg.calltype != 2): # calltype 2 is for delegateCall - should not save to current address when call is delegated to another one
-            recipientAcct.tempcode = msg.returnValue if (msg.calltype == 3) else recipientAcct.tempcode
-            recipientAcct.tempStorage = msg.storage
+        recipientAcct = self.getAccount(msg.recipient)  # works well since it returns an object (aka a pointer)
+        if (msg.getSuccess() and msg.calltype != 2):    # calltype 2 is for delegateCall - should not save to current address when call is delegated to another one
+            recipientAcct.tempcode = msg.returnValue if (msg.calltype == 3) else recipientAcct.tempcode # set tempcode if CREATE or CREATE2 call
+            recipientAcct.tempStorage = msg.storage     # just to make sure storage's been pushed
             if (msg.calltype == 3) and msg.tx.persist and msg.tx.notTry:
                 recipientAcct.makeChangesPermanent()
                 recipientAcct.code = msg.returnValue
         elif (msg.calltype == 2): # delegateCall unsuccessful (do nothing)
             pass
         else: # unsuccessful normal call (revert)
+            # cancels storage changes
             recipientAcct.tempStorage = msg.storageBefore.copy()
             
         return (msg.getSuccess(), msg.returnValue)

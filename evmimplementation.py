@@ -1024,6 +1024,7 @@ class Opcodes(object):
         retLength = env.stack.pop()
         _acct = env.getAccount(addr)
         _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getCode(addr), env.isStatic, calltype=1)
+        env.childEnvs.append(_childEnv)
         result = env.callFallback(_childEnv)
         retValue = _childEnv.returnValue
         env.lastCallReturn = retValue
@@ -1570,6 +1571,7 @@ class CallEnv(object):
         self.tx.markAccountAffected(runningAccount.address)
         self.contractDeployment = ((self.tx.contractDeployment) or calltype == 3)
         self.messages = []
+        self.childEnvs = []
 
     def getBlock(self, height):
         return self.chain.blocks[min(height, len(self.chain.blocks)-1)]
@@ -1648,9 +1650,12 @@ class CallEnv(object):
     
     def revert(self, data):
         self.storage = self.storageBefore.copy()
+        self.runningAccount.tempStorage = self.storage
         self.halt = True
         self.success = False
         self.returnValue = data
+        for _e in self.childEnvs:
+            _e.revert(b"")
         # self.returnValue = eth_abi.encode_abi(["bytes"], [data]) if type(data) == bytes else eth_abi.encode_abi(["string"], [data])
     
     def pushSystemMessage(self, sysmsg):
@@ -1660,6 +1665,7 @@ class CallEnv(object):
     def performExternalCall(self, addr, value, gas, _calldata):
         _acct = self.getAccount(addr)
         _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
+        self.childEnvs.append(_childEnv)
         result = env.callFallback(_childEnv)
     
     def getSuccess(self):
