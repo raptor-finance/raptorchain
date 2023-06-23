@@ -1663,7 +1663,7 @@ class CallEnv(object):
         self.halt = True
         self.success = False
         self.returnValue = data
-        for _e in self.childEnvs:
+        for _e in reversed(self.childEnvs):
             _e.revert(b"")
         # self.returnValue = eth_abi.encode_abi(["bytes"], [data]) if type(data) == bytes else eth_abi.encode_abi(["string"], [data])
     
