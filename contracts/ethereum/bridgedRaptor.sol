@@ -1,8 +1,8 @@
 pragma solidity ^0.7.0;
 // SPDX-License-Identifier: MIT
 
-// This contract handles RPTR bridging between RaptorChain and Polygon (might be forked to other chains in the future)
-// Thus, it allows trading RPTR on polygon-based DEXes (e.g. SushiSwap/QuickSwap)
+// This contract handles RPTR bridging between RaptorChain and Ethereum Mainnet (might be forked to other chains in the future)
+// Thus, it allows trading RPTR on ethereum-based DEXes (e.g. Uniswap/SushiSwap)
 
 // calls follow the following path
 
@@ -10,14 +10,14 @@ pragma solidity ^0.7.0;
 // - RaptorChain-side custody contract (holds RPTR) calls RaptorChain-side datafeed (address(0xfeed))
 // - RaptorChain-side datafeed throws a cross-chain message
 // - a RaptorChain masternode includes it into a beacon block
-// - beacon block gets forwarded to Polygon-side handler
+// - beacon block gets forwarded to Ethereum-side handler
 // - handler unpacks call and calls token contract
 // - token contract mints token
 
 // UNWRAP
 // - user calls `unwrap` method
-// - contract burns polygon-side token
-// - contract writes data to a slot on polygon-side datafeed (slots can be accessed by raptorchain-side contracts)
+// - contract burns ethereum-side token
+// - contract writes data to a slot on ethereum-side datafeed (slots can be accessed by raptorchain-side contracts)
 // - raptorchain-side custody contract calls raptorchain-side datafeed, which returns slot data
 // - raptorchain-side custody contract marks slot as processed (to avoid getting it processed twice)
 // - raptorchain-side custody sends RPTR to recipient
