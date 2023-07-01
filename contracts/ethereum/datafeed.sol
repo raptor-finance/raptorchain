@@ -81,10 +81,6 @@ contract DataFeed is Owned {
 		_;
 	}
 	
-	constructor(address _operator) {
-		operator = _operator;
-	}
-	
 	function isWritten(address owner, bytes32 key) public view returns (bool) {
 		return users[owner].slots[key].written;
 	}
