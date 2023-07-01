@@ -9,7 +9,49 @@ interface CrossChainFallback {
 	function crossChainCall(address from, bytes memory data) external;
 }
 
-contract DataFeed {
+contract Owned {
+    address public owner;
+    address public newOwner;
+
+    event OwnershipTransferred(address indexed _from, address indexed _to);
+	event OwnershipRenounced();
+
+    constructor() {
+        owner = msg.sender;
+    }
+
+    modifier onlyOwner {
+        require(msg.sender == owner);
+        _;
+    }
+
+    function transferOwnership(address _newOwner) public onlyOwner {
+        newOwner = _newOwner;
+    }
+	
+	function _chainId() internal pure returns (uint256) {
+		uint256 id;
+		assembly {
+			id := chainid()
+		}
+		return id;
+	}
+	
+    function acceptOwnership() public {
+        require(msg.sender == newOwner);
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+        newOwner = address(0);
+    }
+	
+	function renounceOwnership() public onlyOwner {
+		owner = address(0);
+		newOwner = address(0);
+		emit OwnershipRenounced();
+	}
+}
+
+contract DataFeed is Owned {
 	struct Slot {
 		address owner;
 		bytes32 variable;	// variable key
@@ -32,6 +74,7 @@ contract DataFeed {
 	
 	event SlotWritten(address indexed slotOwner, bytes32 indexed variableKey, bytes32 indexed slotKey, bytes data);
 	event CallExecuted(address indexed from, address indexed to, bool indexed success, uint256 gasLimit, bytes data);
+	event OperatorChanged(address indexed oldOperator, address indexed newOperator);
 	
 	modifier onlyOperator {
 		require(msg.sender == operator, "ONLY_OPERATOR_CAN_DO_THAT");
@@ -59,6 +102,11 @@ contract DataFeed {
 		return user.slots[_var.history[_var.history.length-1]].data;
 	}
 	
+	function decodeCall(bytes memory _call) public pure returns (address from, address to, uint256 gasLimit, bytes memory data) {
+		(from, to, gasLimit, data) = abi.decode(_call, (address, address, uint256, bytes));
+	}
+	
+	// write functions
 	function write(bytes32 variableKey, bytes memory slotData) public returns (bytes32) {
 		bytes32 slotKey = keccak256(abi.encodePacked(variableKey, blockhash(block.number-1)));
 		require(!isWritten(msg.sender, slotKey), "ALREADY_WRITTEN");
@@ -71,13 +119,16 @@ contract DataFeed {
 		return slotKey;
 	}
 	
-	function decodeCall(bytes memory _call) public pure returns (address from, address to, uint256 gasLimit, bytes memory data) {
-		(from, to, gasLimit, data) = abi.decode(_call, (address, address, uint256, bytes));
-	}
-	
+	// bridge call function
 	function execBridgeCall(bytes memory _data) public onlyOperator {
-		(address from, address to, uint256 gasLimit, bytes memory data) = abi.decode(_data, (address, address, uint256, bytes));
+		(address from, address to, uint256 gasLimit, bytes memory data) = decodeCall(_data);
 		(bool success, ) = to.call{gas: gasLimit}(abi.encodeWithSelector(bytes4(keccak256("crossChainCall(address,bytes)")), from, data));
 		emit CallExecuted(from, to, success, gasLimit, data);
+	}
+	
+	// change operator after deployment, HIGH RISK (reason why it's onlyOwner lmao)
+	function setOperator(address _newOperator) public onlyOwner {
+		emit OperatorChanged(operator, _newOperator);
+		operator = _newOperator;
 	}
 }
