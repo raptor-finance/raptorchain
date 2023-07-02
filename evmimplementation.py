@@ -1147,8 +1147,7 @@ class PrecompiledContracts(object):
 
         def formatAddress(self, _addr):
             if (type(_addr) == int):
-                hexfmt = hex(_addr)[2:]
-                return w3.toChecksumAddress("0x" + ("0" * (40-len(hexfmt))) + hexfmt)
+                return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
             return w3.toChecksumAddress(_addr)
 
         def fallback(self, env):
