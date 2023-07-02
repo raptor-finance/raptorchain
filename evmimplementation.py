@@ -1023,23 +1023,19 @@ class Opcodes(object):
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
         
-        _acct = env.getAccount(addr) # called account
-        
         # child env execution
-        _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getCode(addr), env.isStatic, calltype=1)
-        env.childEnvs.append(_childEnv)
-        result = env.callFallback(_childEnv)
-        retValue = _childEnv.returnValue
+        _calldata = bytes(env.memory.data[argsOffset:argsOffset+argsLength])
+        (success, retValue) = env.performExternalCall(addr, value, gas, _calldata)
         
         # push result to parent env
         env.lastCallReturn = retValue
-        env.stack.append(int(result[0]))
+        env.stack.append(int(success))
         env.memory.write_bytes(retOffset, retLength, retValue)
         
         # recover potential messages IF childEnv succeeded
-        if result[0]:
-            env.messages = env.messages + _childEnv.messages
-            env.systemMessages = env.systemMessages + _childEnv.systemMessages
+        # if success:
+            # env.messages = env.messages + _childEnv.messages
+            # env.systemMessages = env.systemMessages + _childEnv.systemMessages
             
         # gas
         env.consumeGas(_childEnv.gasUsed + 5000)
@@ -1118,7 +1114,9 @@ class Opcodes(object):
     def REVERT(self, env):
         offset = env.stack.pop()
         length = env.stack.pop()
-        env.revert(bytes(env.memory.data[offset:offset+length]))
+        _errorMsg = bytes(env.memory.data[offset:offset+length])
+        env.revert(_errorMsg)
+        print(f"REVERTED in tx {env.tx.txid} for reason {_errorMsg}")
         env.pc += 1
 
     def SELFDESTRUCT(self, env):
@@ -1598,7 +1596,7 @@ class CallEnv(object):
     def refreshDebugFile(self):
         if self.debugfile:
             self.debugfile.close()
-            self.debugfile = open(f"raptorevmdebug-{self.tx.txid}.log", "a")
+        self.debugfile = open(f"raptorevmdebug-{self.tx.txid}.log", "a")
     
     def consumeGas(self, units):
         self.gasUsed += units
@@ -1681,12 +1679,24 @@ class CallEnv(object):
     
     
     def performExternalCall(self, addr, value, gas, _calldata):
+        print(value)
         _acct = self.getAccount(addr)
         _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
         self.childEnvs.append(_childEnv)
         result = self.callFallback(_childEnv)
         if result[0]:   # success bool
             self.messages = self.messages + _childEnv.messages
+            self.systemMessages = self.systemMessages + _childEnv.systemMessages
+        return result # success and returnValue
     
+    def performStaticCall(self, addr, gas, _calldata):
+        _acct = self.getAccount(addr)
+        _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, 0, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), True, calltype=1)
+        self.childEnvs.append(_childEnv)
+        result = self.callFallback(_childEnv)
+        # STATICCALL don't allow cross-chain messages, nothing to push
+        return result # success and returnValue
+
+
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))

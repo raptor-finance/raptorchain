@@ -945,7 +945,7 @@ class State(object):
         self.precompiledContractsHandler = EVM.PrecompiledContracts(self.crossChainFallback, self.beaconChain.bsc, self.getAccount)
         self.precompiledContracts = self.precompiledContractsHandler.contracts
         self.hash = ""
-        self.debug = False
+        self.debug = True
         self.benchmark = False
         self.benchGas = 0   # total benchmarked gas (for average)
         self.benchTime = 0  # total benchmarked execution time (for average)
@@ -1282,25 +1282,23 @@ class State(object):
         history = []
         _debug = self.debug
         if _debug:
-            env.debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
             env.refreshDebugFile()
             env.debugfile.write(f"\nCalldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.contractDeployment}\n")
-            env.debugfile.close()
-            env.debugfile = open(f"raptorevmdebug-{env.tx.txid}.log", "a")
         if not len(env.code):
             return
         while True and (not env.halt):
             try:
                 if _debug:
                     op = env.code[env.pc]
+                    env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
                     history.append(hex(op))
                     self.opcodes[op](env)
-                    env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
                 else:
                     self.opcodes[env.code[env.pc]](env)
             except Exception as e:
                 self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}")
                 env.revert((f"Error occured during execution: {e}").encode())
+        env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
 
     def deployContract(self, tx):
         self.applyParentStuff(tx)
@@ -1354,6 +1352,7 @@ class State(object):
                     self.getAccount(_addr).cancelChanges()
                 return (True, tx.returnValue.hex())
             else:
+                print(f"Transaction {tx.txid} FAILED")
                 for _addr in tx.affectedAccounts:
                     self.getAccount(_addr).cancelChanges()
                 return (False, tx.returnValue.hex())
