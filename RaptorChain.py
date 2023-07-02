@@ -227,8 +227,7 @@ class Transaction(object):
         
     def formatAddress(self, _addr):
         if (type(_addr) == int):
-            hexfmt = hex(_addr)[2:]
-            return w3.toChecksumAddress("0x" + ("0" * (40-len(hexfmt))) + hexfmt)
+            return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
         return w3.toChecksumAddress(_addr)
         
     def markAccountAffected(self, addr):
@@ -908,13 +907,13 @@ class State(object):
             self.gasLimit = call.get("gas", 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff)
             if (type(self.gasLimit) == str):
                 self.gasLimit = int(self.gasLimit, 16) if "0x" in self.gasLimit else int(self.gasLimit, 10)
+            # dummy txid for debug purposes
             self.txid = "0x8c7e29b8d1ee82f7d7399a7d9aabd93fb07b5bb0274d2b564ce42afa73560524"
             self.affectedAccounts = [self.sender, self.recipient]
 
         def formatAddress(self, _addr):
             if (type(_addr) == int):
-                hexfmt = hex(_addr)[2:]
-                return w3.toChecksumAddress("0x" + ("0" * (40-len(hexfmt))) + hexfmt)
+                return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
             return w3.toChecksumAddress(_addr)
 
         def markAccountAffected(self, addr):
@@ -957,8 +956,7 @@ class State(object):
 
     def formatAddress(self, _addr):
         if (type(_addr) == int):
-            hexfmt = hex(_addr)[2:]
-            return w3.toChecksumAddress("0x" + ("0" * (40-len(hexfmt))) + hexfmt)
+            return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
         return w3.toChecksumAddress(_addr)
 
     def getAccount(self, _addr, skipInit=False):
@@ -1345,6 +1343,7 @@ class State(object):
         if ((tx.value + tx.fee) > self.getAccount(tx.sender).balance):
             return (False, b"")
         
+        # SHOULD be executed after environment creation (for proper revert behavior)
         senderAcct.tempBalance -= tx.value
         recipientAcct.tempBalance += tx.value
         if len(env.code):
@@ -1448,6 +1447,11 @@ class State(object):
             env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
         else:
             env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
+
+        if (tx.value > 0):
+            senderAcct.tempBalance -= tx.value
+            recipientAcct.tempBalance += tx.value
+
         self.execEVMCall(env)
         # env = self.getAccount(msg.recipient, True).call(msg)
         for _addr in tx.affectedAccounts:
