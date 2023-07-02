@@ -945,7 +945,7 @@ class State(object):
         self.precompiledContractsHandler = EVM.PrecompiledContracts(self.crossChainFallback, self.beaconChain.bsc, self.getAccount)
         self.precompiledContracts = self.precompiledContractsHandler.contracts
         self.hash = ""
-        self.debug = True
+        self.debug = False
         self.benchmark = False
         self.benchGas = 0   # total benchmarked gas (for average)
         self.benchTime = 0  # total benchmarked execution time (for average)
@@ -1296,9 +1296,10 @@ class State(object):
                 else:
                     self.opcodes[env.code[env.pc]](env)
             except Exception as e:
-                self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}")
+                self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}\nError : {e.__repr__()}")
                 env.revert((f"Error occured during execution: {e}").encode())
-        env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
+        if _debug:
+            env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
 
     def deployContract(self, tx):
         self.applyParentStuff(tx)

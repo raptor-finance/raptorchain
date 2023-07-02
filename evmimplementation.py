@@ -1038,7 +1038,7 @@ class Opcodes(object):
             # env.systemMessages = env.systemMessages + _childEnv.systemMessages
             
         # gas
-        env.consumeGas(_childEnv.gasUsed + 5000)
+        env.consumeGas(5000)
         env.pc += 1
 
         
@@ -1679,7 +1679,6 @@ class CallEnv(object):
     
     
     def performExternalCall(self, addr, value, gas, _calldata):
-        print(value)
         _acct = self.getAccount(addr)
         _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
         self.childEnvs.append(_childEnv)
@@ -1687,6 +1686,7 @@ class CallEnv(object):
         if result[0]:   # success bool
             self.messages = self.messages + _childEnv.messages
             self.systemMessages = self.systemMessages + _childEnv.systemMessages
+        self.consumeGas(_childEnv.gasUsed)
         return result # success and returnValue
     
     def performStaticCall(self, addr, gas, _calldata):
