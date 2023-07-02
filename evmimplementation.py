@@ -1162,7 +1162,7 @@ class PrecompiledContracts(object):
 
     class ecRecover(object):
         def call(self, env):
-            sig = env.data[63:]
+            sig = env.data[63:] # as v is one-byte, 32:63 is empty (only zeroes) due to EVM's 32-bytes word size
             try:
                 recovered = w3.eth.account.recoverHash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
             except:
