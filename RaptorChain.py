@@ -430,12 +430,6 @@ class BeaconChain(object):
             self.testSpecificFeed(250, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x2edb0fe31d6d92086b1152b80d4ba4867113a8b4514448801b7355e68d7d0a84", "Fantom")
             self.testSpecificFeed(1, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x40c77f78d2d2ddc12443d48b60b4d62b64a7a5ddc8889de98eae729555d48b44", "Ethereum")
 
-        def testFeed(self):
-            data = self.getSlotData(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x99c5fd30bd0ae7473ceceebe9b03158a0401f6e5ba371131b888c7f1419c4579")
-            print("Testing datafeed for Polygon:", data)
-            if not data:
-                rich.print("[red]Warning : no data returned, node might not work properly !\nPress enter to continue startup...[/red]", end=""); input()
-
     class GenesisBeacon(object):
         def __init__(self, testnet=True):
             if testnet:
