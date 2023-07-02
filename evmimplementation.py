@@ -1022,17 +1022,26 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        _acct = env.getAccount(addr)
+        
+        _acct = env.getAccount(addr) # called account
+        
+        # child env execution
         _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getCode(addr), env.isStatic, calltype=1)
         env.childEnvs.append(_childEnv)
         result = env.callFallback(_childEnv)
         retValue = _childEnv.returnValue
+        
+        # push result to parent env
         env.lastCallReturn = retValue
         env.stack.append(int(result[0]))
+        env.memory.write_bytes(retOffset, retLength, retValue)
+        
+        # recover potential messages IF childEnv succeeded
         if result[0]:
             env.messages = env.messages + _childEnv.messages
             env.systemMessages = env.systemMessages + _childEnv.systemMessages
-        env.memory.write_bytes(retOffset, retLength, retValue)
+            
+        # gas
         env.consumeGas(_childEnv.gasUsed + 5000)
         env.pc += 1
 
@@ -1675,7 +1684,9 @@ class CallEnv(object):
         _acct = self.getAccount(addr)
         _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
         self.childEnvs.append(_childEnv)
-        result = env.callFallback(_childEnv)
+        result = self.callFallback(_childEnv)
+        if result[0]:   # success bool
+            self.messages = self.messages + _childEnv.messages
     
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))
