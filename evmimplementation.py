@@ -1099,14 +1099,17 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        _acct = env.getAccount(addr)
-        _childEnv = CallEnv(env.getAccount, env.recipient, _acct, addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.getCode(addr), True, calltype=1)
-        result = env.callFallback(_childEnv)
-        retValue = _childEnv.returnValue
+        
+        # fetch calldata from memory
+        _calldata = bytes(env.memory.data[argsOffset:argsOffset+argsLength])
+        
+        # perform external call
+        (success, retValue) = env.performStaticCall(addr, gas, _calldata)
+        
         env.lastCallReturn = retValue
-        env.stack.append(int(result[0]))
+        env.stack.append(int(success))
         env.memory.write_bytes(retOffset, retLength, retValue)
-        env.consumeGas(_childEnv.gasUsed + 5000)
+        
         env.pc += 1
 
     def REVERT(self, env):
@@ -1692,7 +1695,7 @@ class CallEnv(object):
         _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, 0, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), True, calltype=1)
         self.childEnvs.append(_childEnv)
         result = self.callFallback(_childEnv)
-        env.consumeGas(_childEnv.gasUsed + 5000) # forward gas costs
+        self.consumeGas(_childEnv.gasUsed + 5000) # forward gas costs
         # STATICCALL don't allow cross-chain messages, nothing to push
         return result # success and returnValue
 
