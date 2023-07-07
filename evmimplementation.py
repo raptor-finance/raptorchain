@@ -1081,13 +1081,22 @@ class Opcodes(object):
         offset = env.stack.pop()
         length = env.stack.pop()
         salt = env.stack.pop()
-        _nonce = len(env.runningAccount.sent)
+        
         _initBytecode = env.memory.read_bytes(offset, length)
+        
+        _nonce = len(env.runningAccount.sent)
         if env.tx.persist:
-            env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
+            env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce (TODO : update that shit)
+            
+        # calculate deployment address
         deplAddr = w3.toChecksumAddress(w3.keccak(((b'\xff' + bytes.fromhex(env.runningAccount.address.replace("0x", "")) + int(salt).to_bytes(32, "big") + w3.keccak(_initBytecode))))[12:])
         print(f"CREATE2 called to deploy address {deplAddr}")
-        result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3))
+        
+        # exec creation
+        env.createBackend(deplAddr, value, _initBytecode)
+        # result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3))
+
+        # push deplAddr
         env.stack.append(int(deplAddr, 16))
         env.consumeGas(32000)
         env.pc += 1
@@ -1679,6 +1688,13 @@ class CallEnv(object):
         self.systemMessages.append(sysmsg)
     
     
+    def createBackend(self, deplAddr, value, _initBytecode):
+        _childEnv = CallEnv(self.getAccount, self.recipient, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
+        self.childEnvs.append(_childEnv)
+        return self.callFallback(_childEnv)
+    
+    
+    # external calls
     def performExternalCall(self, addr, value, gas, _calldata):
         _acct = self.getAccount(addr)
         _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
