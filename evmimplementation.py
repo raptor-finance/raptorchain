@@ -1036,9 +1036,7 @@ class Opcodes(object):
         # if success:
             # env.messages = env.messages + _childEnv.messages
             # env.systemMessages = env.systemMessages + _childEnv.systemMessages
-            
-        # gas
-        env.consumeGas(5000)
+        
         env.pc += 1
 
         
@@ -1686,7 +1684,7 @@ class CallEnv(object):
         if result[0]:   # success bool
             self.messages = self.messages + _childEnv.messages
             self.systemMessages = self.systemMessages + _childEnv.systemMessages
-        self.consumeGas(_childEnv.gasUsed)
+        self.consumeGas(_childEnv.gasUsed + 5000) # forward gas costs
         return result # success and returnValue
     
     def performStaticCall(self, addr, gas, _calldata):
