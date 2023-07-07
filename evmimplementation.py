@@ -1692,6 +1692,7 @@ class CallEnv(object):
         _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, 0, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), True, calltype=1)
         self.childEnvs.append(_childEnv)
         result = self.callFallback(_childEnv)
+        env.consumeGas(_childEnv.gasUsed + 5000) # forward gas costs
         # STATICCALL don't allow cross-chain messages, nothing to push
         return result # success and returnValue
 
