@@ -1094,7 +1094,6 @@ class Opcodes(object):
         
         # exec creation
         env.createBackend(deplAddr, value, _initBytecode)
-        # result = env.callFallback(CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3))
 
         # push deplAddr
         env.stack.append(int(deplAddr, 16))
@@ -1173,6 +1172,19 @@ class PrecompiledContracts(object):
         def call(self, env):
             try:
                 self.methods.get(env.data[:4], self.fallback)(env)
+            except Exception as e:
+                print(f"Exception {e.__repr__()} caught calling CrossChainDataFeed with calldata {env.data.hex()}")
+                env.revert(b"")
+
+    class SimplePrecompile(Precompile):
+        # this allows using python's standard return format, with encoding set within the call handler
+    
+        def call(self, env):
+            try:
+                retData = self.methods.get(env.data[:4], self.fallback)(env)
+                if retData:
+                    (retTypes, retValues) = retData
+                    self.returnMultipleTypes(env, retTypes, retValues)
             except Exception as e:
                 print(f"Exception {e.__repr__()} caught calling CrossChainDataFeed with calldata {env.data.hex()}")
                 env.revert(b"")
@@ -1417,6 +1429,9 @@ class PrecompiledContracts(object):
             self.addMethod("getSlotData(uint256,address,bytes32)", self.getSlotData)
             self.addMethod("crossChainCall(uint256,address,uint256,bytes)", self.crossChainCall)
             self.addMethod("isChainSupported(uint256)", self.isChainSupported)
+            self.addMethod("isMN(address)", self.isMN)
+            self.addMethod("mnOwner(address)", self.mnOwner)
+            self.nullAddress = "0x0000000000000000000000000000000000000000"
             
         def _isChainSupported(self, env, chainid):
             cnt = env.chain.datafeed.contracts.get(chainid)
@@ -1466,21 +1481,6 @@ class PrecompiledContracts(object):
             env.messages.append(packedPL)
             env.consumeGas(6900 + (_gas * _pricePerGas))
         
-        def call(self, env):
-            try:
-                self.methods.get(env.data[:4], self.fallback)(env)
-            except Exception as e:
-                print(f"Exception {e.__repr__()} caught calling CrossChainDataFeed with calldata {env.data.hex()}")
-                env.revert(b"")
-        
-    class ConsensusInfo(Precompile):
-        def __init__(self):
-            self.nullAddress = "0x0000000000000000000000000000000000000000"
-            self.addMethod("isMN(address)", self.isMN)
-            self.addMethod("mnOwner(address)", self.mnOwner)
-            
-
-        # Precompiled methods
         def isMN(self, env):
             params = self.decodeParams(env, ["address"])
             _addr = self.formatAddress(params[0])           # formats operator address
@@ -1495,6 +1495,13 @@ class PrecompiledContracts(object):
             # returns owner if validator exists, otherwise return address 0
             print(f"Validator existence check : {bool(_val)}")
             self.returnSingleType(env, "address", _val.owner if bool(_val) else self.nullAddress)
+        
+        def call(self, env):
+            try:
+                self.methods.get(env.data[:4], self.fallback)(env)
+            except Exception as e:
+                print(f"Exception {e.__repr__()} caught calling CrossChainDataFeed with calldata {env.data.hex()}")
+                env.revert(b"")
     
     def __init__(self, bridgeFallBack, bsc, getAccount):
         self.contracts = {}
@@ -1506,7 +1513,6 @@ class PrecompiledContracts(object):
         self.setContract("0x0000000000000000000000000000000000000003", self.Ripemd160(), False)
         self.setContract("0x0000000000000000000000000000000000000069", self.accountBioManager(), False)
         self.setContract("0x000000000000000000000000000000000000FEeD", self.CrossChainDataFeed(), False)
-        self.setContract("0x000000000000000000000000000000000000c01F", self.ConsensusInfo(), False) # c0nsensus 1nFo xD
         self.setContract(self.crossChainAddress, self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc), False)
         # self.setContract("0x0000000000000000000000000000000d0ed622a3", self.Printer())
     
