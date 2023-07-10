@@ -1576,10 +1576,21 @@ class CallEnv(object):
                 return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
             return w3.toChecksumAddress(_addr)
     
+        def byteAddress(self, _addr):
+            if (type(_addr) == int):    # EVM loves integers lol
+                return _addr.to_bytes(20, "big")    # even logsblooms use 20-bytes addresses
+            elif (type(_addr) == str):  # hex addresses
+                return bytes.fromhex(_addr.replace("0x", ""))
+            return _addr                # assumes address is already encoded as bytes
+    
         def __init__(self, env, topics, _data):
-            self.address = env.recipient
+            self.address = self.byteAddress(env.recipient)
             
             self.topics = topics
+            self.bytesTopics = [t.to_bytes(32, "big") for t in self.topics]
+            
+            self.bloomableData = [self.address] + self.bytesTopics
+            
             self.data = _data
             self.index = 0
             
@@ -1591,7 +1602,7 @@ class CallEnv(object):
             self.index = _index
             
         def JSONEncodable(self):
-            _topics = [("0x" + t.to_bytes(32, "big").hex()) for t in self.topics]
+            _topics = [("0x" + t.hex()) for t in self.bytesTopics]
             _data = "0x" + self.data.hex()
             return {"address": self.formatAddress(self.address), "topics": _topics, "data": _data, "blockNumber": self.bknbr, "transactionIndex": "0x1", "blockHash": self.bkhash, "transactionHash": self.txid, "logIndex": self.index, "removed": False}
             

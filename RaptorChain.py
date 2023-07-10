@@ -138,6 +138,7 @@ class Transaction(object):
         self.accountsToDestroy = []
         
         self.events = []
+        self.logsBloom = bytearray(256)
         
         self.nonce = 0
         self.gasprice = 0
@@ -238,10 +239,24 @@ class Transaction(object):
         if not _addr in self.affectedAccounts:
             self.affectedAccounts.append(_addr)
 
+    def addToBloom(self, _data):
+        _hash = w3.keccak(_data)
+        for idx in [0, 2, 4]:
+            bitToSet = (int.from_bytes(_hash[idx:idx+2], "big") & 0x07ff)
+            bit_index = 0x07ff - bitToSet
+            byte_index = bit_index // 8
+            bit_value = 1 << (7 - (bit_index % 8))
+            self.logsBloom[byte_index] = self.logsBloom[byte_index] | bit_value
+
+    def addEventToBloom(self, _event):
+        for _bloomable in _event.bloomableData:
+            self.addToBloom(_bloomable)
+
     def setEvents(self, _events):
         n = 0
         for e in _events:
             e.setIndex(n)
+            self.addEventToBloom(e)
             self.events.append(e.JSONEncodable())
             n+=1
 
@@ -1402,7 +1417,7 @@ class State(object):
             tx.messages = tx.messages + env.messages
             tx.setEvents(env.events)
             tx.systemMessages = tx.systemMessages + env.systemMessages
-            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": tx.events, "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
+            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": tx.events, "logsBloom": "0x" + tx.logsBloom.hex(),"status": '0x1'}
         else:
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).cancelChanges()
