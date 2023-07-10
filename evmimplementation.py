@@ -964,12 +964,16 @@ class Opcodes(object):
     def LOG0(self, env): # TODO
         offset = env.stack.pop()
         length = env.stack.pop()
+        _data = env.memory.read_bytes(offset, length)
+        env.postEvent([], _data)
         env.pc += 1
         
     def LOG1(self, env): # TODO
         offset = env.stack.pop()
         length = env.stack.pop()
         topic0 = env.stack.pop()
+        _data = env.memory.read_bytes(offset, length)
+        env.postEvent([topic0], _data)
         env.pc += 1
         
     def LOG2(self, env): # TODO
@@ -977,6 +981,10 @@ class Opcodes(object):
         length = env.stack.pop()
         topic0 = env.stack.pop()
         topic1 = env.stack.pop()
+
+        _data = env.memory.read_bytes(offset, length)
+        env.postEvent([topic0, topic1], _data)
+        
         env.pc += 1
 
     def LOG3(self, env): # TODO
@@ -985,6 +993,10 @@ class Opcodes(object):
         topic0 = env.stack.pop()
         topic1 = env.stack.pop()
         topic2 = env.stack.pop()
+        
+        _data = env.memory.read_bytes(offset, length)
+        env.postEvent([topic0, topic1, topic2], _data)
+        
         env.pc += 1
         
     def LOG4(self, env): # TODO
@@ -994,6 +1006,10 @@ class Opcodes(object):
         topic1 = env.stack.pop()
         topic2 = env.stack.pop()
         topic3 = env.stack.pop()
+        
+        _data = env.memory.read_bytes(offset, length)
+        env.postEvent([topic0, topic1, topic3], _data)
+        
         env.pc += 1
 
     def CREATE(self, env):
@@ -1553,6 +1569,12 @@ class CallEnv(object):
             self.instruction = instruction
             self.data = data
 
+    class Event(object):
+        def __init__(self, sender, topics, _data):
+            self.sender = sender
+            self.topics = topics
+            self.data = _data
+
     def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, code, static,*, storage=None, calltype=0, calledFromAcctClass=False):
         self.stack = []
         self.getAccount = accountGetter
@@ -1583,6 +1605,7 @@ class CallEnv(object):
         self.gaslimit = (self.gaslimit + 2300) if (calltype == 1) else self.gaslimit
         self.pc = 0
         self.tx = tx
+        self.events = []
         self.data = data
         self.code = (b"" if calledFromAcctClass else code)
         self.halt = False
@@ -1708,6 +1731,7 @@ class CallEnv(object):
         result = self.callFallback(_childEnv)
         if result[0]:   # success bool
             self.messages = self.messages + _childEnv.messages
+            self.events = self.events + _childEnv.events
             self.systemMessages = self.systemMessages + _childEnv.systemMessages
         self.consumeGas(_childEnv.gasUsed + 5000) # forward gas costs
         return result # success and returnValue
@@ -1721,6 +1745,9 @@ class CallEnv(object):
         # STATICCALL don't allow cross-chain messages, nothing to push
         return result # success and returnValue
 
+
+    def postEvent(self, topics, _data):
+        self.events.append(self.Event(self.msgSender, topics, _data))
 
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))
