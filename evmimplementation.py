@@ -1570,10 +1570,31 @@ class CallEnv(object):
             self.data = data
 
     class Event(object):
-        def __init__(self, sender, topics, _data):
-            self.sender = sender
+        # TODO : move this function to a common class
+        def formatAddress(self, _addr):
+            if (type(_addr) == int):
+                return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
+            return w3.toChecksumAddress(_addr)
+    
+        def __init__(self, env, topics, _data):
+            self.address = env.recipient
+            
             self.topics = topics
             self.data = _data
+            self.index = 0
+            
+            self.txid = env.tx.txid
+            self.bkhash = env.lastBlock().proof
+            self.bknbr = env.blockNumber()
+            
+        def setIndex(self, _index):
+            self.index = _index
+            
+        def JSONEncodable(self):
+            _topics = [("0x" + t.to_bytes(32, "big").hex()) for t in self.topics]
+            _data = "0x" + self.data.hex()
+            return {"address": self.formatAddress(self.address), "topics": _topics, "data": _data, "blockNumber": self.bknbr, "transactionIndex": "0x1", "blockHash": self.bkhash, "transactionHash": self.txid, "logIndex": self.index, "removed": False}
+            
 
     def __init__(self, accountGetter, caller, runningAccount, recipient, beaconchain, value, gaslimit, tx, data, callfallback, code, static,*, storage=None, calltype=0, calledFromAcctClass=False):
         self.stack = []
@@ -1747,7 +1768,7 @@ class CallEnv(object):
 
 
     def postEvent(self, topics, _data):
-        self.events.append(self.Event(self.msgSender, topics, _data))
+        self.events.append(self.Event(self, topics, _data))
 
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))
