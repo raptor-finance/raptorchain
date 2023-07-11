@@ -1331,6 +1331,9 @@ class PrecompiledContracts(object):
             self.returnSingleType(env, "string", self._symbol)
         
         
+        def logTransfer(self, env, sender, recipient, tokens):
+            env.postEvent([0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef, int(sender, 16), int(recipient, 16)], int(tokens).to_bytes(32, "big"))
+        
         def _crossChain(self, env, tokens):
             _decrSuccess = env.safeDecrease(self.supplySlot, tokens)
             if not _decrSuccess:
@@ -1342,6 +1345,9 @@ class PrecompiledContracts(object):
             _from = self.calcBalanceAddress(sender)
             _to = self.calcBalanceAddress(recipient)
             _decrSuccess = env.safeDecrease(_from, int(tokens), b"INSUFFICIENT_BALANCE")
+            
+            self.logTransfer(env, sender, recipient, tokens)
+            
             if not _decrSuccess:
                 return False
             return (self._crossChain(env, tokens) if (recipient == self.bridge.address) else env.safeIncrease(_to, int(tokens)))
@@ -1387,14 +1393,21 @@ class PrecompiledContracts(object):
             depositorAddr = self.calcBalanceAddress(w3.toChecksumAddress(to))
             env.safeIncrease(depositorAddr, tokens)
             env.safeIncrease(self.supplySlot, tokens)
+            
+            self.logTransfer(env, "0x0000000000000000000000000000000000000000", to, tokens)
+            
             # env.writeStorageKey(depositorAddr, (env.loadStorageKey(depositorAddr) + tokens))
             # env.writeStorageKey(env.supplySlot, (env.loadStorageKey(self.supplySlot) + tokens))
             # print(f"Minted {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
         
         def burn(self, env, user, tokens):
             depositorAddr = self.calcBalanceAddress(w3.toChecksumAddress(user))
-            env.writeStorageKey(depositorAddr, (env.loadStorageKey(depositorAddr) - tokens))
-            env.writeStorageKey(env.supplySlot, (env.loadStorageKey(self.supplySlot) - tokens))
+            
+            env.safeDecrease(depositorAddr, tokens)
+            env.safeDecrease(self.supplySlot, tokens)
+            
+            self.logTransfer(env, user, "0x0000000000000000000000000000000000000000", tokens)
+            
             print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
         
         def fallback(self, env):
