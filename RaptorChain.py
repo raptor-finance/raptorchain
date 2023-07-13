@@ -861,8 +861,10 @@ class State(object):
         def makeChangesPermanent(self):
             self.storage = self.tempStorage.copy()
             self.balance = self.tempBalance
+            # code don't need to be made permanent as evm uses .tempcode
         
         def cancelChanges(self):
+            # copy avoids lot of mess (by keeping reference to self.storage)
             self.tempStorage = self.storage.copy()
             self.tempBalance = self.balance
             self.tempcode = self.code

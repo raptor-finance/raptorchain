@@ -1231,6 +1231,7 @@ class PrecompiledContracts(object):
             self.address = addr
             self.fallback = bridgeFallBack
             self.bsc = bsc
+            self.address = "0x0000000000000000000000000000000000000097"
         
         def logTransfer(self, env):
             # BridgeToBSC(address user, uint256 value)
@@ -1238,9 +1239,9 @@ class PrecompiledContracts(object):
             env.postEvent([topic0, self.addressToInt(env.msgSender), env.value], b"")
         
         def call(self, env):
-            # if env.calltype: # shouldn't be in child call
-                # env.revert(b"DONT_WORK_IN_CHILD_CALL")
-                # return
+            if (self.address != env.runningAccount.address):
+                env.revert(b"NOT_SUPPORTED_IN_DELEGATECALL")
+                return
             env.messages.append(self.fallback(self.bsc.custodyContract.address, self.bsc.token, env.msgSender, env.value, len(env.runningAccount.transactions)))
             self.logTransfer(env)
     
@@ -1357,6 +1358,9 @@ class PrecompiledContracts(object):
             env.postEvent([0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef, int(sender, 16), int(recipient, 16)], int(tokens).to_bytes(32, "big"))
         
         def _crossChain(self, env, tokens):
+            if (self.address != env.runningAccount.address):
+                env.revert(b"NOT_SUPPORTED_IN_DELEGATECALL")
+                return
             _decrSuccess = env.safeDecrease(self.supplySlot, tokens)
             if not _decrSuccess:
                 return False
@@ -1485,6 +1489,8 @@ class PrecompiledContracts(object):
             self.addMethod("isMN(address)", self.isMN)
             self.addMethod("mnOwner(address)", self.mnOwner)
             self.nullAddress = "0x0000000000000000000000000000000000000000"
+            # address where contract is supposed to be
+            self.address = "0x000000000000000000000000000000000000FEeD"
             
         def _isChainSupported(self, env, chainid):
             cnt = env.chain.datafeed.contracts.get(chainid)
@@ -1524,6 +1530,9 @@ class PrecompiledContracts(object):
             env.consumeGas(6900)
         
         def crossChainCall(self, env):
+            if (self.address != env.runningAccount.address):
+                env.revert(b"NOT_SUPPORTED_IN_DELEGATECALL")
+                return
             params = self.decodeParams(env, ["uint256", "address", "uint256", "bytes"]) # uint256 chainid, address to, uint256 gasLimit, uint256 data
             _chainid = params[0]
             _to = params[1]
