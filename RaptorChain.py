@@ -1444,24 +1444,24 @@ class State(object):
         # no need to check balance in delegateCall as msg.value is for information purposes (no ether transferred)
         if (((msg.calltype != 2) and (msg.value > self.getAccount(msg.msgSender).tempBalance)) or ((msg.value > 0) and msg.isStatic)):
             return (False, b"")
+            
+        # basic account existence checks
         self.ensureExistence(msg.msgSender)
         self.ensureExistence(msg.recipient)
         
         # balance transfers
-        if ((msg.value > 0) and (msg.calltype != 2)):   # in the context of DELEGATECALL, msg.value is passed for information purpose
+        # in the context of DELEGATECALL, msg.value is passed for information purpose (no balance transfer)
+        if ((msg.value > 0) and (msg.calltype != 2)):
             self.getAccount(msg.msgSender).tempBalance -= msg.value
             msg.runningAccount.tempBalance += msg.value
 
         # actual code execution
         self.execEVMCall(msg)
         
-        if (msg.getSuccess() and msg.calltype != 2):    # calltype 2 is for delegateCall - should not save to current address when call is delegated to another one
-            # msg.runningAccount.tempcode = msg.returnValue if (msg.calltype == 3) else msg.runningAccount.tempcode # set tempcode if CREATE or CREATE2 call
-            if msg.overrideStorage:
-                msg.runningAccount.tempStorage = msg.storage     # just to make sure storage's been pushed
-        elif (msg.calltype == 2): # delegateCall unsuccessful (do nothing)
-            pass
-        else: # unsuccessful normal call (revert)
+        if (msg.getSuccess()):
+            if msg.overrideStorage: # save storage on override
+                msg.runningAccount.tempStorage = msg.storage
+        else:
             msg.revert()
             
         return (msg.getSuccess(), msg.returnValue)
