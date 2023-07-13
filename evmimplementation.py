@@ -1801,6 +1801,8 @@ class CallEnv(object):
     
     
     def createBackend(self, deplAddr, value, _initBytecode):
+        if (self.getAccount(deplAddr).code):
+            self.revert(b"CONTRACT_ALREADY_EXISTING")
         _childEnv = CallEnv(self.getAccount, self.recipient, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
         self.childEnvs.append(_childEnv)
         _result = self.callFallback(_childEnv)
