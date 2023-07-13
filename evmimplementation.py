@@ -1850,7 +1850,7 @@ class CallEnv(object):
         return result # success and returnValue
 
     def performDelegateCall(self, addr, gas, _calldata):
-        _childEnv = CallEnv(self.getAccount, self.msgSender, self.getAccount(self.runningAccount.address), addr, self.chain, 0, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=2)
+        _childEnv = CallEnv(self.getAccount, self.msgSender, self.runningAccount, addr, self.chain, self.value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=2)
         self.childEnvs.append(_childEnv)
         result = self.callFallback(_childEnv)
         
