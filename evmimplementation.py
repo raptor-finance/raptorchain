@@ -1182,6 +1182,17 @@ class PrecompiledContracts(object):
                 return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
             return w3.toChecksumAddress(_addr)
 
+        def addressToInt(self, _addr):
+            # already int
+            if (type(_addr) == int):
+                return _addr;
+            # text address whether checksumed or not
+            if (type(_addr) == str):
+                return int(_addr, 16)
+            # address as bytes (exists but rarely used)
+            if (type(_addr) == bytes):
+                return int.from_bytes(_addr, "big")
+
         def fallback(self, env):
             env.revert(b"") # default fallback, can be overriden in child class
             
@@ -1332,6 +1343,10 @@ class PrecompiledContracts(object):
         
         
         def logTransfer(self, env, sender, recipient, tokens):
+            # topic0 : keccak256("Transfer(address,address,uint256)")
+            # topic1 : sender
+            # topic2 : recipient
+            # data   : tokens
             env.postEvent([0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef, int(sender, 16), int(recipient, 16)], int(tokens).to_bytes(32, "big"))
         
         def _crossChain(self, env, tokens):
@@ -1394,6 +1409,7 @@ class PrecompiledContracts(object):
             env.safeIncrease(depositorAddr, tokens)
             env.safeIncrease(self.supplySlot, tokens)
             
+            # solidity equivalent : emit Transfer(address(0), to, tokens);
             self.logTransfer(env, "0x0000000000000000000000000000000000000000", to, tokens)
             
             # env.writeStorageKey(depositorAddr, (env.loadStorageKey(depositorAddr) + tokens))
@@ -1406,6 +1422,7 @@ class PrecompiledContracts(object):
             env.safeDecrease(depositorAddr, tokens)
             env.safeDecrease(self.supplySlot, tokens)
             
+            # solidity equivalent : emit Transfer(user, address(0), tokens);
             self.logTransfer(env, user, "0x0000000000000000000000000000000000000000", tokens)
             
             print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
@@ -1475,6 +1492,14 @@ class PrecompiledContracts(object):
                 return False
             return [handlerContract.address, payload, chainid] # will be ABI-encoded on postMessage
             
+        def logCall(self, env, caller, recipient, _chainid, _gas, _calldata):
+            # keccak256("CrossChainCall(address,address,uint256,bytes)")
+            topic0 = 0x337c45501bcc201af5d31f9837c1719713ee31ed90fc42e5ced404c087a3d951
+            # gas limit and calldata aren't indexed, thus they're instead encoded into event data
+            _eventdata = eth_abi.encode_abi(["uint256", "bytes"], [_gas, _calldata])
+            
+            env.postEvent([topic0, self.addressToInt(caller), self.addressToInt(recipient), _chainid], _eventdata)
+            
         def fallback(self, env):
             env.revert(b"")
             
@@ -1503,6 +1528,8 @@ class PrecompiledContracts(object):
             if (not self._isChainSupported(env, _chainid)):
                 env.revert(b"") # reverts if unsupported chain
                 return # halts execution
+            
+            self.logCall(env, env.msgSender, _to, _chainid, _gas, _data)
             
             payload = self.encodePayload(env.msgSender, _to, _gas, _data)
             packedPL = self.packPayload(env, payload, _chainid)
