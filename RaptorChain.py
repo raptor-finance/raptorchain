@@ -861,7 +861,7 @@ class State(object):
         def makeChangesPermanent(self):
             self.storage = self.tempStorage.copy()
             self.balance = self.tempBalance
-            # code don't need to be made permanent as evm uses .tempcode
+            self.code = self.tempcode
         
         def cancelChanges(self):
             # copy avoids lot of mess (by keeping reference to self.storage)
@@ -1441,11 +1441,12 @@ class State(object):
         
         
     def executeChildCall(self, msg):
-        if ((msg.value > self.getAccount(msg.msgSender).tempBalance) or ((msg.value > 0) and msg.isStatic)):
+        # no need to check balance in delegateCall as msg.value is for information purposes (no ether transferred)
+        if (((msg.calltype != 2) and (msg.value > self.getAccount(msg.msgSender).tempBalance)) or ((msg.value > 0) and msg.isStatic)):
             return (False, b"")
         self.ensureExistence(msg.msgSender)
         self.ensureExistence(msg.recipient)
-        if (msg.value > 0):
+        if ((msg.value > 0) and (msg.calltype != 2)):   # in the context of DELEGATECALL, msg.value is passed for information purpose
             self.getAccount(msg.msgSender).tempBalance -= msg.value
             self.getAccount(msg.recipient).tempBalance += msg.value
         # code = self.getAccount(msg.recipient).code
@@ -1457,11 +1458,12 @@ class State(object):
                 # break
         recipientAcct = self.getAccount(msg.recipient)  # works well since it returns an object (aka a pointer)
         if (msg.getSuccess() and msg.calltype != 2):    # calltype 2 is for delegateCall - should not save to current address when call is delegated to another one
-            recipientAcct.tempcode = msg.returnValue if (msg.calltype == 3) else recipientAcct.tempcode # set tempcode if CREATE or CREATE2 call
-            recipientAcct.tempStorage = msg.storage     # just to make sure storage's been pushed
-            if (msg.calltype == 3) and msg.tx.persist and msg.tx.notTry:
-                recipientAcct.makeChangesPermanent()
-                recipientAcct.code = msg.returnValue
+            msg.runningAccount.tempcode = msg.returnValue if (msg.calltype == 3) else msg.runningAccount.tempcode # set tempcode if CREATE or CREATE2 call
+            if msg.overrideStorage:
+                msg.runningAccount.tempStorage = msg.storage     # just to make sure storage's been pushed
+            # if (msg.calltype == 3) and msg.tx.persist and msg.tx.notTry:
+                # msg.runningAccount.makeChangesPermanent()
+                # msg.runningAccount.code = msg.returnValue
         elif (msg.calltype == 2): # delegateCall unsuccessful (do nothing)
             msg.revert()
         else: # unsuccessful normal call (revert)
