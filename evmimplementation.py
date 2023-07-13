@@ -1706,6 +1706,8 @@ class CallEnv(object):
         self.messages = []
         self.childEnvs = []
         
+        self.reverted = False
+        
         self.balanceFromBefore = self.getAccount(self.msgSender).tempBalance
         self.balanceToBefore = self.runningAccount.tempBalance
 
@@ -1790,8 +1792,11 @@ class CallEnv(object):
             self.debugfile.write(f"Call ended, returnValue: {data.hex()}\n\n\n")
     
     def revert(self, data):
-        self.storage = self.storageBefore.copy()
-        self.runningAccount.tempStorage = self.storage
+        if self.reverted:
+            return # already reverted, do nothing
+        self.reverted = True
+    
+        self.setStorage(self.storageBefore.copy())
         
         self.getAccount(self.msgSender).tempBalance = self.balanceFromBefore
         self.runningAccount.tempBalance = self.balanceToBefore
@@ -1852,6 +1857,12 @@ class CallEnv(object):
         if self.overrideStorage:
             return self.storage
         return self.runningAccount.tempStorage
+
+    def setStorage(self, _storage):
+        if self.overrideStorage:
+            self.storage = _storage
+        else:
+            self.runningAccount.tempStorage = _storage
 
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))
