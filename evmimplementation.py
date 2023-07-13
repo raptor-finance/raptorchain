@@ -1664,7 +1664,7 @@ class CallEnv(object):
         self.getAccount = accountGetter
         self.memory = CallMemory()
         self.msgSender = caller
-        self.debugfile = None # set by other parts of code, better to have one here
+        self.debugfile = None # set by other parts of code, better to have reference here
         self.txorigin = tx.sender
         self.recipient = recipient
         self.chain = beaconchain
