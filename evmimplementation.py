@@ -1080,7 +1080,7 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        _subCallEnv = CallEnv(env.getAccount, env.msgSender, env.getAccount(env.recipient), env.recipient, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.isStatic, calltype=2)
+        _subCallEnv = CallEnv(env.getAccount, env.msgSender, env.getAccount(env.recipient), addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.isStatic, calltype=2)
         env.childEnvs.append(_subCallEnv)
         result = env.callFallback(_subCallEnv)
         retValue = _subCallEnv.returnValue
@@ -1720,6 +1720,10 @@ class CallEnv(object):
             self.debugfile.close()
         self.debugfile = open(f"raptorevmdebug-{self.tx.txid}.log", "a")
     
+    def currentAddr(self):
+        if type(self.recipient) == str:
+            return w3.toChecksumAddress(self.recipient)
+    
     def consumeGas(self, units):
         self.gasUsed += units
         if (self.gasUsed > self.gaslimit):
@@ -1801,7 +1805,7 @@ class CallEnv(object):
     
     
     def createBackend(self, deplAddr, value, _initBytecode):
-        if (self.getAccount(deplAddr).code):
+        if (self.getCode(deplAddr)):
             self.revert(b"CONTRACT_ALREADY_EXISTING")
         _childEnv = CallEnv(self.getAccount, self.recipient, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
         self.childEnvs.append(_childEnv)
