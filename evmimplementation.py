@@ -1023,9 +1023,14 @@ class Opcodes(object):
         if env.tx.persist:
             env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
         deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(_nonce)]))[12:])
-        _childEnv = CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, env.memory.read_bytes(offset, length), False, calltype=3)
-        result = env.callFallback(_childEnv)
-        env.lastCallReturn = _childEnv.returnValue
+
+        _initBytecode = env.memory.read_bytes(offset, length)
+
+        env.createBackend(deplAddr, value, _initBytecode)
+
+        # _childEnv = CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3)
+        # result = env.callFallback(_childEnv)
+        # env.lastCallReturn = _childEnv.returnValue
         env.stack.append(int(deplAddr, 16))
         env.consumeGas(32000)
         env.pc += 1
@@ -1799,7 +1804,10 @@ class CallEnv(object):
     def createBackend(self, deplAddr, value, _initBytecode):
         _childEnv = CallEnv(self.getAccount, self.recipient, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
         self.childEnvs.append(_childEnv)
-        return self.callFallback(_childEnv)
+        _result = self.callFallback(_childEnv)
+        if (self.blockNumber() >= 36):
+            self.consumeGas(_childEnv.gasUsed)
+        return _result
     
     
     # external calls
