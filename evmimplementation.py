@@ -1086,13 +1086,8 @@ class Opcodes(object):
         (success, retValue) = env.performDelegateCall(addr, gas, _calldata)
         
         env.lastCallReturn = retValue
-        if success:
-            env.storage = _subCallEnv.storage
-            env.messages = env.messages + _childEnv.messages
-            env.systemMessages = env.systemMessages + _childEnv.systemMessages
         env.stack.append(int(success))
         env.memory.write_bytes(retOffset, retLength, retValue)
-        env.consumeGas(_childEnv.gasUsed + 5000)
         env.pc += 1
         
     def CREATE2(self, env):
@@ -1612,7 +1607,7 @@ class Msg(object):
         self.calltype = calltype
         self.persistStorage = shallSaveData
         
-# CALL : CallEnv(self.getAccount, env.recipient, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
+# CALL : CallEnv(self.getAccount, env.runningAccount.address, env.getAccount(addr), addr, env.chain, value, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback)
 class CallEnv(object):
     class SystemMessage(object):
         def __init__(self, sender, contract, instruction, data):
@@ -1846,9 +1841,18 @@ class CallEnv(object):
         return result # success and returnValue
 
     def performDelegateCall(self, addr, gas, _calldata):
-        _subCallEnv = CallEnv(self.getAccount, self.msgSender, self.getAccount(self.runningAccount.address), addr, self.chain, 0, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=2)
-        self.childEnvs.append(_subCallEnv)
+        _childEnv = CallEnv(self.getAccount, self.msgSender, self.getAccount(self.runningAccount.address), addr, self.chain, 0, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=2)
+        self.childEnvs.append(_childEnv)
         result = self.callFallback(_childEnv)
+        
+        if result[0]:
+            self.messages = self.messages + _childEnv.messages
+            self.systemMessages = self.systemMessages + _childEnv.systemMessages
+            self.events = self.events + _childEnv.events
+        
+        self.consumeGas(_childEnv.gasUsed + 5000)
+        
+        return result
 
     def postEvent(self, topics, _data):
         self.events.append(self.Event(self, topics, _data))
