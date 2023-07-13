@@ -1301,8 +1301,8 @@ class State(object):
         # print(f"Called ecRecover with sig {sig} and hash {env.data[0:32]}, returnValue : {env.returnValue}")
 
     def execEVMCall(self, env):
-        if self.precompiledContracts.get(env.runningAccount.address):
-            self.precompiledContracts.get(env.runningAccount.address).call(env)
+        if self.precompiledContracts.get(env.recipient):
+            self.precompiledContracts.get(env.recipient).call(env)
             return
         history = []
         _debug = self.debug
