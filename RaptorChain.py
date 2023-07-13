@@ -1446,26 +1446,21 @@ class State(object):
             return (False, b"")
         self.ensureExistence(msg.msgSender)
         self.ensureExistence(msg.recipient)
+        
+        # balance transfers
         if ((msg.value > 0) and (msg.calltype != 2)):   # in the context of DELEGATECALL, msg.value is passed for information purpose
             self.getAccount(msg.msgSender).tempBalance -= msg.value
-            self.getAccount(msg.recipient).tempBalance += msg.value
-        # code = self.getAccount(msg.recipient).code
+            msg.runningAccount.tempBalance += msg.value
+
+        # actual code execution
         self.execEVMCall(msg)
-        # while True and (not msg.halt):
-            # try:
-                # self.opcodes[msg.code[msg.pc]](msg)
-            # except:
-                # break
-        recipientAcct = self.getAccount(msg.recipient)  # works well since it returns an object (aka a pointer)
+        
         if (msg.getSuccess() and msg.calltype != 2):    # calltype 2 is for delegateCall - should not save to current address when call is delegated to another one
-            msg.runningAccount.tempcode = msg.returnValue if (msg.calltype == 3) else msg.runningAccount.tempcode # set tempcode if CREATE or CREATE2 call
+            # msg.runningAccount.tempcode = msg.returnValue if (msg.calltype == 3) else msg.runningAccount.tempcode # set tempcode if CREATE or CREATE2 call
             if msg.overrideStorage:
                 msg.runningAccount.tempStorage = msg.storage     # just to make sure storage's been pushed
-            # if (msg.calltype == 3) and msg.tx.persist and msg.tx.notTry:
-                # msg.runningAccount.makeChangesPermanent()
-                # msg.runningAccount.code = msg.returnValue
         elif (msg.calltype == 2): # delegateCall unsuccessful (do nothing)
-            msg.revert()
+            pass
         else: # unsuccessful normal call (revert)
             msg.revert()
             

@@ -1822,6 +1822,12 @@ class CallEnv(object):
         _childEnv = CallEnv(self.getAccount, self.runningAccount.address, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
         self.childEnvs.append(_childEnv)
         _result = self.callFallback(_childEnv)
+        
+        if _result[0]:
+            self.events = self.events + _childEnv.events
+            self.messages = self.messages + _childEnv.messages
+            _childEnv.runningAccount.tempcode = _childEnv.returnValue
+        
         if (self.blockNumber() >= 36):
             self.consumeGas(_childEnv.gasUsed)
         return _result
