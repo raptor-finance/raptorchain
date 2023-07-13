@@ -1226,6 +1226,7 @@ class PrecompiledContracts(object):
             env.returnCall(int(recovered, 16).to_bytes(32, "big"))
     
     class crossChainBridge(Precompile):
+        # BSC bridge
         def __init__(self, bridgeFallBack, addr, bsc):
             self.address = addr
             self.fallback = bridgeFallBack
