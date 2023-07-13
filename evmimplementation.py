@@ -1080,16 +1080,17 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        _subCallEnv = CallEnv(env.getAccount, env.msgSender, env.getAccount(env.recipient), addr, env.chain, 0, gas, env.tx, bytes(env.memory.data[argsOffset:argsOffset+argsLength]), env.callFallback, env.isStatic, calltype=2)
-        env.childEnvs.append(_subCallEnv)
-        result = env.callFallback(_subCallEnv)
-        retValue = _subCallEnv.returnValue
+        
+        _calldata = bytes(env.memory.data[argsOffset:argsOffset+argsLength])
+        
+        (success, retValue) = env.performDelegateCall(addr, gas, _calldata)
+        
         env.lastCallReturn = retValue
-        if result[0]:
+        if success:
             env.storage = _subCallEnv.storage
             env.messages = env.messages + _childEnv.messages
             env.systemMessages = env.systemMessages + _childEnv.systemMessages
-        env.stack.append(int(result[0]))
+        env.stack.append(int(success))
         env.memory.write_bytes(retOffset, retLength, retValue)
         env.consumeGas(_childEnv.gasUsed + 5000)
         env.pc += 1
@@ -1107,7 +1108,7 @@ class Opcodes(object):
         
         _nonce = len(env.runningAccount.sent)
         if env.tx.persist:
-            env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce (TODO : update that shit)
+            env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce (TODO : update that shit for estimateGas)
             
         # calculate deployment address
         deplAddr = w3.toChecksumAddress(w3.keccak(((b'\xff' + bytes.fromhex(env.runningAccount.address.replace("0x", "")) + int(salt).to_bytes(32, "big") + w3.keccak(_initBytecode))))[12:])
@@ -1154,7 +1155,7 @@ class Opcodes(object):
             return
         else:
             addr = env.stack.pop()
-            env.tx.accountsToDestroy.append([env.recipient, addr])
+            env.tx.accountsToDestroy.append([env.runningAccount.address, addr])
             env.halt = True
         env.pc += 1
         
@@ -1635,7 +1636,7 @@ class CallEnv(object):
             return _addr                # assumes address is already encoded as bytes
     
         def __init__(self, env, topics, _data):
-            self.address = self.byteAddress(env.recipient)
+            self.address = self.byteAddress(env.runningAccount.address)
             
             self.topics = topics
             self.bytesTopics = [t.to_bytes(32, "big") for t in self.topics]
@@ -1672,9 +1673,11 @@ class CallEnv(object):
         self.lastCallReturn = b""
         self.systemMessages = []
         if storage:
+            self.overrideStorage = True
             self.storage = storage
             self.storageBefore = self.storage.copy()
         else:
+            self.overrideStorage = False
             self.storage = runningAccount.tempStorage
             self.storageBefore = runningAccount.tempStorage.copy()
         self.value = value
@@ -1734,7 +1737,7 @@ class CallEnv(object):
         return self.gaslimit - self.gasUsed
     
     def loadStorageKey(self, key):
-        return self.storage.get(key, 0)
+        return self.getStorage().get(key, 0)
     
     def writeStorageKey(self, key, value):
         if self.isStatic:
@@ -1742,9 +1745,9 @@ class CallEnv(object):
             self.halt = True
             self.returnValue = b"STATICCALL_DONT_ALLOW_SSTORE"
         else:
-            self.storage[key] = value
-            if value == 0:
-                del self.storage[key]
+            self.getStorage()[key] = value
+            if value == 0:  # saves space
+                del self.getStorage()[key]
     
     def safeIncrease(self, slot, value, errorMessage=b"INTEGER_OVERFLOW_DETECTED"):
         _prevValue = self.loadStorageKey(slot)
@@ -1807,7 +1810,7 @@ class CallEnv(object):
     def createBackend(self, deplAddr, value, _initBytecode):
         if (self.getCode(deplAddr)):
             self.revert(b"CONTRACT_ALREADY_EXISTING")
-        _childEnv = CallEnv(self.getAccount, self.recipient, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
+        _childEnv = CallEnv(self.getAccount, self.runningAccount.address, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
         self.childEnvs.append(_childEnv)
         _result = self.callFallback(_childEnv)
         if (self.blockNumber() >= 36):
@@ -1818,7 +1821,7 @@ class CallEnv(object):
     # external calls
     def performExternalCall(self, addr, value, gas, _calldata):
         _acct = self.getAccount(addr)
-        _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
+        _childEnv = CallEnv(self.getAccount, self.runningAccount.address, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
         self.childEnvs.append(_childEnv)
         result = self.callFallback(_childEnv)
         if result[0]:   # success bool
@@ -1830,16 +1833,25 @@ class CallEnv(object):
     
     def performStaticCall(self, addr, gas, _calldata):
         _acct = self.getAccount(addr)
-        _childEnv = CallEnv(self.getAccount, self.recipient, _acct, addr, self.chain, 0, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), True, calltype=1)
+        _childEnv = CallEnv(self.getAccount, self.runningAccount.address, _acct, addr, self.chain, 0, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), True, calltype=1)
         self.childEnvs.append(_childEnv)
         result = self.callFallback(_childEnv)
         self.consumeGas(_childEnv.gasUsed + 5000) # forward gas costs
         # STATICCALL don't allow cross-chain messages, nothing to push
         return result # success and returnValue
 
+    def performDelegateCall(self, addr, gas, _calldata):
+        _subCallEnv = CallEnv(self.getAccount, self.msgSender, self.getAccount(self.runningAccount.address), addr, self.chain, 0, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=2)
+        self.childEnvs.append(_subCallEnv)
+        result = self.callFallback(_childEnv)
 
     def postEvent(self, topics, _data):
         self.events.append(self.Event(self, topics, _data))
+
+    def getStorage(self):
+        if self.overrideStorage:
+            return self.storage
+        return self.runningAccount.tempStorage
 
     def getSuccess(self):
         return (self.success and (self.remainingGas() >= 0))
