@@ -1301,8 +1301,9 @@ class State(object):
         # print(f"Called ecRecover with sig {sig} and hash {env.data[0:32]}, returnValue : {env.returnValue}")
 
     def execEVMCall(self, env):
-        if self.precompiledContracts.get(env.recipient):
-            self.precompiledContracts.get(env.recipient).call(env)
+        _fmtRecipient = self.formatAddress(env.recipient)
+        if self.precompiledContracts.get(_fmtRecipient):
+            self.precompiledContracts.get(_fmtRecipient).call(env)
             return
         history = []
         _debug = self.debug
@@ -1460,10 +1461,9 @@ class State(object):
                 recipientAcct.makeChangesPermanent()
                 recipientAcct.code = msg.returnValue
         elif (msg.calltype == 2): # delegateCall unsuccessful (do nothing)
-            pass
+            msg.revert()
         else: # unsuccessful normal call (revert)
-            # cancels storage changes
-            recipientAcct.tempStorage = msg.storageBefore.copy()
+            msg.revert()
             
         return (msg.getSuccess(), msg.returnValue)
             
