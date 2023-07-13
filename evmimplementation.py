@@ -1225,17 +1225,23 @@ class PrecompiledContracts(object):
                 recovered = "0x0000000000000000000000000000000000000000"
             env.returnCall(int(recovered, 16).to_bytes(32, "big"))
     
-    class crossChainBridge(object):
+    class crossChainBridge(Precompile):
         def __init__(self, bridgeFallBack, addr, bsc):
             self.address = addr
             self.fallback = bridgeFallBack
             self.bsc = bsc
+        
+        def logTransfer(self, env):
+            # BridgeToBSC(address user, uint256 value)
+            topic0 = 0x2f001d844f5b66ef8fbace137186a419a07c736891e7c29a90bba8853e39fc32
+            env.postEvent([topic0, self.addressToInt(env.msgSender), env.value], b"")
         
         def call(self, env):
             # if env.calltype: # shouldn't be in child call
                 # env.revert(b"DONT_WORK_IN_CHILD_CALL")
                 # return
             env.messages.append(self.fallback(self.bsc.custodyContract.address, self.bsc.token, env.msgSender, env.value, len(env.runningAccount.transactions)))
+            self.logTransfer(env)
     
     class accountBioManager(Precompile):
         def __init__(self):
