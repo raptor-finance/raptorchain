@@ -1315,7 +1315,7 @@ class State(object):
             try:
                 if _debug:
                     op = env.code[env.pc]
-                    env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
+                    env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.getStorage()} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
                     history.append(hex(op))
                     self.opcodes[op](env)
                 else:
@@ -1324,7 +1324,7 @@ class State(object):
                 self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}\nError : {e.__repr__()}")
                 env.revert((f"Error occured during execution: {e}").encode())
         if _debug:
-            env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.storage} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
+            env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.getStorage()} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
 
     def deployContract(self, tx):
         self.applyParentStuff(tx)
@@ -1341,8 +1341,8 @@ class State(object):
         self.execEVMCall(env)
         deplAcct.tempcode = env.returnValue
         deplAcct.code = env.returnValue
-        deplAcct.storage = env.storage.copy()
-        deplAcct.tempStorage = env.storage.copy()
+        deplAcct.storage = env.getStorage().copy()
+        deplAcct.tempStorage = env.getStorage().copy()
         if env.getSuccess():
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
             if self.verbose:
@@ -1410,7 +1410,8 @@ class State(object):
         if showMessage and self.verbose:
             print(f"Success : {env.getSuccess()}\nReturnValue : {env.returnValue}")
         if env.getSuccess():
-            self.getAccount(env.recipient).tempStorage = env.storage
+            if env.overrideStorage:
+                self.getAccount(env.runningAccount.address).tempStorage = env.storage
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).makeChangesPermanent()
 #                self.getAccount(_addr).addParent(tx.txid)
