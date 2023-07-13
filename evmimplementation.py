@@ -1146,7 +1146,6 @@ class Opcodes(object):
         length = env.stack.pop()
         _errorMsg = bytes(env.memory.data[offset:offset+length])
         env.revert(_errorMsg)
-        print(f"REVERTED in tx {env.tx.txid} for reason {_errorMsg}")
         env.pc += 1
 
     def SELFDESTRUCT(self, env):
