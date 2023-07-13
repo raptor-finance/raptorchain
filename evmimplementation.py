@@ -1714,6 +1714,7 @@ class CallEnv(object):
         
         self.balanceFromBefore = self.getAccount(self.msgSender).tempBalance
         self.balanceToBefore = self.runningAccount.tempBalance
+        self.codebefore = self.runningAccount.tempcode  # in case CREATE reverts
 
     def getBlock(self, height):
         return self.chain.blocks[min(height, len(self.chain.blocks)-1)]
@@ -1804,6 +1805,8 @@ class CallEnv(object):
         
         self.getAccount(self.msgSender).tempBalance = self.balanceFromBefore
         self.runningAccount.tempBalance = self.balanceToBefore
+        
+        self.runningAccount.tempcode = self.codebefore
         
         self.halt = True
         self.success = False
