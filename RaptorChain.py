@@ -1102,19 +1102,6 @@ class State(object):
         self.beaconChain.destroyValidator(tx.recipient)
     
 
-    # def checkOutDeposit(self, tx):
-        # if not tx.l2hash in self.processedL2Hashes:
-            # depositInfo = self.beaconChain.bsc.getDepositDetails(tx.l2hash)
-            # self.accounts[depositInfo["depositor"]].balance += depositInfo["amount"]
-            # self.totalSupply += depositInfo["amount"]
-            # # if tx.sender != depositInfo["depositor"]:
-                # # self.accounts[depositInfo["depositor"]].transactions.append(tx.txid)
-            # self.accounts[depositInfo["depositor"]].transactions.append(tx.txid)
-            # self.processedL2Hashes.append(depositInfo["hash"])
-            # return (True, f"Deposited {depositInfo['amount']} to {depositInfo['depositor']}")
-        # else:
-            # return (False, "Already processed")
-
     def checkOutDepositByIndex(self, tx, _index):
         depositInfo = self.beaconChain.bsc.getDepositDetails(int(_index))
         if not depositInfo["hash"] in self.processedL2Hashes:
@@ -1256,7 +1243,6 @@ class State(object):
             self.ensureExistence(miner)
             self.accounts[miner].mined.append(tx.txid)
             tx.affectedAccounts.append(miner)
-            # self.accounts[miner].transactions.append(tx.txid)
         
         # append received tx
         self.accounts[tx.recipient].received.append(tx.txid)
