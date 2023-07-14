@@ -137,6 +137,8 @@ class Transaction(object):
         self.affectedAccounts = []
         self.accountsToDestroy = []
         
+        self.nonMalleable = True
+        
         self.events = []
         self.logsBloom = bytearray(256)
         
@@ -184,6 +186,9 @@ class Transaction(object):
             self.v = ethDecoded.v
             self.r = ethDecoded.r
             self.s = ethDecoded.s
+            
+            self.nonMalleable = (int(self.s, 16) <= 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0)
+            
             self.data = bytes.fromhex(ethDecoded.data.replace("0x", ""))
             if not self.recipient:
                 self.recipient = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(self.sender.replace("0x", "")), int(self.nonce)]))[12:])
@@ -1193,7 +1198,7 @@ class State(object):
         if _tx.txtype == 7:
             underlyingOperationSuccess = self.beaconChain.estimateRelayerSuccess(_tx.blockhash, _tx.blocksig)
             
-        return (underlyingOperationSuccess[0] and correctBeacon and correctParent and correctGasPrice and correctChainId)
+        return (underlyingOperationSuccess[0] and correctBeacon and correctParent and correctGasPrice and correctChainId and _tx.nonMalleable)
         
 
     # def mineBlock(self, blockData):
