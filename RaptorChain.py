@@ -454,7 +454,16 @@ class BeaconChain(object):
             self.testSpecificFeed(250, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x2edb0fe31d6d92086b1152b80d4ba4867113a8b4514448801b7355e68d7d0a84", "Fantom")
             self.testSpecificFeed(1, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x40c77f78d2d2ddc12443d48b60b4d62b64a7a5ddc8889de98eae729555d48b44", "Ethereum")
 
-    class GenesisBeacon(object):
+
+    # methods common to both `Beacon` and `GenesisBeacon`
+    class BeaconBase(object):
+        def addTransaction(self, txid):
+            if not txid in self.transactions:
+                self.transactions.append(txid)
+            if not txid in self.fullTxList:
+                self.fullTxList.append(txid)
+
+    class GenesisBeacon(BeaconBase):
         def __init__(self, testnet=True):
             if testnet:
                 self.timestamp = 1645457628
@@ -506,10 +515,6 @@ class BeaconChain(object):
                 _msgs.append(f"0x{_msg_.hex()}")
             return _msgs
 
-        def addTransaction(self, txid):
-            self.transactions.append(txid)
-            self.fullTxList.append(txid)
-            
         def addDepCheckerTx(self, txid):
             self.depCheckerTxs.append(txid)
             self.fullTxList.append(txid)
@@ -531,7 +536,7 @@ class BeaconChain(object):
             return {"transactions": (self.fullTxList + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"{s}" for r, s in self.relayerSigs.items()]}
 
 
-    class Beacon(object):
+    class Beacon(BeaconBase):
         # def __init__(self, parent, difficulty, timestamp, miner, logsBloom):
             # self.miner = ""
             # self.timestamp = timestamp
@@ -607,10 +612,6 @@ class BeaconChain(object):
             for _msg_ in self.decodedMessages:
                 _msgs.append(f"0x{_msg_.hex()}")
             return _msgs
-            
-        def addTransaction(self, txid):
-            self.transactions.append(txid)
-            self.fullTxList.append(txid)
             
         def addDepCheckerTx(self, txid):
             self.depCheckerTxs.append(txid)
