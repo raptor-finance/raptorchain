@@ -1451,8 +1451,8 @@ class State(object):
         
     def executeChildCall(self, msg):
         # no need to check balance in delegateCall as msg.value is for information purposes (no RPTR transferred)
-        if (((msg.calltype != 2) and (msg.value > self.getAccount(msg.msgSender).tempBalance)) or ((msg.value > 0) and msg.isStatic)):
-            return (False, b"")
+        if ((msg.calltype != 2) and ((msg.value > self.getAccount(msg.msgSender).tempBalance))):
+            return (False, b"") # halts case of insufficient balance
             
         # basic account existence checks
         self.ensureExistence(msg.msgSender)
@@ -1472,7 +1472,7 @@ class State(object):
         if (msg.getSuccess()):
             if msg.overrideStorage: # save storage on override
                 msg.runningAccount.tempStorage = msg.storage
-        else:
+        else:   # in case msg didn't revert (could happen if it runs out of gas)
             msg.revert()
             
         return (msg.getSuccess(), msg.returnValue)

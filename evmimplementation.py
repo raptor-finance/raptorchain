@@ -1845,6 +1845,10 @@ class CallEnv(object):
     
     
     def createBackend(self, deplAddr, value, _initBytecode):
+        if self.isStatic:
+            self.revert(b"NOT_SUPPORTED_IN_STATICCALL")
+            return (False, b"")
+    
         if (self.getCode(deplAddr)):
             self.revert(b"CONTRACT_ALREADY_EXISTING")
         _childEnv = CallEnv(self.getAccount, self.runningAccount.address, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
@@ -1863,6 +1867,9 @@ class CallEnv(object):
     
     # external calls
     def performExternalCall(self, addr, value, gas, _calldata):
+        if ((value > 0) and self.isStatic):
+            self.revert(b"NOT_SUPPORTED_IN_STATICCALL") # balance transfers aren't supported in STATICCALL
+            return
         _acct = self.getAccount(addr)
         _childEnv = CallEnv(self.getAccount, self.runningAccount.address, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
         self.childEnvs.append(_childEnv)
@@ -1912,6 +1919,9 @@ class CallEnv(object):
         return result
 
     def postEvent(self, topics, _data):
+        if self.isStatic:
+            self.revert(b"NOT_SUPPORTED_IN_STATICCALL")
+            return
         self.events.append(self.Event(self, topics, _data))
 
     def getStorage(self):
