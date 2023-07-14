@@ -1304,7 +1304,6 @@ class State(object):
         if self.precompiledContracts.get(_fmtRecipient):
             self.precompiledContracts.get(_fmtRecipient).call(env)
             return
-        history = []
         _debug = self.debug
         if _debug:
             env.refreshDebugFile()
@@ -1316,7 +1315,6 @@ class State(object):
                 if _debug:
                     op = env.code[env.pc]
                     env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.getStorage()} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
-                    history.append(hex(op))
                     self.opcodes.get(op, self.opcodes[0xfe])(env)
                 else:
                     self.opcodes.get(env.code[env.pc], self.opcodes[0xfe])(env)
