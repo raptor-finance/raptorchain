@@ -1462,6 +1462,8 @@ class State(object):
         
         # balance transfers
         # in the context of DELEGATECALL, msg.value is passed for information purpose (no balance transfer)
+        # however, due to CALLCODE's weird logic, some kind of transfer is still executed (contract sending to itself)
+        # thus, CALLCODE throws if you attempt to transfer more than current balance
         if ((msg.value > 0) and (msg.calltype != 2)):
             self.getAccount(msg.msgSender).tempBalance -= msg.value
             msg.runningAccount.tempBalance += msg.value

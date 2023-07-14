@@ -261,6 +261,7 @@ class Opcodes(object):
         self.opcodes[0xF5] = self.CREATE2
         self.opcodes[0xFA] = self.STATICCALL
         self.opcodes[0xFD] = self.REVERT
+        self.opcodes[0xFE] = self.INVALID
 
     def padded(self, data, size):
         return (b"\x00"*(size-(len(_bts))) + _bts)[0:size]
@@ -1063,6 +1064,13 @@ class Opcodes(object):
         
         
     def CALLCODE(self, env):
+        gas = env.stack.pop()
+        addr = env.stack.pop()
+        value = env.stack.pop()
+        argsOffset = env.stack.pop()
+        argsLength = env.stack.pop()
+        retOffset = env.stack.pop()
+        retLength = env.stack.pop()
         pass # TODO
         env.pc += 1
         
@@ -1870,6 +1878,20 @@ class CallEnv(object):
 
     def performDelegateCall(self, addr, gas, _calldata):
         _childEnv = CallEnv(self.getAccount, self.msgSender, self.runningAccount, addr, self.chain, self.value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=2)
+        self.childEnvs.append(_childEnv)
+        result = self.callFallback(_childEnv)
+        
+        if result[0]:
+            self.messages = self.messages + _childEnv.messages
+            self.systemMessages = self.systemMessages + _childEnv.systemMessages
+            self.events = self.events + _childEnv.events
+        
+        self.consumeGas(_childEnv.gasUsed + 5000)
+        
+        return result
+
+    def performCallCode(self, addr, value, gas, _calldata):
+        _childEnv = CallEnv(self.getAccount, self.runningAccount.address, self.runningAccount, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=2)
         self.childEnvs.append(_childEnv)
         result = self.callFallback(_childEnv)
         
