@@ -1277,24 +1277,6 @@ class State(object):
         for sysmsg in tx.systemMessages:
             self.execSystemMessage(sysmsg)
 
-    def executeTransfer(self, tx, showMessage):
-        willSucceed = self.estimateTransferSuccess(tx)
-        if not willSucceed[0]:
-            return willSucceed
-        self.applyParentStuff(tx)
-        
-        
-        self.accounts[tx.sender].balance -= (tx.value + tx.fee)
-        if (tx.recipient == self.crossChainAddress):
-            self.requestCrosschainTransfer(tx)
-            self.totalSupply -= tx.value
-        else:
-            self.accounts[tx.recipient].balance += tx.value
-        
-        if (showMessage):
-            print(f"Transfer executed !\nAmount transferred : {(tx.value/(10**18))} {self.ticker}\nFrom: {tx.sender}\nTo: {tx.recipient}")
-        return (True, "Transfer succeeded")
-
     def mineBlock(self, tx):
         try:
             self.ensureExistence(tx.sender)
