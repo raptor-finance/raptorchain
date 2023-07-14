@@ -1597,11 +1597,15 @@ class PrecompiledContracts(object):
         return w3.toChecksumAddress((int(addr, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
     def mintCrossChainToken(self, env, tokenAddress, to, tokens):
-        if not self.contracts.get(tokenAddress):
+        _bridgedAddr = self.calcBridgedAddress(tokenAddress)
+        
+        # deploy it if it don't exist
+        if not self.contracts.get(_bridgedAddr):
             _token = self.CrossChainToken(self.bsc, tokenAddress, self.contracts.get(self.crossChainAddress))
             self.setContract(_token.address, _token)
-            print(f"Deployed cross-chain token {tokenAddress} to address {_token.address}")
-        self.contracts[self.calcBridgedAddress(tokenAddress)].mint(env, to, tokens)
+            print(f"Deployed cross-chain token for {tokenAddress} to address {_token.address}")
+        
+        self.contracts[_bridgedAddr].mint(env, to, tokens)
 
 
 

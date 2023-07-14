@@ -1115,31 +1115,45 @@ class State(object):
         # else:
             # return (False, "Already processed")
 
-    def calcBridgedTokenAddress(self, chainID, token):
-        return w3.toChecksumAddress(hex(int(token, 16) + chainID))
-
     def checkOutDepositByIndex(self, tx, _index):
         depositInfo = self.beaconChain.bsc.getDepositDetails(int(_index))
         if not depositInfo["hash"] in self.processedL2Hashes:
             self.ensureExistence(depositInfo["depositor"])
+            # log stuff
             if self.verbose:
                 print(depositInfo)
             if (depositInfo["token"] == self.beaconChain.bsc.token):
+                # increase balance and tempbalance
                 self.accounts[depositInfo["depositor"]].balance += depositInfo["amount"]
                 self.accounts[depositInfo["depositor"]].tempBalance += depositInfo["amount"]
-                rich.print(f"[orange_red1]Cross-chain[/orange_red1][yellow] deposit of[/yellow] [green1]{depositInfo['amount'] / (10**18)} {self.ticker}[/green1] [yellow]to[/yellow] [green1]{depositInfo['depositor']}[/green1]")
+                
+                # increase supply
                 self.totalSupply += depositInfo["amount"]
+                
+                # print message
+                rich.print(f"[orange_red1]Cross-chain[/orange_red1][yellow] deposit of[/yellow] [green1]{depositInfo['amount'] / (10**18)} {self.ticker}[/green1] [yellow]to[/yellow] [green1]{depositInfo['depositor']}[/green1]")
             else:
+                # calculate local token address
                 _calculatedAddress = self.precompiledContractsHandler.calcBridgedAddress(depositInfo["token"])
-                env = EVM.CallEnv(self.getAccount, self.crossChainAddress, self.getAccount(_calculatedAddress), _calculatedAddress, self.beaconChain, 0, 69000, tx, b"", self.executeChildCall, b"", False, calltype=1)
+                _calculatedAccount = self.getAccount(_calculatedAddress)
+                
+                # create env (required in order to load storage properly)
+                env = EVM.CallEnv(self.getAccount, self.crossChainAddress, _calculatedAccount, _calculatedAddress, self.beaconChain, 0, 69000, tx, b"", self.executeChildCall, b"", False, calltype=1)
+                
+                # mint cross-chain token
                 self.precompiledContractsHandler.mintCrossChainToken(env, depositInfo["token"], depositInfo['depositor'], depositInfo["amount"])
+                
+                # save changes in case of successful cross-chain mint
                 if env.getSuccess():
-                    env.getAccount(_calculatedAddress).tempStorage = env.storage
-                    env.getAccount(_calculatedAddress).makeChangesPermanent()
-            # if tx.sender != depositInfo["depositor"]:
-                # transactions[depositInfo["depositor"]].append(tx.txid)
-            self.accounts[depositInfo["depositor"]].transactions.append(f"0x{depositInfo['hash'].hex()}")
+                    _calculatedAccount.makeChangesPermanent()
+                    
+            # add deposit to tx history
+            self.accounts[depositInfo["depositor"]].addParent(f"0x{depositInfo['hash'].hex()}")
+            
+            # mark deposit hash as processed (to avoid double deposits)
             self.processedL2Hashes.append(depositInfo["hash"])
+            
+            # set txChilds of deposit hash
             self.txChilds[f"0x{depositInfo['hash'].hex()}"] = []
             self.accounts[depositInfo["depositor"]].calcHash()
             return (True, f"Deposited {depositInfo['amount']} to {depositInfo['depositor']}")
@@ -1163,10 +1177,6 @@ class State(object):
             if value.balance > 0:
                 _holders.append(key)
         self.holders = _holders
-
-    def createSmartContract(self, tx):
-        pass
-    
 
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
@@ -1256,12 +1266,6 @@ class State(object):
         encodedData = eth_abi.encode_abi(["address", "address", "uint256", "uint256"], [token, user, value, nonce]) # decoder on solidity side : (address token, address withdrawer, uint256 amount, uint256 nonce) = abi.decode(_data, (address, address, uint256, uint256));
         recipient = recipient
         return (recipient, encodedData)
-        
-
-    def requestCrosschainTransfer(self, tx):
-        encodedData = eth_abi.encode_abi(["address", "address", "uint256", "uint256"], [self.beaconChain.bsc.token, tx.sender, int(tx.value), len(self.accounts[tx.sender].transactions)]) # decoder on solidity side : (address token, address withdrawer, uint256 amount, uint256 nonce) = abi.decode(_data, (address, address, uint256, uint256));
-        self.beaconChain.postMessage(self.beaconChain.bsc.custodyContract.address, encodedData)
-        # print(f"Initiated cross-chain transfer of {tx.value/10**18}RPTR")
     
     def clearCrossChainAccount(self):
         crossChainAccount = self.getAccount(self.crossChainAddress)
