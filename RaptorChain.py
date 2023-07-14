@@ -1268,12 +1268,20 @@ class State(object):
         self.totalSupply -= crossChainAccount.balance
         crossChainAccount.balance = 0
     
+    def execSystemMessage(self, sysmsg):
+        pass    # will be useful later
+    
     def postTxMessages(self, tx):
+        # mark crossChainAddress affected by tx (in case it wasn't)
         tx.markAccountAffected(self.crossChainAddress)
-        self.clearCrossChainAccount()
+        self.clearCrossChainAccount()   # clear cross-chain account balance
+        
+        # post cross-chain messages
         for msg in tx.messages:
             _chainid = msg[2] if (len(msg) > 2) else None # takes chainId if present else leaves blank (will be filled on postMessage)
             self.beaconChain.postMessage(msg[0], msg[1], _chainid)
+            
+        # post potential system messages
         for sysmsg in tx.systemMessages:
             self.execSystemMessage(sysmsg)
 
