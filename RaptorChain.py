@@ -870,7 +870,7 @@ class State(object):
             self.tempcode = self.code
 
         def addParent(self, txid):
-            if (self.transactions[len(self.transactions)-1] != txid):
+            if not txid in self.transactions:
                 self.transactions.append(txid)
         
         def isInitialized(self):
@@ -1566,10 +1566,11 @@ class State(object):
         # update sender's bio (not game-changer but nice to see)
         if (_tx.bio):
             self.accounts[_tx.sender].bio = _tx.bio.replace("%20", " ")
-        # if _tx.message:
-            # self.leaveMessage(_from, _to, msg, showMessage)
+
+        # check cross-chain deposits (from BSC)
         self.checkDepositsTillIndex(_tx)
         
+        # add tx to account's history
         for acct in _tx.affectedAccounts:
             if _tx.txtype != 6: # don't count txid of ghost transactions
                 self.txChilds[_tx.txid] = self.txChilds.get(_tx.txid, [])
