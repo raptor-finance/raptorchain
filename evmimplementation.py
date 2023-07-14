@@ -1071,7 +1071,14 @@ class Opcodes(object):
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
         retLength = env.stack.pop()
-        pass # TODO
+        
+        _calldata = env.memory.read_bytes(argsOffset, argsLength)
+        (success, retValue) = env.performCallCode(addr, value, gas, _calldata)
+
+        env.lastCallReturn = retValue
+        env.stack.append(int(success))
+        env.memory.write_bytes(retOffset, retLength, retValue)
+        
         env.pc += 1
         
     def RETURN(self, env):
@@ -1891,7 +1898,7 @@ class CallEnv(object):
         return result
 
     def performCallCode(self, addr, value, gas, _calldata):
-        _childEnv = CallEnv(self.getAccount, self.runningAccount.address, self.runningAccount, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=2)
+        _childEnv = CallEnv(self.getAccount, self.runningAccount.address, self.runningAccount, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
         self.childEnvs.append(_childEnv)
         result = self.callFallback(_childEnv)
         
