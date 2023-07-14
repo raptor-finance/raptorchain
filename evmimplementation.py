@@ -1677,7 +1677,7 @@ class CallEnv(object):
         self.recipient = recipient
         self.chain = beaconchain
         self.runningAccount = runningAccount
-        self.calltype=calltype # 0 = in transaction, 1 = child call (staticcall included), 2 = delegate call, 3 = contract creation in subcall
+        self.calltype=calltype # 0 = transaction top-level call, 1 = child call (staticcall included), 2 = delegate call, 3 = contract creation in subcall
         self.lastCallReturn = b""
         self.systemMessages = []
         if storage:
