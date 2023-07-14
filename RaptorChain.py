@@ -1469,13 +1469,6 @@ class State(object):
         tx.fee -= feeToRefund
         tx.gasUsed = env.gasUsed
         return (env.getSuccess(), tx.returnValue.hex())
-        # else:
-            # for _addr in tx.affectedAccounts:
-                # self.getAccount(_addr).makeChangesPermanent()
-                # self.getAccount(_addr).addParent(tx.txid)
-            # self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
-            # return (True, b"")
-        
         
     def executeChildCall(self, msg):
         # no need to check balance in delegateCall as msg.value is for information purposes (no ether transferred)
@@ -1537,9 +1530,12 @@ class State(object):
             self.deleteAccount(_addr)
 
     def playTransaction(self, tx, showMessage):
+        # start benchmark
         _begin_ = time.time()
+        
+        # load transaction
         _tx = Transaction(tx)
-        feedback = False
+        feedback = (False, b"")
         
         # execute transaction (depending on its type)
         if _tx.txtype == 0:
@@ -1572,15 +1568,19 @@ class State(object):
         
         # add tx to account's history
         for acct in _tx.affectedAccounts:
-            if _tx.txtype != 6: # don't count txid of ghost transactions
+            if _tx.txtype != 6: # don't count txid of ghost (aka deposit checker) transactions
                 self.txChilds[_tx.txid] = self.txChilds.get(_tx.txid, [])
                 self.getAccount(acct).addParent(_tx.txid)
+            # calculate account hash
             self.getAccount(acct).calcHash()
-        self.postTxMessages(_tx)
-        self.distributeFee(_tx)
-        self.delAccounts(_tx)
-        self.calcStateRoot()
-        self.updateHolders()
+            
+        self.postTxMessages(_tx)    # post tx messages
+        self.distributeFee(_tx)     # distribute tx fee (between miner and burn)
+        self.delAccounts(_tx)       # delete accounts (SELFDESTRUCT callers)
+        self.calcStateRoot()        # calculate state root
+        self.updateHolders()        # update RPTR holders tracker
+        
+        # show benchmark if enabled
         if self.benchmark:
             _deltaT = time.time()-_begin_
             _speed = (_tx.gasUsed / _deltaT) if _deltaT else 0
