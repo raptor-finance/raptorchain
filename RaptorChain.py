@@ -1178,7 +1178,7 @@ class State(object):
         correctGasPrice = (_tx.gasprice >= self.gasPrice) if (_tx.txtype in [2]) else True
         correctChainId = (_tx.chainId == self.chainID) if (_tx.txtype in [2]  and (len(self.beaconChain.blocks) > self.beaconChain.chainIdUpgradeBlock)) else True
         if _tx.txtype == 0:
-            underlyingOperationSuccess = self.estimateTransferSuccess(_tx)
+            underlyingOperationSuccess = self.tryContractCall(_tx)
         if _tx.txtype == 1:
             underlyingOperationSuccess = self.estimateMiningSuccess(_tx)
         if _tx.txtype == 2:
@@ -1194,7 +1194,7 @@ class State(object):
             underlyingOperationSuccess = (True, None)
         if _tx.txtype == 7:
             underlyingOperationSuccess = self.beaconChain.estimateRelayerSuccess(_tx.blockhash, _tx.blocksig)
-        # print(correctBeacon, correctParent, underlyingOperationSuccess, correctGasPrice)
+            
         return (underlyingOperationSuccess[0] and correctBeacon and correctParent and correctGasPrice and correctChainId)
         
 
@@ -1205,27 +1205,42 @@ class State(object):
 
     def applyParentStuff(self, tx):
         self.txChilds[tx.txid] = []
+        
+        # set nonce stuff (for EVM transactions)
         if tx.txtype == 2:
             tx.parent = self.getAccount(tx.sender).sent[tx.nonce - 1]
             self.type2ToType0Hash[tx.ethTxid] = tx.txid
             self.type0ToType2Hash[tx.txid] = tx.ethTxid
             # print(tx.parent)
             
+        # add tx to epoch block
         if self.beaconChain.blocksByHash.get(tx.epoch):
             if tx.txtype != 1:
+                # add it if it isn't already here (multiple calls)
                 if not tx.txid in self.beaconChain.blocksByHash[tx.epoch].transactions:
                     self.beaconChain.blocksByHash[tx.epoch].addTransaction(tx.txid)
             else:
+                # add next block tx separately
+                # since nextBlockTx changes txsRoot, updating it normally would cause an infinite loop
+                # different block tx -> different txsRoot -> different parentTxRoot -> different next block -> different block tx
                 self.beaconChain.blocksByHash[tx.epoch].nextBlockTx = tx.txid
         else:
             return False
             
+        # set tx parent stuff (data graph)
         self.txChilds[tx.parent].append(tx.txid)
+        
+        # set txIndex
         self.txIndex[tx.txid] = self.lastTxIndex
         self.lastTxIndex += 1
+        
+        # append sent tx
         self.accounts[tx.sender].sent.append(tx.txid)
+        
+        # stop here if txtype is 2
         if tx.txtype == 2:
             return
+        # add mined tx to miner's history if txtype == 1
         if tx.txtype == 1:
             miner = self.formatAddress(tx.blockData.get("miningData").get("miner"))
             self.ensureExistence(miner)
@@ -1233,6 +1248,7 @@ class State(object):
             tx.affectedAccounts.append(miner)
             # self.accounts[miner].transactions.append(tx.txid)
         
+        # append received tx
         self.accounts[tx.recipient].received.append(tx.txid)
 
 
@@ -1380,8 +1396,8 @@ class State(object):
             return (False, b"")
         
         # SHOULD be executed after environment creation (for proper revert behavior)
-            senderAcct.tempBalance -= tx.value
-            recipientAcct.tempBalance += tx.value
+        senderAcct.tempBalance -= tx.value
+        recipientAcct.tempBalance += tx.value
         
         # execute code
         if len(env.code):   # no need for precompile checks since they already have some dummy code
@@ -1393,7 +1409,7 @@ class State(object):
             
         # error message (for debugging purpose)
         if not env.getSuccess():
-            print(f"Transaction {tx.txid} FAILED")
+            print(f"Transaction {tx.txid} FAILED, errorMessage: {env.returnValue}")
         return (env.getSuccess(), env.returnValue.hex())
 
 
@@ -1525,17 +1541,10 @@ class State(object):
         _tx = Transaction(tx)
         feedback = False
         if _tx.txtype == 0:
-            # feedback = self.executeTransfer(_tx, showMessage)
-            # if (_tx.recipient == self.crossChainAddress):
-                # feedback = self.executeTransfer(_tx, showMessage)
-            # else:
             feedback = self.executeContractCall(_tx, showMessage)
         elif _tx.txtype == 1:
             feedback = self.mineBlock(_tx)
         elif _tx.txtype == 2:
-            # if (_tx.recipient == self.crossChainAddress):
-                # feedback = self.executeTransfer(_tx, showMessage)
-            # else:
             if _tx.contractDeployment:
                 feedback = self.deployContract(_tx)
             else:
