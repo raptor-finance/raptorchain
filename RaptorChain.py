@@ -1452,7 +1452,7 @@ class State(object):
         return (env.getSuccess(), tx.returnValue.hex())
         
     def executeChildCall(self, msg):
-        # no need to check balance in delegateCall as msg.value is for information purposes (no ether transferred)
+        # no need to check balance in delegateCall as msg.value is for information purposes (no RPTR transferred)
         if (((msg.calltype != 2) and (msg.value > self.getAccount(msg.msgSender).tempBalance)) or ((msg.value > 0) and msg.isStatic)):
             return (False, b"")
             
