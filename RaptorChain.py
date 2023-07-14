@@ -1540,6 +1540,8 @@ class State(object):
         _begin_ = time.time()
         _tx = Transaction(tx)
         feedback = False
+        
+        # execute transaction (depending on its type)
         if _tx.txtype == 0:
             feedback = self.executeContractCall(_tx, showMessage)
         elif _tx.txtype == 1:
@@ -1550,8 +1552,7 @@ class State(object):
             else:
                 feedback = self.executeContractCall(_tx, showMessage)
         elif _tx.txtype == 3:
-            # feedback = self.checkOutDeposit(_tx)
-            pass # deprecated
+            pass # deprecated, do nothing
         elif _tx.txtype == 4:
             feedback = self.createMN(_tx)
         elif _tx.txtype == 5:
@@ -1562,6 +1563,7 @@ class State(object):
             self.beaconChain.addRelayerSig(_tx.sender, _tx.blockhash, _tx.blocksig)
             self.beaconChain.getLastBeacon().addDepCheckerTx(_tx.txid)
         
+        # update sender's bio (not game-changer but nice to see)
         if (_tx.bio):
             self.accounts[_tx.sender].bio = _tx.bio.replace("%20", " ")
         # if _tx.message:
