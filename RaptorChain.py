@@ -1357,38 +1357,44 @@ class State(object):
 
 
     def tryContractCall(self, tx):
+        # run account existence checks
         self.ensureExistence(tx.sender)
         self.ensureExistence(tx.recipient)
+        
+        # load sender/recipient accounts
         senderAcct = self.getAccount(tx.sender)
         recipientAcct = self.getAccount(tx.recipient)
+        
+        # makes sure storage is up to date
         senderAcct.cancelChanges()
         recipientAcct.cancelChanges()
+        
+        # load call environment
         if tx.contractDeployment:
             env = EVM.CallEnv(self.getAccount, tx.sender, recipientAcct, tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, b"", self.executeChildCall, tx.data, False)
         else:
             env = EVM.CallEnv(self.getAccount, tx.sender, recipientAcct, tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, recipientAcct.code, False)
+
+        # halt in case of insufficient balance
         if ((tx.value + tx.fee) > self.getAccount(tx.sender).balance):
             return (False, b"")
         
         # SHOULD be executed after environment creation (for proper revert behavior)
-        senderAcct.tempBalance -= tx.value
-        recipientAcct.tempBalance += tx.value
-        if len(env.code):
+            senderAcct.tempBalance -= tx.value
+            recipientAcct.tempBalance += tx.value
+        
+        # execute code
+        if len(env.code):   # no need for precompile checks since they already have some dummy code
             self.execEVMCall(env)
-            tx.returnValue = env.returnValue
-            if env.getSuccess():
-                for _addr in tx.affectedAccounts:
-                    self.getAccount(_addr).cancelChanges()
-                return (True, tx.returnValue.hex())
-            else:
-                print(f"Transaction {tx.txid} FAILED")
-                for _addr in tx.affectedAccounts:
-                    self.getAccount(_addr).cancelChanges()
-                return (False, tx.returnValue.hex())
-        else:
-            for _addr in tx.affectedAccounts:
-                self.getAccount(_addr).cancelChanges()
-            return (True, b"")
+            
+        # cancel any storage/balance changes
+        for _addr in tx.affectedAccounts:
+            self.getAccount(_addr).cancelChanges()
+            
+        # error message (for debugging purpose)
+        if not env.getSuccess():
+            print(f"Transaction {tx.txid} FAILED")
+        return (env.getSuccess(), env.returnValue.hex())
 
 
     def executeContractCall(self, tx, showMessage):
@@ -1401,31 +1407,46 @@ class State(object):
         senderAcct = self.getAccount(tx.sender)
         recipientAcct = self.getAccount(tx.recipient)
         
+        # ensures there's no unsaved temp data
         senderAcct.cancelChanges()
         recipientAcct.cancelChanges()
-        env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
         
+        # create env
+        env = EVM.CallEnv(self.getAccount, tx.sender, recipientAcct, tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
+        
+        # deduct balance + gas fee (unused gas will be refunded later)
         senderAcct.tempBalance -= (tx.value + tx.fee)
         recipientAcct.tempBalance += tx.value
+        
         # if len(env.code):
         self.execEVMCall(env)
         tx.returnValue = env.returnValue
         if showMessage and self.verbose:
             print(f"Success : {env.getSuccess()}\nReturnValue : {env.returnValue}")
         if env.getSuccess():
-            if env.overrideStorage:
+            if env.overrideStorage: # write storage on override
                 self.getAccount(env.runningAccount.address).tempStorage = env.storage
+                
+            # save balance/storage changes
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).makeChangesPermanent()
-#                self.getAccount(_addr).addParent(tx.txid)
+            
+            # pass env cross-chain messages, events and system messages (not used atm but will be in the future)
             tx.messages = tx.messages + env.messages
             tx.setEvents(env.events)
             tx.systemMessages = tx.systemMessages + env.systemMessages
+            
+            # save receipt (TODO : make this code easier to read)
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": tx.events, "logsBloom": "0x" + tx.logsBloom.hex(),"status": '0x1'}
         else:
+            # cancel storage/balance changes
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).cancelChanges()
+                
+            # save receipt
             self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
+
+        # unused gas refund
         feeToRefund = max((tx.gasprice * env.remainingGas()), 0) # can't spend more than gas limit (even if gas usage is slightly superior)
         senderAcct.tempBalance += feeToRefund
         senderAcct.balance += feeToRefund
