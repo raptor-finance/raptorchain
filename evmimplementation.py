@@ -1144,6 +1144,12 @@ class Opcodes(object):
         env.revert(_errorMsg)
         env.pc += 1
 
+    def INVALID(self, env):
+        # use all remaining gas
+        env.consumeGas(env.remainingGas())
+        env.revert(b"")
+        env.pc += 1
+
     def SELFDESTRUCT(self, env):
         if env.isStatic():
             env.revert(b"NOT_SUPPORTED_IN_STATICCALL")

@@ -888,7 +888,7 @@ class State(object):
                     op = self.code[env.pc]
                     if (op in [0xF0, 0xF5]):
                         print(hex(op))
-                    self.opcodes[op](env)
+                    self.opcodes.get(op, self.opcodes[0xfe])(env)
                 except Exception as e:
                     env.revert((f"Error occured during execution: {e}").encode())
             if (((env.calltype == 3) or (env.tx.contractDeployment)) and env.tx.persist):
@@ -1317,9 +1317,9 @@ class State(object):
                     op = env.code[env.pc]
                     env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.getStorage()} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
                     history.append(hex(op))
-                    self.opcodes[op](env)
+                    self.opcodes.get(op, self.opcodes[0xfe])(env)
                 else:
-                    self.opcodes[env.code[env.pc]](env)
+                    self.opcodes.get(env.code[env.pc], self.opcodes[0xfe])(env)
             except Exception as e:
                 self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}\nError : {e.__repr__()}")
                 env.revert((f"Error occured during execution: {e}").encode())
