@@ -1864,6 +1864,7 @@ class CallEnv(object):
         result = self.callFallback(_childEnv)
         
         if result[0]:
+            self.messages = self.messages + _childEnv.messages
             self.systemMessages = self.systemMessages + _childEnv.systemMessages
             self.events = self.events + _childEnv.events
         
