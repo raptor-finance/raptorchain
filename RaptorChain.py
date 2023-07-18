@@ -1072,25 +1072,9 @@ class State(object):
         else:
             return (tx.parent == lastTx)
 
-    def checkBalance(self, tx):
-        return (tx.value+tx.fee) > (self.getAccount(tx.sender).balance)
-
     def isBeaconCorrect(self, tx):
-        # print(tx.epoch)
         return (tx.epoch == self.getCurrentEpoch())
 
-
-
-    
-    def estimateTransferSuccess(self, _tx):
-        self.ensureExistence(_tx.sender)
-        self.ensureExistence(_tx.recipient)
-        if self.checkBalance(_tx):
-            return (False, "Too low balance")
-        if not self.checkParent(_tx):
-            return (False, "Parent unmatched")
-            
-        return (True, "It'll succeed")
 
     def estimateMiningSuccess(self, tx):
         self.ensureExistence(tx.sender)
