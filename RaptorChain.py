@@ -901,39 +901,39 @@ class State(object):
         def isInitialized(self):
             return (self.hash == self.defaultHash)
         
-        def _prepareCallEnv(self, msg):
-            return EVM.CallEnv(self.accountGetter, caller=msg.sender, runningAccount=self, recipient=self.address, beaconchain=self.chainAccess, value=msg.value, gaslimit=msg.gas, tx=msg.tx, data=msg.data, callfallback=self.callfallback, code=b"", static=False, storage=None, calltype=msg.calltype, calledFromAcctClass=True)
+        # def _prepareCallEnv(self, msg):
+            # return EVM.CallEnv(self.accountGetter, caller=msg.sender, runningAccount=self, recipient=self.address, beaconchain=self.chainAccess, value=msg.value, gaslimit=msg.gas, tx=msg.tx, data=msg.data, callfallback=self.callfallback, code=b"", static=False, storage=None, calltype=msg.calltype, calledFromAcctClass=True)
         
-        def _execStandardCall(self, env, persist=False):
-            if not len(self.code):
-                return
-            while True and (not env.halt):
-                try:
-                    op = self.code[env.pc]
-                    if (op in [0xF0, 0xF5]):
-                        print(hex(op))
-                    self.opcodes.get(op, self.opcodes[0xfe])(env)
-                except Exception as e:
-                    env.revert((f"Error occured during execution: {e}").encode())
-            if (((env.calltype == 3) or (env.tx.contractDeployment)) and env.tx.persist):
-                self.makeChangesPermanent()
-                if persist:
-                    self.tempcode = env.returnValue
-                    self.code = env.returnValue
+        # def _execStandardCall(self, env, persist=False):
+            # if not len(self.code):
+                # return
+            # while True and (not env.halt):
+                # try:
+                    # op = self.code[env.pc]
+                    # if (op in [0xF0, 0xF5]):
+                        # print(hex(op))
+                    # self.opcodes.get(op, self.opcodes[0xfe])(env)
+                # except Exception as e:
+                    # env.revert((f"Error occured during execution: {e}").encode())
+            # if (((env.calltype == 3) or (env.tx.contractDeployment)) and env.tx.persist):
+                # self.makeChangesPermanent()
+                # if persist:
+                    # self.tempcode = env.returnValue
+                    # self.code = env.returnValue
         
         
-        def call(self, msg):
-            env = self._prepareCallEnv(msg)
-            history = []
-            if self.precompiledContract:
-                print("Executing call as precompiled")
-                self.precompiledContract.call(env)
-            else:
-                print("Executing call as standard")
-                self._execStandardCall(env, env.tx.persist)
-            if msg.tx.persist:
-                self.tempStorage = msg.storage
-            return env
+        # def call(self, msg):
+            # env = self._prepareCallEnv(msg)
+            # history = []
+            # if self.precompiledContract:
+                # print("Executing call as precompiled")
+                # self.precompiledContract.call(env)
+            # else:
+                # print("Executing call as standard")
+                # self._execStandardCall(env, env.tx.persist)
+            # if msg.tx.persist:
+                # self.tempStorage = msg.storage
+            # return env
         
         def JSONSerializable(self):
             return {"balance": self.balance, "tempBalance": self.tempBalance, "transactions": self.transactions, "sent": self.sent, "received": self.received, "mined": self.mined, "bio": self.bio, "code": self.code.hex(), "storage": self.storage, "tempStorage": self.tempStorage, "hash": self.hash.hex(), "defaultHash": self.defaultHash, "initialized": self.initialized}
@@ -1074,7 +1074,6 @@ class State(object):
 
     def isBeaconCorrect(self, tx):
         return (tx.epoch == self.getCurrentEpoch())
-
 
     def estimateMiningSuccess(self, tx):
         self.ensureExistence(tx.sender)
