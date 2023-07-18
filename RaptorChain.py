@@ -470,6 +470,23 @@ class BeaconChain(object):
             if not txid in self.fullTxList:
                 self.fullTxList.append(txid)
 
+        def addToBloom(self, _data):
+            _hash = w3.keccak(_data)
+            for idx in [0, 2, 4]:
+                bitToSet = (int.from_bytes(_hash[idx:idx+2], "big") & 0x07ff)
+                bit_index = 0x07ff - bitToSet
+                byte_index = bit_index // 8
+                bit_value = 1 << (7 - (bit_index % 8))
+                self.logsBloom[byte_index] = self.logsBloom[byte_index] | bit_value
+
+        def addEventToBloom(self, _event):
+            for b in _event.bloomableData:
+                self.addToBloom(b)
+                
+        def setEvents(self, _events):
+            for _event in _events:
+                self.addEventToBloom(_event)
+
     class GenesisBeacon(BeaconBase):
         def __init__(self, testnet=True):
             if testnet:
@@ -1436,6 +1453,11 @@ class State(object):
             # pass env cross-chain messages, events and system messages (not used atm but will be in the future)
             tx.messages = tx.messages + env.messages
             tx.setEvents(env.events)
+            
+            # add events to beacon
+            self.beaconChain.getLastBeacon().setEvents(env.events)
+            
+            # system messages
             tx.systemMessages = tx.systemMessages + env.systemMessages
             
             # save receipt (TODO : make this code easier to read)
