@@ -462,6 +462,8 @@ class BeaconChain(object):
 
     # methods common to both `Beacon` and `GenesisBeacon`
     class BeaconBase(object):
+        logsBloom = bytearray(256)
+    
         def addTransaction(self, txid):
             if not txid in self.transactions:
                 self.transactions.append(txid)
