@@ -137,14 +137,21 @@ class Transaction(object):
         self.affectedAccounts = []
         self.accountsToDestroy = []
         
+        # variable to be edited later
         self.nonMalleable = True
         
+        # to be edited during execution
         self.events = []
         self.logsBloom = bytearray(256)
         
+        # to be edited later
         self.nonce = 0
         self.gasprice = 0
         self.gasUsed = 0
+        
+        # tx timestamps will be used later
+        self.timestamp = txData.get("timestamp")
+        
         self.epoch = txData.get("epoch")
         _sig = tx.get("sig")
         self.sig = bytes.fromhex(_sig.replace("0x", "")) if _sig else b""
@@ -655,6 +662,8 @@ class BeaconChain(object):
     def __init__(self, testnet=True):
         self.testnet = testnet
         self.difficulty = 1
+        self.clockWiseActivated = False # ClockWise upgrade
+        self.lastTimestamp = 0
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.blocks = [self.GenesisBeacon(self.testnet)]
         self.blocksByHash = {self.blocks[0].proof: self.blocks[0]}
@@ -731,6 +740,9 @@ class BeaconChain(object):
     def onBlockMined(self, beacon):
         pass
     
+    def updateLastTS(self, _timestamp):
+        self.lastTimestamp = _timestamp
+    
     def addBeaconToChain(self, beacon):
         _messages = beacon.decodedMessages.copy()
         for msg in _messages:
@@ -743,6 +755,7 @@ class BeaconChain(object):
         self.blocks.append(beacon)
         self.blocksByHash[beacon.proof] = beacon
         self.validators.get(w3.toChecksumAddress(beacon.miner)).blocks.append(beacon.proof)
+        self.updateLastTS(beacon.timestamp) # updates last timestamp
         # print(f"\n===================================\n\nBeacon block mined !\nHeight : {beacon.number}\nProof : {beacon.proof}\nMasternode : {beacon.miner}\nMinted reward : 0 RPTR\n\n===================================\n")
         _timestamp = datetime.fromtimestamp(beacon.timestamp).strftime("%d %h %Y - %H:%M:%S") # proper timestamp format
         rich.print(f"\n[light_sea_green]===================================[/light_sea_green]\n\n[green]Beacon block mined ![/green]\n[yellow]Height :[/yellow] [green1]{beacon.number}[/green1]\n[yellow]Proof :[/yellow] [green1]{beacon.proof}[/green1]\n[yellow]Masternode :[/yellow] [green1]{beacon.miner}[/green1]\n[yellow]UNIX Timestamp: [/yellow][green]{beacon.timestamp}[/green][yellow]\nTimestamp: [/yellow][green]{_timestamp}[/green]\n\n[light_sea_green]===================================[/light_sea_green]\n")
@@ -1173,6 +1186,15 @@ class State(object):
                 _holders.append(key)
         self.holders = _holders
 
+    def isTimestampCorrect(self, tx):
+        if not self.beaconChain.clockWiseActivated:
+            return True # not applicable
+        if tx.timestamp:
+            # requires tx timestamp to be higher than last received timestamp (both tx and block)
+            # also denies any future timestamp
+            return self.beaconChain.lastTimestamp <= tx.timestamp <= int(time.time())
+        return True # in case of absence of timestamp, most recent timestamp is used
+
     def willTransactionSucceed(self, tx):
         _tx = Transaction(tx)
         _tx.notTry = False
@@ -1182,6 +1204,7 @@ class State(object):
         correctBeacon = self.isBeaconCorrect(_tx)
         correctGasPrice = (_tx.gasprice >= self.gasPrice) if (_tx.txtype in [2]) else True
         correctChainId = (_tx.chainId == self.chainID) if (_tx.txtype in [2]  and (len(self.beaconChain.blocks) > self.beaconChain.chainIdUpgradeBlock)) else True
+        correctTimestamp = self.isTimestampCorrect(_tx)
         if _tx.txtype == 0:
             underlyingOperationSuccess = self.tryContractCall(_tx)
         if _tx.txtype == 1:
@@ -1200,7 +1223,7 @@ class State(object):
         if _tx.txtype == 7:
             underlyingOperationSuccess = self.beaconChain.estimateRelayerSuccess(_tx.blockhash, _tx.blocksig)
             
-        return (underlyingOperationSuccess[0] and correctBeacon and correctParent and correctGasPrice and correctChainId and _tx.nonMalleable)
+        return (underlyingOperationSuccess[0] and correctBeacon and correctParent and correctGasPrice and correctChainId and correctTimestamp and _tx.nonMalleable)
         
 
     # def mineBlock(self, blockData):
@@ -1529,6 +1552,10 @@ class State(object):
         # load transaction
         _tx = Transaction(tx)
         feedback = (False, b"")
+        
+        # update last timestamp
+        if self.beaconChain.clockWiseActivated and _tx.timestamp:
+            self.beaconChain.updateLastTS(_tx.timestamp)
         
         # execute transaction (depending on its type)
         if _tx.txtype == 0:
