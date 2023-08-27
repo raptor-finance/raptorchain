@@ -624,7 +624,7 @@ class Opcodes(object):
         env.pc += 1
     
     def TIMESTAMP(self, env):
-        env.stack.append(int(env.lastBlock().timestamp))
+        env.stack.append(int(env.timestamp))
         env.consumeGas(200)
         env.pc += 1
         
@@ -1746,6 +1746,8 @@ class CallEnv(object):
         self.balanceFromBefore = self.getAccount(self.msgSender).tempBalance
         self.balanceToBefore = self.runningAccount.tempBalance
         self.codebefore = self.runningAccount.tempcode  # in case CREATE reverts
+        
+        self.timestamp = self.fetchTimestamp()
 
     def getBlock(self, height):
         return self.chain.blocks[min(height, len(self.chain.blocks)-1)]
@@ -1773,6 +1775,9 @@ class CallEnv(object):
     
     def remainingGas(self):
         return self.gaslimit - self.gasUsed
+    
+    def fetchTimestamp(self):
+        return int(self.lastBlock().timestamp)
     
     def loadStorageKey(self, key):
         return self.getStorage().get(key, 0)
