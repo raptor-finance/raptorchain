@@ -535,9 +535,15 @@ class Opcodes(object):
     def CALLDATALOAD(self, env):
         i = env.stack.pop()
         _data = env.data[i:i+32]
-        if (len(_data) > 0):
-            _data = (_data + (b"\x00"*(32-len(_data))))
-            env.stack.append(int.from_bytes(_data, byteorder="big"))
+        _dLen = len(_data)
+        if (_dLen > 0):
+            # calculates shift to apply
+            _dShift = 8 * (32 - _dLen)
+            # converts data to int
+            _data = int.from_bytes(_data, byteorder="big")
+            # shifts data (padding)
+            _data = _data << _dShift
+            env.stack.append(_data)
         else:
             env.stack.append(0)
         env.consumeGas(3)
