@@ -273,7 +273,21 @@ class Transaction(object):
             n+=1
 
     def web3Returnable(self):
-        return {"hash": self.txid, "nonce": hex(self.nonce), "blockHash": self.txid, "transactionIndex": "0x0", "from": self.sender, "to": (None if self.contractDeployment else self.recipient), "value": hex(self.value), "gasPrice": hex(self.gasprice), "gas": hex(self.gasLimit), "input": self.data.hex(), "v": self.v, "r": self.r, "s": self.s}
+        return {
+                "hash": self.txid,
+                "nonce": hex(self.nonce),
+                "blockHash": self.txid,
+                "transactionIndex": "0x0",
+                "from": self.sender,
+                "to": (None if self.contractDeployment else self.recipient),
+                "value": hex(self.value),
+                "gasPrice": hex(self.gasprice),
+                "gas": hex(self.gasLimit),
+                "input": self.data.hex(),
+                "v": self.v,
+                "r": self.r.hex() if type(self.r) == bytes else self.r,
+                "s": self.s.hex() if type(self.s) == bytes else self.s
+            }
 
 
 class BeaconChain(object):
@@ -498,24 +512,27 @@ class BeaconChain(object):
         def web3Returnable(self):
             return {'difficulty': hex(self.difficulty),
                 'extraData': '0x',
-                # gas limit not limited by beacon blocks, thus returning this
+                # gas limit not limited by beacon blocks, thus returning highest possible number
                 'gasLimit': '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+                # since gas used isn't consumed INSIDE block, returns 0 (could be updated to return a value in the future)
                 'gasUsed': '0x0',
                 'hash': self.proof,
                 'logsBloom': self.logsBloom.hex(),
                 'miner': self.miner,
-                'mixHash': '0x0000000000000000000000000000000000000000000000000000000000000000',
+                'mixHash': self.beaconRoot(),
                 'nonce': self.nonce,
                 'number': self.number,
                 'parentHash': self.parent.hex() if type(self.parent) == bytes else self.parent,
+                # compatibility
+                'stateRoot': self.txsRoot().hex(),
                 'receiptsRoot': self.txsRoot().hex(),
+                'transactionsRoot': self.txsRoot().hex(),
+                
                 'sha3Uncles': '0x0000000000000000000000000000000000000000000000000000000000000000',
                 'size': '0x0',
-                'stateRoot': self.txsRoot().hex(),
                 'timestamp': hex(self.timestamp),
                 'totalDifficulty': hex(self.totalDifficulty),
                 'transactions': self.transactions,
-                'transactionsRoot': self.txsRoot().hex(),
                 'uncles': []
             }
 
@@ -2911,6 +2928,12 @@ def handleWeb3Request(data: Web3Body):
         result = node.state.beaconChain.blocks[_blockNumber].web3Returnable()
         if data.params[1]:  # fetch transactions as well
             result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
+    if data.method == "eth_getBlockByHash":
+        result = node.state.beaconChain.blocksByHash.get(data.params[0]).web3Returnable()
+        if data.params[1]:  # fetch transactions as well
+            result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
+    
+    
     _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
     _resp = json.dumps(_respdict)
     if node.state.verbose:
