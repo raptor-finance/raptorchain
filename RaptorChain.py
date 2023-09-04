@@ -470,6 +470,7 @@ class BeaconChain(object):
     # methods common to both `Beacon` and `GenesisBeacon`
     class BeaconBase(object):
         logsBloom = bytearray(256)
+        totalDifficulty = 0
     
         def addTransaction(self, txid):
             if not txid in self.transactions:
@@ -493,6 +494,30 @@ class BeaconChain(object):
         def setEvents(self, _events):
             for _event in _events:
                 self.addEventToBloom(_event)
+                
+        def web3Returnable(self):
+            return {'difficulty': hex(self.difficulty),
+                'extraData': '0x',
+                # gas limit not limited by beacon blocks, thus returning this
+                'gasLimit': '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
+                'gasUsed': '0x0',
+                'hash': self.proof,
+                'logsBloom': self.logsBloom.hex(),
+                'miner': self.miner,
+                'mixHash': '0x0000000000000000000000000000000000000000000000000000000000000000',
+                'nonce': self.nonce,
+                'number': self.number,
+                'parentHash': self.parent.hex() if type(self.parent) == bytes else self.parent,
+                'receiptsRoot': self.txsRoot().hex(),
+                'sha3Uncles': '0x0000000000000000000000000000000000000000000000000000000000000000',
+                'size': '0x0',
+                'stateRoot': self.txsRoot().hex(),
+                'timestamp': hex(self.timestamp),
+                'totalDifficulty': hex(self.totalDifficulty),
+                'transactions': self.transactions,
+                'transactionsRoot': self.txsRoot().hex(),
+                'uncles': []
+            }
 
     class GenesisBeacon(BeaconBase):
         def __init__(self, testnet=True):
@@ -2880,8 +2905,12 @@ def handleWeb3Request(data: Web3Body):
         result = hex(int(node.state.getAccount(data.params[0], True).storage[int(data.params[1])]))
     if data.method == "eth_getTransactionByHash":
         result = node.ethGetTransactionByHash(data.params[0])
-    if data.method == "eth_getBlock":
-        pass    # TODO: implement proper eth_getBlock to return block data (required for indexing purposes)
+    if data.method == "eth_getBlockByNumber":
+        pass    # TODO: implement proper eth_getBlock to return block data by number (required for indexing purposes)
+        _blockNumber = int(data.params[0], 16) if type(data.params[0]) == str else data.params[0]
+        result = node.state.beaconChain.blocks[_blockNumber].web3Returnable()
+        if data.params[1]:  # fetch transactions as well
+            result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
     _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
     _resp = json.dumps(_respdict)
     if node.state.verbose:
