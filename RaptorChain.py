@@ -272,12 +272,13 @@ class Transaction(object):
             self.events.append(e.JSONEncodable())
             n+=1
 
-    def web3Returnable(self):
+    def web3Returnable(self, _txIndex=0):
         return {
                 "hash": self.txid,
-                "nonce": hex(self.nonce),
                 "blockHash": self.epoch,
-                "transactionIndex": "0x0",
+                "nonce": hex(self.nonce),
+                # could be anything due to semi-asynchronous nature
+                "transactionIndex": hex(_txIndex),
                 "from": self.sender,
                 "to": (None if self.contractDeployment else self.recipient),
                 "value": hex(self.value),
