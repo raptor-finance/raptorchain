@@ -276,7 +276,7 @@ class Transaction(object):
         return {
                 "hash": self.txid,
                 "nonce": hex(self.nonce),
-                "blockHash": self.txid,
+                "blockHash": self.epoch,
                 "transactionIndex": "0x0",
                 "from": self.sender,
                 "to": (None if self.contractDeployment else self.recipient),
