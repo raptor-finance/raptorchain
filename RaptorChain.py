@@ -2880,6 +2880,8 @@ def handleWeb3Request(data: Web3Body):
         result = hex(int(node.state.getAccount(data.params[0], True).storage[int(data.params[1])]))
     if data.method == "eth_getTransactionByHash":
         result = node.ethGetTransactionByHash(data.params[0])
+    if data.method == "eth_getBlock":
+        pass    # TODO: implement proper eth_getBlock to return block data (required for indexing purposes)
     _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
     _resp = json.dumps(_respdict)
     if node.state.verbose:
