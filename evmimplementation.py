@@ -1283,6 +1283,9 @@ class PrecompiledContracts(object):
     
         def setAccountBio(self, env):
             env.consumeGas(2300)
+            if (not env.tx.persist):
+                env.returnCall(b"")
+                return
             try:
                 params = eth_abi.decode_abi(["string"], env.data[4:])
                 _bio = params[0]
