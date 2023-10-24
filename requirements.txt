@@ -1,6 +1,7 @@
-pyopenssl
+requests
 flask
 web3==5.31.3
+pyopenssl
 eth_account
 flask_cors
 dataclasses
@@ -9,7 +10,6 @@ eth_abi
 eth_utils
 rlp
 cryptography
-secrets
 fastapi
 uvicorn
 pydantic
