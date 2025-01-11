@@ -2779,14 +2779,15 @@ def postRawTransactions(data: PostTxsBody):
     return jsonify(result=hashes, success=True)
 
 
-@app.get("/send/buildtransaction/")
-def buildTransactionAndSend():
-    privkey = str(flask.request.args.get('privkey', None))
-    _from = str(flask.request.args.get('from', None))
-    _to = str(flask.request.args.get('to', None))
-    tokens = str(flask.request.args.get('value', None))
-    result = buildTransaction(self, privkey, _from, _to, tokens)[0]
-    return jsonify(result=result[0], success=result[1])
+# TEMPORARILY DISABLED A METHOD
+# @app.get("/send/buildtransaction/")
+# def buildTransactionAndSend():
+    # privkey = str(flask.request.args.get('privkey', None))
+    # _from = str(flask.request.args.get('from', None))
+    # _to = str(flask.request.args.get('to', None))
+    # tokens = str(flask.request.args.get('value', None))
+    # result = buildTransaction(self, privkey, _from, _to, tokens)[0]
+    # return jsonify(result=result[0], success=result[1])
 
 
 # BEACON RELATED DATA (loaded from node/state/beaconChain)
