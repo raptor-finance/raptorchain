@@ -2946,7 +2946,7 @@ def runAPI():
     if not node.state.verbose:
         logging.getLogger("uvicorn.error").disabled = True
         logging.getLogger("uvicorn.access").disabled = True
-    uvicorn.run(app, port=node.listenPort)
+    uvicorn.run(app, port=node.listenPort, host="0.0.0.0")
 
 if __name__ == "__main__":
     print(ssl_context or "No SSL context defined")
