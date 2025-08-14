@@ -1,15 +1,16 @@
-import requests, time, json, threading, flask, rlp, eth_abi, itertools, base64, secrets, sys, fastapi, pydantic, uvicorn, re, rich, logging
+import requests, time, json, threading, rlp, eth_abi, itertools, base64, secrets, sys, fastapi, pydantic, uvicorn, re, rich, logging
 from datetime import datetime
+
 from starlette.types import ASGIApp, Receive, Scope, Send
 from starlette.datastructures import URL
 from starlette.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+
 global config
 from web3.auto import w3
 from web3 import Web3
 from eth_account.messages import encode_defunct
-from flask_cors import CORS
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Optional, Any
 from eth_utils import keccak
 from rlp.sedes import Binary, big_endian_int, binary
@@ -358,7 +359,7 @@ class BeaconChain(object):
             self.BEP20ABI = """[{"constant":false,"inputs":[{"name":"spender","type":"address"},{"name":"tokens","type":"uint256"},{"name":"data","type":"bytes"}],"name":"approveAndCall","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"name","outputs":[{"name":"","type":"string"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"_spender","type":"address"},{"name":"_value","type":"uint256"}],"name":"approve","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"totalSupply","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"_from","type":"address"},{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transferFrom","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[],"name":"decimals","outputs":[{"name":"","type":"uint8"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[{"name":"_owner","type":"address"}],"name":"balanceOf","outputs":[{"name":"balance","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":true,"inputs":[],"name":"symbol","outputs":[{"name":"","type":"string"}],"payable":false,"stateMutability":"view","type":"function"},{"constant":false,"inputs":[{"name":"_to","type":"address"},{"name":"_value","type":"uint256"}],"name":"transfer","outputs":[{"name":"","type":"bool"}],"payable":false,"stateMutability":"nonpayable","type":"function"},{"constant":true,"inputs":[{"name":"_owner","type":"address"},{"name":"_spender","type":"address"}],"name":"allowance","outputs":[{"name":"","type":"uint256"}],"payable":false,"stateMutability":"view","type":"function"},{"payable":true,"stateMutability":"payable","type":"fallback"},{"anonymous":false,"inputs":[{"indexed":true,"name":"owner","type":"address"},{"indexed":true,"name":"spender","type":"address"},{"indexed":false,"name":"value","type":"uint256"}],"name":"Approval","type":"event"},{"anonymous":false,"inputs":[{"indexed":true,"name":"from","type":"address"},{"indexed":true,"name":"to","type":"address"},{"indexed":false,"name":"value","type":"uint256"}],"name":"Transfer","type":"event"}]"""
             self.cachedTokens = {}
             self.cachedDeposits = {}
-            self.rpcurl = ("https://data-seed-prebsc-2-s1.binance.org:8545/" if self.testnet else "https://bscrpc.com/")
+            self.rpcurl = ("https://data-seed-prebsc-2-s1.binance.org:8545/" if self.testnet else "https://bsc.nodereal.io/")
             rpcprotocol = self.rpcurl.split(":")[0]
             self.chainID = (97 if self.testnet else 56)
             self.cacheFile = cacheFile
@@ -441,7 +442,7 @@ class BeaconChain(object):
         def __init__(self, testnet=True):
             self.testnet = testnet
             self.gasPricings = {137: 3, 250: 3, 1: 69}
-            self.rpcs = {56: "https://bscrpc.com/", 137: "https://polygon-rpc.com/", 250: "https://rpc.ftm.tools/", 1: "https://eth.public-rpc.com"}
+            self.rpcs = {56: "https://bsc.nodereal.io/", 137: "https://polygon-rpc.com/", 250: "https://1rpc.io/ftm", 1: "https://eth.drpc.org"}
             self.contractAddrsTestnet = {137: "0x22264132b46365EFb0bE413144Fa4d1616D82Abe", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x8CA9f4A7098a9b5a8546F6401bB101B4FA0e6910"}
             self.contractAddrsMainnet = {137: "0x47C0D110eEB1357225B707E0515B17Ab0EB1CaF6", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x8CA9f4A7098a9b5a8546F6401bB101B4FA0e6910"}
             self.abi = """[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"slotOwner","type":"address"},{"indexed":true,"internalType":"bytes32","name":"slotKey","type":"bytes32"},{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"}],"name":"SlotWritten","type":"event"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"getSlotData","outputs":[{"internalType":"bytes","name":"","type":"bytes"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"isWritten","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"slots","outputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"data","type":"bytes"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bool","name":"written","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"slotData","type":"bytes"}],"name":"writeSlot","outputs":[],"stateMutability":"nonpayable","type":"function"}]"""
@@ -2779,7 +2780,7 @@ def postRawTransactions(data: PostTxsBody):
     return jsonify(result=hashes, success=True)
 
 
-# TEMPORARILY DISABLED A METHOD
+# TEMPORARILY DISABLED A METHOD - TO BE UPDATED AND RE-ENABLED
 # @app.get("/send/buildtransaction/")
 # def buildTransactionAndSend():
     # privkey = str(flask.request.args.get('privkey', None))
