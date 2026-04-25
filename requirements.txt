@@ -1,3 +1,4 @@
+parsimonious
 requests
 flask
 web3==5.31.3
@@ -14,3 +15,4 @@ fastapi
 uvicorn
 pydantic
 rich
+setuptools==69.5.1

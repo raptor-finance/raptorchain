@@ -1,3 +1,9 @@
+import inspect
+
+# fixes a compatibility issue (different function names across versions)
+if not hasattr(inspect, "getargspec"):
+    inspect.getargspec = inspect.getfullargspec
+
 import requests, time, json, threading, rlp, eth_abi, itertools, base64, secrets, sys, fastapi, pydantic, uvicorn, re, rich, logging
 from datetime import datetime
 
@@ -442,7 +448,7 @@ class BeaconChain(object):
         def __init__(self, testnet=True):
             self.testnet = testnet
             self.gasPricings = {137: 3, 250: 3, 1: 69}
-            self.rpcs = {56: "https://bsc.nodereal.io/", 137: "https://polygon-rpc.com/", 250: "https://1rpc.io/ftm", 1: "https://eth.drpc.org"}
+            self.rpcs = {56: "https://bsc.nodereal.io/", 137: "https://polygon-public.nodies.app", 250: "https://1rpc.io/ftm", 1: "https://eth.drpc.org"}
             self.contractAddrsTestnet = {137: "0x22264132b46365EFb0bE413144Fa4d1616D82Abe", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x8CA9f4A7098a9b5a8546F6401bB101B4FA0e6910"}
             self.contractAddrsMainnet = {137: "0x47C0D110eEB1357225B707E0515B17Ab0EB1CaF6", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x8CA9f4A7098a9b5a8546F6401bB101B4FA0e6910"}
             self.abi = """[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"slotOwner","type":"address"},{"indexed":true,"internalType":"bytes32","name":"slotKey","type":"bytes32"},{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"}],"name":"SlotWritten","type":"event"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"getSlotData","outputs":[{"internalType":"bytes","name":"","type":"bytes"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"isWritten","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"slots","outputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"data","type":"bytes"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bool","name":"written","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"slotData","type":"bytes"}],"name":"writeSlot","outputs":[],"stateMutability":"nonpayable","type":"function"}]"""
