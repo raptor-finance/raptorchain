@@ -447,17 +447,17 @@ class BeaconChain(object):
                 'gasLimit': '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
                 # since gas used isn't consumed INSIDE block, returns 0 (could be updated to return a value in the future)
                 'gasUsed': '0x0',
-                'hash': self.proof,
-                'logsBloom': self.logsBloom.hex(),
+                'hash': ("0x" + self.proof) if not self.proof.startswith("0x") else self.proof,
+                'logsBloom': "0x" + self.logsBloom.hex(),
                 'miner': self.miner,
-                'mixHash': self.beaconRoot(),
-                'nonce': self.nonce,
-                'number': self.number,
+                'mixHash': ("0x" + self.beaconRoot()) if not self.beaconRoot().startswith("0x") else self.beaconRoot(),
+                'nonce': hex(self.nonce),
+                'number': hex(self.number),
                 'parentHash': self.parent.hex() if type(self.parent) == bytes else self.parent,
                 # compatibility
-                'stateRoot': self.txsRoot().hex(),
-                'receiptsRoot': self.txsRoot().hex(),
-                'transactionsRoot': self.txsRoot().hex(),
+                'stateRoot': "0x" + self.txsRoot().hex(),
+                'receiptsRoot': "0x" + self.txsRoot().hex(),
+                'transactionsRoot': "0x" + self.txsRoot().hex(),
                 
                 'sha3Uncles': '0x0000000000000000000000000000000000000000000000000000000000000000',
                 'size': '0x0',
@@ -2852,15 +2852,32 @@ def handleWeb3Request(data: Web3Body):
     if data.method == "eth_getTransactionByHash":
         result = node.ethGetTransactionByHash(data.params[0])
     if data.method == "eth_getBlockByNumber":
-        pass    # TODO: implement proper eth_getBlock to return block data by number (required for indexing purposes)
-        _blockNumber = int(data.params[0], 16) if type(data.params[0]) == str else data.params[0]
-        result = node.state.beaconChain.blocks[_blockNumber].web3Returnable()
-        if data.params[1]:  # fetch transactions as well
-            result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
+        _blockParam = data.params[0]
+        _blockTx = data.params[1] if len(data.params) > 1 else False
+        _chain = node.state.beaconChain
+        if type(_blockParam) == str:
+            if _blockParam in ("latest", "pending", "safe", "finalized"):
+                _blockNumber = len(_chain.blocks) - 1
+            elif _blockParam == "earliest":
+                _blockNumber = 0
+            else:
+                _blockNumber = int(_blockParam, 16)
+        else:
+            _blockNumber = _blockParam
+        if _blockNumber < 0 or _blockNumber >= len(_chain.blocks):
+            result = None
+        else:
+            result = _chain.blocks[_blockNumber].web3Returnable()
+            if _blockTx:  # fetch transactions as well
+                result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
     if data.method == "eth_getBlockByHash":
-        result = node.state.beaconChain.blocksByHash.get(data.params[0]).web3Returnable()
-        if data.params[1]:  # fetch transactions as well
-            result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
+        _block = node.state.beaconChain.blocksByHash.get(data.params[0])
+        if _block is None:
+            result = None
+        else:
+            result = _block.web3Returnable()
+            if data.params[1]:  # fetch transactions as well
+                result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
     
     
     _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
