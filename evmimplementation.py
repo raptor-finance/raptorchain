@@ -1,6 +1,7 @@
 from web3.auto import w3
 import itertools, rlp, hashlib, eth_abi
 from Crypto.Hash import RIPEMD160
+import constants
 
 class CallMemory(object):
     def __init__(self):
@@ -264,7 +265,7 @@ class Opcodes(object):
         self.opcodes[0xFE] = self.INVALID
 
     def padded(self, data, size):
-        return (b"\x00"*(size-(len(_bts))) + _bts)[0:size]
+        return (b"\x00"*(size-len(data)) + data)[0:size]
 
     def unsigned_to_signed(self, value):
         return value if value <= (2**255) else value - (2**256)
@@ -1249,7 +1250,7 @@ class PrecompiledContracts(object):
             try:
                 recovered = w3.eth.account.recoverHash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
             except:
-                recovered = "0x0000000000000000000000000000000000000000"
+                recovered = constants.ZERO_ADDRESS
             env.returnCall(int(recovered, 16).to_bytes(32, "big"))
     
     class crossChainBridge(Precompile):
@@ -1258,7 +1259,7 @@ class PrecompiledContracts(object):
             self.address = addr
             self.fallback = bridgeFallBack
             self.bsc = bsc
-            self.address = "0x0000000000000000000000000000000000000097"
+            self.address = constants.CROSSCHAIN_ADDRESS
         
         def logTransfer(self, env):
             # BridgeToBSC(address user, uint256 value)
@@ -1451,7 +1452,7 @@ class PrecompiledContracts(object):
             env.safeIncrease(self.supplySlot, tokens)
             
             # solidity equivalent : emit Transfer(address(0), to, tokens);
-            self.logTransfer(env, "0x0000000000000000000000000000000000000000", to, tokens)
+            self.logTransfer(env, constants.ZERO_ADDRESS, to, tokens)
             
             # env.writeStorageKey(depositorAddr, (env.loadStorageKey(depositorAddr) + tokens))
             # env.writeStorageKey(env.supplySlot, (env.loadStorageKey(self.supplySlot) + tokens))
@@ -1464,7 +1465,7 @@ class PrecompiledContracts(object):
             env.safeDecrease(self.supplySlot, tokens)
             
             # solidity equivalent : emit Transfer(user, address(0), tokens);
-            self.logTransfer(env, user, "0x0000000000000000000000000000000000000000", tokens)
+            self.logTransfer(env, user, constants.ZERO_ADDRESS, tokens)
             
             print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
         
@@ -1518,9 +1519,9 @@ class PrecompiledContracts(object):
             self.addMethod("isChainSupported(uint256)", self.isChainSupported)
             self.addMethod("isMN(address)", self.isMN)
             self.addMethod("mnOwner(address)", self.mnOwner)
-            self.nullAddress = "0x0000000000000000000000000000000000000000"
+            self.nullAddress = constants.ZERO_ADDRESS
             # address where contract is supposed to be
-            self.address = "0x000000000000000000000000000000000000FEeD"
+            self.address = constants.DATAFEED_ADDRESS
             
         def _isChainSupported(self, env, chainid):
             cnt = env.chain.datafeed.contracts.get(chainid)
@@ -1609,12 +1610,12 @@ class PrecompiledContracts(object):
         self.contracts = {}
         self.bsc = bsc
         self.getAccount = getAccount
-        self.crossChainAddress = "0x0000000000000000000000000000000000000097"
-        self.setContract("0x0000000000000000000000000000000000000001", self.ecRecover(), True)
-        self.setContract("0x0000000000000000000000000000000000000002", self.Sha256(), False)
-        self.setContract("0x0000000000000000000000000000000000000003", self.Ripemd160(), False)
-        self.setContract("0x0000000000000000000000000000000000000069", self.accountBioManager(), False)
-        self.setContract("0x000000000000000000000000000000000000FEeD", self.CrossChainDataFeed(), False)
+        self.crossChainAddress = constants.CROSSCHAIN_ADDRESS
+        self.setContract(constants.ECRECOVER_ADDRESS, self.ecRecover(), True)
+        self.setContract(constants.SHA256_ADDRESS, self.Sha256(), False)
+        self.setContract(constants.RIPEMD160_ADDRESS, self.Ripemd160(), False)
+        self.setContract(constants.BIO_MANAGER_ADDRESS, self.accountBioManager(), False)
+        self.setContract(constants.DATAFEED_ADDRESS, self.CrossChainDataFeed(), False)
         self.setContract(self.crossChainAddress, self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc), False)
         # self.setContract("0x0000000000000000000000000000000d0ed622a3", self.Printer())
     
@@ -1720,7 +1721,7 @@ class CallEnv(object):
             self.storageBefore = runningAccount.tempStorage.copy()
         self.value = value
         self.testnet = False
-        self.chainid = 499597202514 if self.testnet else 1380996178
+        self.chainid = constants.chain_id(self.testnet)
         try:
             self.gaslimit = int(gaslimit)
         except:

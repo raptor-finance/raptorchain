@@ -22,6 +22,11 @@ from eth_utils import keccak
 from rlp.sedes import Binary, big_endian_int, binary
 import evmimplementation as EVM
 from cryptography.fernet import Fernet
+import constants
+import utils
+from utils import formatAddress, printError, isNotComment
+from crypto.signatures import SignatureManager
+from crypto.eth_decoder import ETHTransactionDecoder
 
 transactions = {}
 try:
@@ -31,9 +36,6 @@ try:
 except:
     config = {"dataBaseFile": "raptorchain-mainnet-beta.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RaptorChainInit", "netLogFile": "rptrnetlog.log"}
 
-
-def isNotComment(line):
-    return ((not "#" in line) and (line != "DISMISSCONFIG"))
 
 try:
     peersFile = open("peers.txt", "r")
@@ -48,83 +50,6 @@ try:
     ssl_context = tuple(config["ssl"])
 except:
     ssl_context = None
-
-def printError(errorMessage):
-    try:
-        rich.print(f"[red]{errorMessage}[/red]")
-    except:
-        print(errorMessage)
-
-class SignatureManager(object):
-    def __init__(self):
-        self.verified = 0
-        self.signed = 0
-    
-    def signTransaction(self, private_key, transaction):
-        message = encode_defunct(text=transaction["data"])
-        transaction["hash"] = w3.solidityKeccak(["string"], [transaction["data"]]).hex()
-        _signature = w3.eth.account.sign_message(message, private_key=private_key).signature.hex()
-        signer = w3.eth.account.recover_message(message, signature=_signature)
-        sender = w3.toChecksumAddress(json.loads(transaction["data"])["from"])
-        if (signer == sender):
-            transaction["sig"] = _signature
-            self.signed += 1
-        return transaction
-        
-    def verifyTransaction(self, transaction):
-        message = encode_defunct(text=transaction["data"])
-        _hash = w3.solidityKeccak(["string"], [transaction["data"]]).hex()
-        _hashInTransaction = transaction["hash"]
-        signer = w3.eth.account.recover_message(message, signature=transaction["sig"])
-        sender = w3.toChecksumAddress(json.loads(transaction["data"])["from"])
-        result = ((signer == sender) and (_hash == _hashInTransaction))
-        self.verified += int(result)
-        return result
-
-class ETHTransactionDecoder(object):
-    class Transaction(rlp.Serializable):
-        fields = [
-            ("nonce", big_endian_int),
-            ("gas_price", big_endian_int),
-            ("gas", big_endian_int),
-            ("to", Binary.fixed_length(20, allow_empty=True)),
-            ("value", big_endian_int),
-            ("data", binary),
-            ("v", big_endian_int),
-            ("r", big_endian_int),
-            ("s", big_endian_int),
-        ]
-
-
-    @dataclass
-    class DecodedTx:
-        hash_tx: str
-        from_: str
-        to: Optional[str]
-        nonce: int
-        gas: int
-        gas_price: int
-        value: int
-        data: str
-        chain_id: int
-        r: str
-        s: str
-        v: int
-
-
-    def decode_raw_tx(self, raw_tx: str):
-        bytesTx = bytes.fromhex(raw_tx.replace("0x", ""))
-        tx = rlp.decode(bytesTx, self.Transaction)
-        hash_tx = w3.toHex(keccak(bytesTx))
-        from_ = w3.eth.account.recover_transaction(raw_tx)
-        to = w3.toChecksumAddress(tx.to) if tx.to else None
-        data = w3.toHex(tx.data)
-        r = hex(tx.r)
-        s = hex(tx.s)
-        chain_id = (tx.v - 35) // 2 if tx.v % 2 else (tx.v - 36) // 2
-        return self.DecodedTx(hash_tx, from_, to, tx.nonce, tx.gas, tx.gas_price, tx.value, data, chain_id, r, s, tx.v)
-
-
 
 class Message(object):
     def __init__(self, _from, _to, msg):
@@ -169,8 +94,8 @@ class Transaction(object):
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.value = max(int(txData.get("tokens")), 0)
             self.affectedAccounts = [self.sender, self.recipient]
-            self.gasprice = 1000000000000000
-            self.gasLimit = 69000
+            self.gasprice = constants.DEFAULT_GAS_PRICE
+            self.gasLimit = constants.DEFAULT_GAS_LIMIT
             self.fee = self.gasprice*self.gasLimit
             try:
                 self.data = bytes.fromhex(txData.get("callData", "").replace("0x", ""))
@@ -180,7 +105,7 @@ class Transaction(object):
             self.fee = 0
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.blockData = txData.get("blockData")
-            self.recipient = "0x0000000000000000000000000000000000000000"
+            self.recipient = constants.ZERO_ADDRESS
             self.value = 0
             self.affectedAccounts = [self.sender]
             self.gasprice = 0
@@ -212,11 +137,11 @@ class Transaction(object):
             self.l2hash = txData["l2hash"]
             self.value = 0
             self.sender = w3.toChecksumAddress(txData.get("from"))
-            self.recipient = "0x0000000000000000000000000000000000000000"
+            self.recipient = constants.ZERO_ADDRESS
             self.affectedAccounts = [self.sender]
         elif self.txtype == 4: # MN create
             self.fee = 0
-            self.value = 1000000000000000000000000
+            self.value = constants.MN_COLLATERAL
             self.sender = w3.toChecksumAddress(txData.get("from"))
             self.recipient = w3.toChecksumAddress(txData.get("to"))
             self.affectedAccounts = [self.sender, self.recipient]
@@ -228,13 +153,13 @@ class Transaction(object):
             self.affectedAccounts = [self.sender, self.recipient]
         elif self.txtype == 6: # system transaction
             self.fee = 0
-            self.sender = "0x0000000000000000000000000000000000000000"
-            self.recipient = "0x0000000000000000000000000000000000000000"
+            self.sender = constants.ZERO_ADDRESS
+            self.recipient = constants.ZERO_ADDRESS
             self.value = 0
         elif self.txtype == 7: # relayer sign block
             self.fee = 0
             self.sender = txData.get("from")
-            self.recipient = "0x0000000000000000000000000000000000000000"
+            self.recipient = constants.ZERO_ADDRESS
             self.blocksig = txData.get("blocksig")
             self.blockhash = txData.get("blockhash", self.epoch)
             self.value = 0
@@ -249,9 +174,7 @@ class Transaction(object):
         # self.endTimeStamp = 0
         
     def formatAddress(self, _addr):
-        if (type(_addr) == int):
-            return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
-        return w3.toChecksumAddress(_addr)
+        return formatAddress(_addr)
         
     def markAccountAffected(self, addr):
         _addr = self.formatAddress(addr)
@@ -300,7 +223,7 @@ class Transaction(object):
 
 class BeaconChain(object):
     class Masternode(object):
-        def __init__(self, owner, operator, collateral=1000000000000000000000000):
+        def __init__(self, owner, operator, collateral=constants.MN_COLLATERAL):
             self.owner = w3.toChecksumAddress(owner)
             self.operator = w3.toChecksumAddress(operator)
             self.collateral = collateral
@@ -448,7 +371,7 @@ class BeaconChain(object):
         def __init__(self, testnet=True):
             self.testnet = testnet
             self.gasPricings = {137: 3, 250: 3, 1: 69}
-            self.rpcs = {56: "https://bsc.nodereal.io/", 137: "https://polygon-public.nodies.app", 250: "https://1rpc.io/ftm", 1: "https://eth.drpc.org"}
+            self.rpcs = {56: "https://bsc.nodereal.io/", 137: "https://rpc-polygon.blockmachine.io", 250: "https://1rpc.io/ftm", 1: "https://eth.drpc.org"}
             self.contractAddrsTestnet = {137: "0x22264132b46365EFb0bE413144Fa4d1616D82Abe", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x8CA9f4A7098a9b5a8546F6401bB101B4FA0e6910"}
             self.contractAddrsMainnet = {137: "0x47C0D110eEB1357225B707E0515B17Ab0EB1CaF6", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x8CA9f4A7098a9b5a8546F6401bB101B4FA0e6910"}
             self.abi = """[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"slotOwner","type":"address"},{"indexed":true,"internalType":"bytes32","name":"slotKey","type":"bytes32"},{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"}],"name":"SlotWritten","type":"event"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"getSlotData","outputs":[{"internalType":"bytes","name":"","type":"bytes"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"isWritten","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"slots","outputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"data","type":"bytes"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bool","name":"written","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"slotData","type":"bytes"}],"name":"writeSlot","outputs":[],"stateMutability":"nonpayable","type":"function"}]"""
@@ -1007,12 +930,12 @@ class State(object):
             self.notTry = False
             self.contractDeployment = False
             self.accountsToDestroy = []
-            self.sender = w3.toChecksumAddress(call.get("from", "0x0000000000000000000000000000000000000000"))
-            self.recipient = w3.toChecksumAddress(call.get("to", "0x0000000000000000000000000000000000000000"))
-            if (self.recipient == "0x0000000000000000000000000000000000000000"):
+            self.sender = w3.toChecksumAddress(call.get("from", constants.ZERO_ADDRESS))
+            self.recipient = w3.toChecksumAddress(call.get("to", constants.ZERO_ADDRESS))
+            if (self.recipient == constants.ZERO_ADDRESS):
                 self.contractDeployment = True
             self.value = call.get("value", 0)
-            self.value = self.value if type(self.value) == int else ((int(self.value, 16) if "0x" in self.value else int(self.value)) if type(self.value == str) else 0)
+            self.value = self.value if type(self.value) == int else ((int(self.value, 16) if "0x" in self.value else int(self.value)) if type(self.value) == str else 0)
             try:
                 _data = call.get("data", "0x")
                 self.data = _data if type(_data) == bytes else bytes.fromhex(_data.replace("0x", ""))
@@ -1027,9 +950,7 @@ class State(object):
             self.affectedAccounts = [self.sender, self.recipient]
 
         def formatAddress(self, _addr):
-            if (type(_addr) == int):
-                return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
-            return w3.toChecksumAddress(_addr)
+            return formatAddress(_addr)
 
         def markAccountAffected(self, addr):
             _addr = self.formatAddress(addr)
@@ -1047,15 +968,15 @@ class State(object):
         self.txIndex = {}
         self.lastTxIndex = 0
         self.beaconChain = BeaconChain(self.testnet)
-        self.holders = ["0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x611B74e0dFA8085a54e8707c573A588138c9dDba", "0x0000000000000000000000000000000000000000"]
+        self.holders = ["0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x611B74e0dFA8085a54e8707c573A588138c9dDba", constants.ZERO_ADDRESS]
         self.totalSupply = 0
         self.type2ToType0Hash = {}
         self.type0ToType2Hash = {}
         self.processedL2Hashes = []
-        self.accounts = {"0x0000000000000000000000000000000000000000": self.Account("0x0000000000000000000000000000000000000000", self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain), "0x0000000000000000000000000000000000000001": self.Account("0x0000000000000000000000000000000000000001", self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)}
-        self.crossChainAddress = "0x0000000000000000000000000000000000000097"
+        self.accounts = {constants.ZERO_ADDRESS: self.Account(constants.ZERO_ADDRESS, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain), constants.ECRECOVER_ADDRESS: self.Account(constants.ECRECOVER_ADDRESS, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)}
+        self.crossChainAddress = constants.CROSSCHAIN_ADDRESS
         self.lastIndex = 0
-        self.accounts["0x0000000000000000000000000000000000000001"].code = bytes.fromhex("608060405234801561001057600080fd5b506004361061002b5760003560e01c806357ecc14714610030575b600080fd5b61003861004e565b60405161004591906100c4565b60405180910390f35b60606040518060400160405280600b81526020017f48656c6c6f20776f726c64000000000000000000000000000000000000000000815250905090565b6000610096826100e6565b6100a081856100f1565b93506100b0818560208601610102565b6100b981610135565b840191505092915050565b600060208201905081810360008301526100de818461008b565b905092915050565b600081519050919050565b600082825260208201905092915050565b60005b83811015610120578082015181840152602081019050610105565b8381111561012f576000848401525b50505050565b6000601f19601f830116905091905056fea2646970667358221220ad44bfb067953d1048acb02d7ee13b978ad64129db11c038ac3f4c82c858f71f64736f6c63430007060033")
+        self.accounts[constants.ECRECOVER_ADDRESS].code = bytes.fromhex("608060405234801561001057600080fd5b506004361061002b5760003560e01c806357ecc14714610030575b600080fd5b61003861004e565b60405161004591906100c4565b60405180910390f35b60606040518060400160405280600b81526020017f48656c6c6f20776f726c64000000000000000000000000000000000000000000815250905090565b6000610096826100e6565b6100a081856100f1565b93506100b0818560208601610102565b6100b981610135565b840191505092915050565b600060208201905081810360008301526100de818461008b565b905092915050565b600081519050919050565b600082825260208201905092915050565b60005b83811015610120578082015181840152602081019050610105565b8381111561012f576000848401525b50505050565b6000601f19601f830116905091905056fea2646970667358221220ad44bfb067953d1048acb02d7ee13b978ad64129db11c038ac3f4c82c858f71f64736f6c63430007060033")
         self.receipts = {}
         self.precompiledContractsHandler = EVM.PrecompiledContracts(self.crossChainFallback, self.beaconChain.bsc, self.getAccount)
         self.precompiledContracts = self.precompiledContractsHandler.contracts
@@ -1064,15 +985,13 @@ class State(object):
         self.benchmark = False
         self.benchGas = 0   # total benchmarked gas (for average)
         self.benchTime = 0  # total benchmarked execution time (for average)
-        self.chainID = 499597202514 if self.testnet else 1380996178
-        self.gasPrice = 1000000000000000 # 0.001 RPTR or 1M gwei
-        self.burnAddress = "0x000000000000000000000000000000000000dEaD"
-        self.version = "1.7.1-mainnet-beta"
+        self.chainID = constants.chain_id(self.testnet)
+        self.gasPrice = constants.DEFAULT_GAS_PRICE
+        self.burnAddress = constants.BURN_ADDRESS
+        self.version = constants.NODE_VERSION
 
     def formatAddress(self, _addr):
-        if (type(_addr) == int):
-            return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
-        return w3.toChecksumAddress(_addr)
+        return formatAddress(_addr)
 
     def getAccount(self, _addr, skipInit=False):
         chkaddr = self.formatAddress(_addr)
@@ -1146,7 +1065,7 @@ class State(object):
         return ((not _tx.l2hash in self.processedL2Hashes), "Checking if it's already processed")
 
     def estimateCreateMNSuccess(self, tx):
-        _sufficientBalance = (self.getAccount(tx.sender).balance >= 1000000000000000000000000) # 1 million with 18 decimals
+        _sufficientBalance = (self.getAccount(tx.sender).balance >= constants.MN_COLLATERAL) # 1 million with 18 decimals
         _canAddToSet = (not (self.beaconChain.validators.get(tx.recipient)))
         return (_sufficientBalance and _canAddToSet, "")
     
@@ -1160,7 +1079,7 @@ class State(object):
         willSucceed = self.estimateCreateMNSuccess(tx)[0]
         if not willSucceed:
             return False
-        self.getAccount(tx.sender).balance -= 1000000000000000000000000
+        self.getAccount(tx.sender).balance -= constants.MN_COLLATERAL
         self.getAccount(tx.sender).masternodes.append(tx.recipient)
         self.beaconChain.createValidator(tx.sender, tx.recipient)
     
@@ -1168,7 +1087,7 @@ class State(object):
         self.applyParentStuff(tx)
         if not self.estimateDestroyMNSuccess(tx)[0]:
             return False
-        self.getAccount(self.beaconChain.validators.get(tx.recipient).owner).balance += 1000000000000000000000000
+        self.getAccount(self.beaconChain.validators.get(tx.recipient).owner).balance += constants.MN_COLLATERAL
         self.getAccount(tx.sender).masternodes = list(filter(tx.recipient.__ne__, self.getAccount(tx.sender).masternodes)) # removes tx.recipient (aka the removed MN) from MNs list with a filter (removes element matching the removed MN)
         self.beaconChain.destroyValidator(tx.recipient)
     
@@ -1196,7 +1115,7 @@ class State(object):
                 _calculatedAccount = self.getAccount(_calculatedAddress)
                 
                 # create env (required in order to load storage properly)
-                env = EVM.CallEnv(self.getAccount, self.crossChainAddress, _calculatedAccount, _calculatedAddress, self.beaconChain, 0, 69000, tx, b"", self.executeChildCall, b"", False, calltype=1)
+                env = EVM.CallEnv(self.getAccount, self.crossChainAddress, _calculatedAccount, _calculatedAddress, self.beaconChain, 0, constants.DEFAULT_GAS_LIMIT, tx, b"", self.executeChildCall, b"", False, calltype=1)
                 
                 # mint cross-chain token
                 self.precompiledContractsHandler.mintCrossChainToken(env, depositInfo["token"], depositInfo['depositor'], depositInfo["amount"])
@@ -1740,7 +1659,7 @@ class Node(object):
         self.transactions = {}
         self.txsOrder = []
         self.mempool = []
-        self.listenPort = (6969 if self.testnet else 4242)
+        self.listenPort = constants.listen_port(self.testnet)
         self.sigmanager = SignatureManager()
         self.state = State(config["InitTxID"], self.testnet)
         self.config = config
@@ -2196,7 +2115,7 @@ class Wallet(object):
         acctTxs = self.node.state.getAccount(self.address).transactions
         lastTx = acctTxs[len(acctTxs)-1]
         epoch = self.node.state.beaconChain.getLastBeacon().proof
-        txdata = json.dumps({"from": self.address, "to": self.address, "tokens": 1000000000000000000000000, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 4})
+        txdata = json.dumps({"from": self.address, "to": self.address, "tokens": constants.MN_COLLATERAL, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 4})
         tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
         feedback = self.node.checkTxs([tx])
         return feedback
@@ -2639,7 +2558,7 @@ def getTransactions():
 def nFirstTxs(n):
     _n = min(len(node.txsOrder), int(n))
     txs = []
-    for txid in txsOrder[0:int(n)-1]:
+    for txid in node.txsOrder[0:_n]:
         txs.append(node.transactions.get(txid))
     return jsonify(result=txs, success=True)
     
@@ -2657,13 +2576,14 @@ def nLastTxs(n):
 def getTxsByBound(upperBound, lowerBound):
     upperBound = min(upperBound, len(node.txsOrder)-1)
     lowerBound = max(lowerBound, 0)
+    txs = []
     for txid in node.txsOrder[lowerBound:upperBound]:
         txs.append(node.transactions.get(txid))
     return jsonify(result=txs, success=True)
 
 @app.get("/get/txIndex/{index}")
 def getTxIndex(txid):
-    _index = node.state.txIndex.get(tx)
+    _index = node.state.txIndex.get(txid)
     if _index != None:
         return jsonify(result=_index, success=True)
     else:
@@ -2717,7 +2637,7 @@ def sentByAccount(account):
     return jsonify(result=node.state.getAccount(_address, True).sent, success=True)
 
 @app.get("/accounts/tempcode/{account}")
-def sentByAccount(account):
+def tempcodeByAccount(account):
     _address = w3.toChecksumAddress(account)    
     return jsonify(result=node.state.getAccount(_address, True).tempcode.hex(), success=True)
 
