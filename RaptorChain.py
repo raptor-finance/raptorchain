@@ -27,6 +27,7 @@ import utils
 from utils import formatAddress, printError, isNotComment
 from crypto.signatures import SignatureManager
 from crypto.eth_decoder import ETHTransactionDecoder
+import web3rpc
 
 transactions = {}
 try:
@@ -2497,7 +2498,6 @@ class HttpUrlRedirectMiddleware:
       await self.app(scope, receive, send)
 
 if __name__ == "__main__":
-    import web3rpc
     node = Node(config)
     # print(node.config)
     web3rpc.registerNode(node)
@@ -2795,7 +2795,6 @@ def shareOnlinePeers():
 
 
 # WEB3 COMPATIBLE RPC (implemented in web3rpc.py)
-import web3rpc
 web3rpc.createRouter(app)
 
 def runAPI():
