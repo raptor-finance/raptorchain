@@ -266,7 +266,7 @@ class BeaconChain(object):
                 
             def __init__(self, depositData=None, cacheData=None):
                 if (depositData and cacheData) or (not (depositData or cacheData)):
-                    raise CachedDepositException("Error with inputs")
+                    raise self.CachedDepositException("Error with inputs")
                 if depositData:
                     (self.amount, self.depositor, self.nonce, self.token, self.data, self.hash) = depositData
                 elif cacheData:
@@ -755,7 +755,7 @@ class BeaconChain(object):
         return False
     
     def mineEpoch(self, epochDetails):
-        isValid = self.isEpochValid(epochDetails)
+        pass # FIXME: epoch validation not implemented (previously called nonexistent self.isEpochValid)
     
     
     def submitMessage(self, message):
@@ -807,7 +807,10 @@ class BeaconChain(object):
             return (False, "UNEXISTENT_BLOCK_HASH")
     
     def addRelayerSig(self, relayer, bkhash, sig):
-        return self.blocksByHash.get(bkhash).submitRelayerSig(sig)
+        block = self.blocksByHash.get(bkhash)
+        if not block:
+            return (False, "UNEXISTENT_BLOCK_HASH")
+        return block.submitRelayerSig(sig)
     
     def JSONSerializable(self):
         blocksJSON = []
@@ -851,7 +854,7 @@ class State(object):
             btarr = b""
             for key, value in sorted(self.storage.items()):
                 if value > 0:
-                    btarr = (btarr + int(key).to_bytes(32, "big") + int(key).to_bytes(32, "big"))
+                    btarr = (btarr + int(key).to_bytes(32, "big") + int(value).to_bytes(32, "big"))
             return btarr
 
         def setPrecompiledContract(self, contract, initialize):
@@ -1395,7 +1398,8 @@ class State(object):
     def executeContractCall(self, tx, showMessage):
         self.applyParentStuff(tx)
         if ((tx.value + tx.fee) > self.getAccount(tx.sender).balance):
-            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
+            # no environment exists yet at this point - report zero gas usage
+            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(0), "gasUsed": hex(0),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
             return (False, b"")
         self.ensureExistence(tx.sender)
         self.ensureExistence(tx.recipient)
@@ -1491,6 +1495,8 @@ class State(object):
             env = EVM.CallEnv(self.getAccount, tx.sender, self.getAccount(tx.recipient), tx.recipient, self.beaconChain, tx.value, tx.gasLimit, tx, tx.data, self.executeChildCall, self.getAccount(tx.recipient).code, False)
 
         if (tx.value > 0):
+            senderAcct = self.getAccount(tx.sender)
+            recipientAcct = self.getAccount(tx.recipient)
             senderAcct.tempBalance -= tx.value
             recipientAcct.tempBalance += tx.value
 
@@ -1652,7 +1658,7 @@ class Node(object):
             try:
                 return self.sendRequest(f"/chain/block/{number}").json()
             except:
-                raise PeerError("Error loading data from peer")
+                raise self.PeerError("Error loading data from peer")
     
     def __init__(self, config):
         self.testnet = False
@@ -1786,10 +1792,10 @@ class Node(object):
     def askForMorePeers(self):
         for peer in self.goodPeers:
             try:
-                obtainedPeers = requests.get(f"{peer}/net/getOnlinePeers")
+                obtainedPeers = requests.get(f"{peer}/net/getOnlinePeers").json().get("result", [])
                 for _peer in obtainedPeers:
-                    if not ((peer if peer[len(peer)-1] == "/" else (peer + "/")) in self.stringifyBatchOfPeers(self.peers)):
-                        self.peers.append(Peer(peer))
+                    if not ((str(peer) if str(peer)[len(str(peer))-1] == "/" else (str(peer) + "/")) in self.stringifyBatchOfPeers(self.peers)):
+                        self.peers.append(self.Peer(_peer))
             except:
                 pass
     
@@ -2104,6 +2110,7 @@ class Wallet(object):
         self.commands["registermn"] = [self.registermn, "wallet registermn - Registers a masternode - collateral: 1M RPTR locked on chain side"]
         self.commands["destroymn"] = [self.destroymn, "wallet destroymn <mnaddress> - Destroys/unregisters a masternode owned by current account, releases collateral"]
         self.commands["regrelayer"] = [self.regrelayer, "wallet regrelayer <address> - Destroys/unregisters a relayer, locks 1M BSC-side RPTR as collateral"]
+        self.commands["disablerelayer"] = [self.disablerelayer, "wallet disablerelayer <address> - Disables/unregisters a relayer, releases collateral"]
         self.commands["deposit"] = [self.deposit, "wallet deposit <amount> - Cross-chain deposit (BSC to RaptorChain)"]
         self.commands["withdraw"] = [self.withdraw, "wallet withdraw <amount> - Cross-chain withdrawal (RaptorChain to BSC)"]
         self.commands["help"] = [self.help, "wallet help - Show this help message"]
@@ -2332,9 +2339,9 @@ class Wallet(object):
         if not self.requireDecryption():
             return
         if (len(keyInput) > 1):
-            self.registerRelayer(keyInput[1])
+            self.disableRelayer(keyInput[1])
         else:
-            self.registerRelayer(self.address)
+            self.disableRelayer(self.address)
 
     def deposit(self, keyInput):
         if not self.requireDecryption():
@@ -2440,7 +2447,7 @@ class Terminal(object):
             if _id.isnumeric():
                 print(json.dumps(self.node.state.beaconChain.blocks[int(_id)].ABIEncodable()))
             else:
-                print(json.dumps(self.node.state.beaconChain.blockByHash.get(_id).ABIEncodable()))
+                print(json.dumps(self.node.state.beaconChain.blocksByHash.get(_id).ABIEncodable()))
         except Exception as e:
             printError(e.__repr__())
     
@@ -2576,16 +2583,16 @@ def nLastTxs(n):
 
 @app.get("/get/txsByBounds/{upperBound}/{lowerBound}") # get txs from upperBound to lowerBound (in index)
 def getTxsByBound(upperBound, lowerBound):
-    upperBound = min(upperBound, len(node.txsOrder)-1)
-    lowerBound = max(lowerBound, 0)
+    upperBound = min(int(upperBound), len(node.txsOrder)-1)
+    lowerBound = max(int(lowerBound), 0)
     txs = []
     for txid in node.txsOrder[lowerBound:upperBound]:
         txs.append(node.transactions.get(txid))
     return jsonify(result=txs, success=True)
 
 @app.get("/get/txIndex/{index}")
-def getTxIndex(txid):
-    _index = node.state.txIndex.get(txid)
+def getTxIndex(index):
+    _index = node.state.txIndex.get(index)
     if _index != None:
         return jsonify(result=_index, success=True)
     else:
@@ -2681,6 +2688,8 @@ def processListOfTxs(_txs):
 @app.get("/send/rawtransaction/") # allows sending a raw (signed) transaction
 def sendRawTransactions(tx: str = None):
 #    rawtxs = str(flask.request.args.get('tx', None))
+    if not tx:
+        return jsonify(message="NO_TRANSACTION_PROVIDED", success=False)
     rawtxs = tx.split(",")
     txs = []
     hashes = []
@@ -2801,7 +2810,10 @@ def runAPI():
     if not node.state.verbose:
         logging.getLogger("uvicorn.error").disabled = True
         logging.getLogger("uvicorn.access").disabled = True
-    uvicorn.run(app, port=node.listenPort, host="0.0.0.0")
+    if ssl_context:
+        uvicorn.run(app, port=node.listenPort, host="0.0.0.0", ssl_certfile=ssl_context[0], ssl_keyfile=ssl_context[1])
+    else:
+        uvicorn.run(app, port=node.listenPort, host="0.0.0.0")
 
 if __name__ == "__main__":
     print(ssl_context or "No SSL context defined")
