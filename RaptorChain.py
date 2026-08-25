@@ -25,7 +25,8 @@ from cryptography.fernet import Fernet
 import helpers.constants as constants
 import helpers.utils as utils
 from helpers.utils import formatAddress, printError, isNotComment
-from helpers.datatypes import Message, Transaction  # re-exported for backwards compatibility
+from helpers.datatypes import (Message, Transaction,  # re-exported for backwards compatibility
+    Masternode, BeaconBase, GenesisBeacon, Beacon)
 from crypto.signatures import SignatureManager
 from crypto.eth_decoder import ETHTransactionDecoder
 import helpers.web3rpc as web3rpc
@@ -56,19 +57,6 @@ except:
 
 
 class BeaconChain(object):
-    class Masternode(object):
-        def __init__(self, owner, operator, collateral=constants.MN_COLLATERAL):
-            self.owner = w3.toChecksumAddress(owner)
-            self.operator = w3.toChecksumAddress(operator)
-            self.collateral = collateral
-            self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
-            self.blocks = []
-        
-        def updateHash(self):
-            self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
-
-        def JSONSerializable(self):
-            return {"owner": self.owner, "operator": self.operator, "collateral": self.collateral, "blocks": self.blocks, "hash": self.hash.hex()}
 
     class BSCInterface(object):
         class CachedToken(object):
@@ -247,224 +235,6 @@ class BeaconChain(object):
 
 
     # methods common to both `Beacon` and `GenesisBeacon`
-    class BeaconBase(object):
-        logsBloom = bytearray(256)
-        totalDifficulty = 0
-    
-        def addTransaction(self, txid):
-            if not txid in self.transactions:
-                self.transactions.append(txid)
-            if not txid in self.fullTxList:
-                self.fullTxList.append(txid)
-
-        def addToBloom(self, _data):
-            _hash = w3.keccak(_data)
-            for idx in [0, 2, 4]:
-                bitToSet = (int.from_bytes(_hash[idx:idx+2], "big") & 0x07ff)
-                bit_index = 0x07ff - bitToSet
-                byte_index = bit_index // 8
-                bit_value = 1 << (7 - (bit_index % 8))
-                self.logsBloom[byte_index] = self.logsBloom[byte_index] | bit_value
-
-        def addEventToBloom(self, _event):
-            for b in _event.bloomableData:
-                self.addToBloom(b)
-                
-        def setEvents(self, _events):
-            for _event in _events:
-                self.addEventToBloom(_event)
-                
-        def web3Returnable(self):
-            return {'difficulty': hex(self.difficulty),
-                'extraData': '0x',
-                # gas limit not limited by beacon blocks, thus returning highest possible number
-                'gasLimit': '0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
-                # since gas used isn't consumed INSIDE block, returns 0 (could be updated to return a value in the future)
-                'gasUsed': '0x0',
-                'hash': ("0x" + self.proof) if not self.proof.startswith("0x") else self.proof,
-                'logsBloom': "0x" + self.logsBloom.hex(),
-                'miner': self.miner,
-                'mixHash': ("0x" + self.beaconRoot()) if not self.beaconRoot().startswith("0x") else self.beaconRoot(),
-                'nonce': hex(self.nonce),
-                'number': hex(self.number),
-                'parentHash': self.parent.hex() if type(self.parent) == bytes else self.parent,
-                # compatibility
-                'stateRoot': "0x" + self.txsRoot().hex(),
-                'receiptsRoot': "0x" + self.txsRoot().hex(),
-                'transactionsRoot': "0x" + self.txsRoot().hex(),
-                
-                'sha3Uncles': '0x0000000000000000000000000000000000000000000000000000000000000000',
-                'size': '0x0',
-                'timestamp': hex(self.timestamp),
-                'totalDifficulty': hex(self.totalDifficulty),
-                'transactions': self.transactions,
-                'uncles': []
-            }
-
-    class GenesisBeacon(BeaconBase):
-        def __init__(self, testnet=True):
-            if testnet:
-                self.timestamp = 1645457628
-                self.miner = "0x0000000000000000000000000000000000000000"
-                self.parent = "Initializing the RaptorChain...".encode()
-                self.difficulty = 1
-                self.decodedMessages = ["Hey guys, just trying to implement a kind of raptor chain, feel free to have a look".encode()]
-                self.messages = eth_abi.encode_abi(["bytes[]"], [self.decodedMessages])
-                self.nonce = 0
-                self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-                self.proof = self.proofOfWork()
-            else:
-                self.timestamp = 1658340032
-                self.miner = "0x0000000000000000000000000000000000000000"
-                self.parent = b"Say hello to RaptorChain Mainnet"
-                self.difficulty = 1
-                self.decodedMessages = [b"Hey guys, I'm working on RaptorChain and expecting it to work very soon !!! - 10/06/2022"]
-                self.messages = eth_abi.encode_abi(["bytes[]"], [self.decodedMessages])
-                self.nonce = 0
-                self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-                self.proof = self.proofOfWork()
-            self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
-            self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
-            self.transactions = []
-            self.depCheckerTxs = []
-            self.fullTxList = []
-            self.son = ""
-            self.number = 0
-            self.nextBlockTx = None
-            self.v = 0
-            self.r = "0x0000000000000000000000000000000000000000000000000000000000000000"
-            self.s = "0x0000000000000000000000000000000000000000000000000000000000000000"
-            self.sig = "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
-            self.relayerSigs = {}
-            
-        def beaconRoot(self):
-            messagesHash = w3.keccak(eth_abi.encode_abi(["bytes[]"], [self.decodedMessages]))
-            bRoot = w3.solidityKeccak(["bytes32", "uint256", "bytes","address"], [self.parent, self.timestamp, messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
-            return bRoot.hex()
-
-        def proofOfWork(self):
-            bRoot = self.beaconRoot()
-            proof = w3.solidityKeccak(["bytes32", "uint256"], [bRoot, int(self.nonce)])
-            return proof.hex()
-
-        def messagesToHex(self):
-            _msgs = []
-            for _msg_ in self.decodedMessages:
-                _msgs.append(f"0x{_msg_.hex()}")
-            return _msgs
-
-        def addDepCheckerTx(self, txid):
-            self.depCheckerTxs.append(txid)
-            self.fullTxList.append(txid)
-
-
-        def difficultyMatched(self):
-            return int(self.proofOfWork(), 16) < self.miningTarget
-
-        def ABIEncodable(self):
-            return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), ("0x" + ((self.parent + (b'\x00' * (32-len(self.parent)))).hex())), self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), "0x" + self.r.to_bytes(32, "big").hex(), "0x" + self.s.to_bytes(32, "big").hex(), [f"{s}" for r, s in self.relayerSigs.items()]])
-
-        # def exportJson(self):
-            # return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
-
-        def txsRoot(self):
-            return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
-
-        def exportJson(self):
-            return {"transactions": (self.fullTxList + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"{s}" for r, s in self.relayerSigs.items()]}
-
-
-    class Beacon(BeaconBase):
-        # def __init__(self, parent, difficulty, timestamp, miner, logsBloom):
-            # self.miner = ""
-            # self.timestamp = timestamp
-            # self.parent = parent
-            # self.nonce = nonce
-            # self.logsBloom = logsBloom
-            # self.miner = w3.toChecksumAddress(miner)
-            # self.difficulty = difficulty
-            # self.miningTarget = int((2**256)/self.difficulty)
-            # self.proof = self.proofOfWork()
-        
-        def __init__(self, data, difficulty, stateRoot="0x0000000000000000000000000000000000000000000000000000000000000000"):
-            miningData = data["miningData"]
-            self.fullTxList = []
-            self.depCheckerTxs = []
-            self.miner = w3.toChecksumAddress(miningData["miner"])
-            self.parentTxRoot = data.get("parentTxRoot", "0x0000000000000000000000000000000000000000000000000000000000000000")
-            self.nonce = miningData["nonce"]
-            self.difficulty = difficulty
-            self.messages = bytes.fromhex(data['messages'].replace('0x', ''))
-            self.decodedMessages = list(eth_abi.decode_abi(["bytes[]"], bytes.fromhex(data["messages"].replace("0x", "")))[0])
-            self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-            self.stateRoot = stateRoot
-            self.timestamp = int(data["timestamp"])
-            self.parent = data["parent"]
-            self.transactions = []
-            self.proof = self.proofOfWork()
-            self.number = 0
-            self.son = ""
-            self.nextBlockTx = None
-            self.v = data["signature"]["v"]
-            self.r = data["signature"]["r"]
-            self.s = data["signature"]["s"]
-            self.sig = data["signature"]["sig"]
-            self.relayerSigs = {}
-        
-
-        def beaconRoot(self):
-            messagesHash = w3.solidityKeccak(["bytes"], [self.messages])
-            bRoot = w3.solidityKeccak(["bytes32", "uint256", "bytes32", "bytes32","address"], [self.parent, int(self.timestamp), messagesHash, self.parentTxRoot, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
-            return bRoot.hex()
-
-        def proofOfWork(self):
-            bRoot = self.beaconRoot()
-    #        print(f"Beacon root : {bRoot}")
-            proof = w3.solidityKeccak(["bytes32", "uint256"], [bRoot, int(self.nonce)])
-            return proof.hex()
-
-        def difficultyMatched(self):
-            return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
-
-        def signatureMatched(self):
-            return (w3.eth.account.recoverHash(self.proof, vrs=(self.v, self.r, self.s)) == self.miner)
-
-        def canAddSig(self, sig):
-            _bytesSig = bytes.fromhex(sig.replace("0x", "")) if (type(sig) == str) else sig
-            if (len(_bytesSig) != 65):
-                return (False, "INVALID_SIG")
-            signer = w3.eth.account.recoverHash(self.proof, signature=sig)
-            if self.relayerSigs.get(signer):
-                return (False, "SIG_ALREADY_EXISTS")
-            return (True, signer)
-            
-
-        def submitRelayerSig(self, sig):
-            _isokay = self.canAddSig(sig)
-            if _isokay[0]:
-                self.relayerSigs[_isokay[1]] = sig
-            return _isokay
-
-        def messagesToHex(self):
-            _msgs = []
-            for _msg_ in self.decodedMessages:
-                _msgs.append(f"0x{_msg_.hex()}")
-            return _msgs
-            
-        def addDepCheckerTx(self, txid):
-            self.depCheckerTxs.append(txid)
-            self.fullTxList.append(txid)
-
-        def txsRoot(self):
-            return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
-
-        def ABIEncodable(self):
-            return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), "0x" + self.r.to_bytes(32, "big").hex(), "0x" + self.s.to_bytes(32, "big").hex(), [f"{s}" for r, s in self.relayerSigs.items()]])
-
-        def exportJson(self):
-            # return {"transactions": self.transactions, "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "ABIEncodableTuple": self.ABIEncodableTuple()}
-            return {"transactions": (self.fullTxList + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(),"messages": self.messages.hex(), "parentTxRoot": self.parentTxRoot, "decodedMessages": self.messagesToHex(), "parent": self.parent, "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"{s}" for r, s in self.relayerSigs.items()]}
-
 
     def __init__(self, testnet=True):
         self.testnet = testnet
@@ -472,12 +242,12 @@ class BeaconChain(object):
         self.clockWiseActivated = False # ClockWise upgrade
         self.lastTimestamp = 0
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
-        self.blocks = [self.GenesisBeacon(self.testnet)]
+        self.blocks = [GenesisBeacon(self.testnet)]
         self.blocksByHash = {self.blocks[0].proof: self.blocks[0]}
         self.pendingMessages = []
         self.blockReward = 0
         self.blockTime = 600 # in seconds
-        self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": self.Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
+        self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
         self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.bsc = self.BSCInterface(True, "0x96aEF4543F0D4b2706DCF2cddAf4aB107e9497Ac", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21") if self.testnet else self.BSCInterface(False, "0x410fdf2756cbd237351186c3aebf1a9a8bab2229", "0x44C99Ca267C2b2646cEEc72e898273085aB87ca5")
         self.STIUpgradeBlock = 1 # STI hard fork (txsRoot strict checking)
@@ -535,7 +305,7 @@ class BeaconChain(object):
     
     def isBlockValid(self, blockData):
         try:
-            beacon = self.Beacon(blockData, self.difficulty)
+            beacon = Beacon(blockData, self.difficulty)
             _validity = self.isBeaconValid(beacon)
             return _validity
         except Exception as e:
@@ -577,7 +347,7 @@ class BeaconChain(object):
     def submitBlock(self, block):
         # print(block)
         try:
-            _beacon = self.Beacon(block, self.difficulty)
+            _beacon = Beacon(block, self.difficulty)
         except Exception as e:
             printError(f"Exception submitting a block : {e}")
             return False
@@ -617,7 +387,7 @@ class BeaconChain(object):
     
     def createValidator(self, owner, operator):
         if not self.validators.get(operator):
-            self.validators[operator] = self.Masternode(owner, operator)
+            self.validators[operator] = Masternode(owner, operator)
     
     def destroyValidator(self, operator):
         if self.validators.get(operator):
@@ -655,6 +425,7 @@ class BeaconChain(object):
         for op, val in self.validators.items():
             valsJSON.append(val.JSONSerializable())
         return {"blocks": blocksJSON, "hashToHeight": hashToHeight, "mempool": [m.hex() for m in self.pendingMessages], "validators": valsJSON, "difficulty": self.difficulty, "miningTarget": self.miningTarget}
+
 
 class State(object):
     class Account(object):
