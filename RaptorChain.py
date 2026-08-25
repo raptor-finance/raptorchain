@@ -1676,22 +1676,6 @@ class Node(object):
         self.checkGuys()
         self.initNode()
 
-    @property
-    def transactions(self):
-        return self.store.transactions
-
-    @transactions.setter
-    def transactions(self, value):
-        self.store.transactions = value
-
-    @property
-    def txsOrder(self):
-        return self.store.txsOrder
-
-    @txsOrder.setter
-    def txsOrder(self, value):
-        self.store.txsOrder = value
-
     def stringifyBatchOfPeers(self, peers):
         stringified = []
         for peer in peers:
@@ -1722,29 +1706,28 @@ class Node(object):
             self.mempool.append(tx)
 
     def getTransaction(self, txid):
-        _txid = self.state.type2ToType0Hash.get(txid, txid)
-        return self.transactions.get(_txid)
+        return self.store.getTransaction(txid, self.state.type2ToType0Hash)
 
     def initNode(self):
         try:
-            self.loadDB()
+            self.store.load()
             print("Successfully loaded node DB !")
         except:
             print("Error loading DB, starting from zero :/")
         # self.upgradeTxs()
         self.state.beaconChain.datafeed.testFeeds()
         _toPropagate = []
-        for txHash in self.txsOrder:
-            tx = self.transactions[txHash]
+        for txHash in self.store.getTxHashes():
+            tx = self.store.getTransaction(txHash)
             if self.canBePlayed(tx)[0]:
                 self.state.playTransaction(tx, False)
                 if self.propagateAtStartup:
                     _toPropagate.append(tx)
-        self.saveDB()
+        self.store.save()
         # self.syncDB()
         self.syncByBlock()
         self.createRefreshTx()
-        self.saveDB()
+        self.store.save()
         if (self.propagateAtStartup and len(_toPropagate)):
             self.propagateTransactions(_toPropagate)
 
@@ -1756,7 +1739,7 @@ class Node(object):
         _counter = 0
         _toPropagate = []
         for tx in txs:
-            isNew = (not self.transactions.get(tx["hash"]))
+            isNew = (not self.store.hasTransaction(tx["hash"]))
             # print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
             if self.state.verbose:
                 print(isNew)
@@ -1772,14 +1755,8 @@ class Node(object):
             self.propagateTransactions(_toPropagate)
         if _counter > 0:
             print(f"Successfully saved {_counter} transactions !")
-        self.saveDB()
-
-    def saveDB(self):
         self.store.save()
 
-    def loadDB(self):
-        self.store.load()
-    
     # def backgroundRoutine(self):
         # while True:
             # self.checkTxs()
@@ -1787,9 +1764,7 @@ class Node(object):
             # time.sleep(float(self.config["delay"]))
     
     def upgradeTxs(self):
-        for txid in self.txsOrder:
-            if type(self.transactions[txid]["data"]) == dict:
-                self.transactions[txid]["data"] = json.dumps(self.transactions[txid]["data"]).replace(" ", "")
+        self.store.normalizeTxData()
     
     
     
@@ -1823,7 +1798,7 @@ class Node(object):
     def pullSetOfTxs(self, txids):
         txs = []
         for txid in txids:
-            localTx = self.transactions.get(txid)
+            localTx = self.store.getTransaction(txid)
             if not localTx:
                 for peer in self.goodPeers:
                     try:
@@ -1936,7 +1911,7 @@ class Node(object):
             _txid = txid
             if self.state.type2ToType0Hash.get(txid):
                 _txid = self.state.type2ToType0Hash.get(txid)
-            _tx_ = Transaction(self.transactions.get(_txid))
+            _tx_ = Transaction(self.store.getTransaction(_txid))
             _blockHash = _tx_.epoch or self.state.getGenesisEpoch()
             _beacon_ = self.state.beaconChain.blocksByHash.get(_blockHash)
             return self.state.receipts.get(_txid, {"transactionHash": _txid,"transactionIndex":  '0x1',"blockNumber": _beacon_.number, "blockHash": _blockHash, "cumulativeGasUsed": '0x5208', "gasUsed": '0x5208',"contractAddress": None,"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'})
@@ -1945,7 +1920,7 @@ class Node(object):
     
     def ethGetTransactionByHash(self, txid):
         try:
-            tx = Transaction(self.transactions[txid])
+            tx = Transaction(self.store.getTransaction(txid))
             return tx.web3Returnable()
             # return {"hash": tx.txid, "nonce": hex(tx.nonce), "blockHash": tx.txid, "transactionIndex": "0x0", "from": tx.sender, "to": (None if tx.contractDeployment else tx.recipient), "value": hex(tx.value), "gasPrice": hex(tx.gasprice), "gas": hex(tx.gasLimit), "input": tx.data, "v": tx.v, "r": tx.r, "s": tx.s}
         except:
@@ -2435,7 +2410,7 @@ class Terminal(object):
     def stats(self, keyInput):
         totalSupply = self.node.state.totalSupply
         holders = len(self.node.state.holders)
-        txsNumber = len(self.node.txsOrder)
+        txsNumber = self.node.store.txCount()
         lastBlockHash = self.node.state.beaconChain.getLastBeacon().proof
         chainLength = len(self.node.state.beaconChain.blocks)
         print(f"Coin stats\n    Total Supply : {totalSupply}\n    Holders : {holders}\n    Number of transactions : {txsNumber}")
@@ -2557,7 +2532,7 @@ def getping():
 
 @app.get("/stats")
 def getStats():
-    _stats_ = {"coin": {"transactions": len(node.txsOrder), "supply": node.state.totalSupply, "holders": len(node.state.holders)}, "chain" : {"length": len(node.state.beaconChain.blocks), "difficulty" : node.state.beaconChain.difficulty, "target": node.state.beaconChain.miningTarget, "lastBlockHash": node.state.beaconChain.getLastBeacon().proof}, "software": {"version": node.state.version}}
+    _stats_ = {"coin": {"transactions": node.store.txCount(), "supply": node.state.totalSupply, "holders": len(node.state.holders)}, "chain" : {"length": len(node.state.beaconChain.blocks), "difficulty" : node.state.beaconChain.difficulty, "target": node.state.beaconChain.miningTarget, "lastBlockHash": node.state.beaconChain.getLastBeacon().proof}, "software": {"version": node.state.version}}
     return jsonify(result=_stats_, success=True)
 
 @app.get("/VMRoot")
@@ -2567,34 +2542,21 @@ def getVMRoot():
 # HTTP GENERAL GETTERS - pulled from `Node` class
 @app.get("/get/transactions") # get all transactions in node
 def getTransactions():
-    return jsonify(result=node.transactions, success=True)
+    return jsonify(result=node.store.getAllTransactions(), success=True)
 
 @app.get("/get/nFirstTxs/{n}") # GET N first transactions
 def nFirstTxs(n):
-    _n = min(len(node.txsOrder), int(n))
-    txs = []
-    for txid in node.txsOrder[0:_n]:
-        txs.append(node.transactions.get(txid))
-    return jsonify(result=txs, success=True)
+    return jsonify(result=node.store.getNTxs(n), success=True)
     
 @app.get("/get/nLastTxs/{n}") # GET N last transactions
 def nLastTxs(n):
-    _n = min(len(node.txsOrder), int(n))
-    _n = len(node.txsOrder)-int(_n)
-    txs = []
-    for txid in node.txsOrder[_n:len(node.txsOrder)]:
-        txs.append(node.transactions.get(txid))
-        
-    return jsonify(result=txs, success=True)
+    return jsonify(result=node.store.getNTxs(n, newestFirst=True), success=True)
 
 @app.get("/get/txsByBounds/{upperBound}/{lowerBound}") # get txs from upperBound to lowerBound (in index)
 def getTxsByBound(upperBound, lowerBound):
-    upperBound = min(int(upperBound), len(node.txsOrder)-1)
+    upperBound = min(int(upperBound), node.store.txCount()-1)
     lowerBound = max(int(lowerBound), 0)
-    txs = []
-    for txid in node.txsOrder[lowerBound:upperBound]:
-        txs.append(node.transactions.get(txid))
-    return jsonify(result=txs, success=True)
+    return jsonify(result=node.store.getTxsByRange(lowerBound, upperBound), success=True)
 
 @app.get("/get/txIndex/{index}")
 def getTxIndex(index):
@@ -2626,7 +2588,7 @@ def getMultipleTransactionsByHashes(txhashes):
 
 @app.get("/get/numberOfReferencedTxs") # get number of referenced transactions
 def numberOfTxs():
-    return jsonify(result=len(node.txsOrder), success=True)
+    return jsonify(result=node.store.txCount(), success=True)
 
 
 

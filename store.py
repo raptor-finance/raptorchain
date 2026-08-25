@@ -40,6 +40,59 @@ class Store(object):
             self.txsOrder.append(txHash)
             return True
 
+    def hasTransaction(self, txHash):
+        """Return True if a transaction with this hash is stored."""
+        with self._lock:
+            return bool(self.transactions.get(txHash))
+
+    def getTransaction(self, txid, hashMap=None):
+        """Look up a transaction by hash.
+
+        Optionally resolves txid through hashMap first (e.g. the type-2 to
+        type-0 hash mapping maintained by the state).
+        """
+        _txid = hashMap.get(txid, txid) if hashMap else txid
+        with self._lock:
+            return self.transactions.get(_txid)
+
+    def getTxHashes(self):
+        """Return a snapshot copy of the ordered transaction hash list."""
+        with self._lock:
+            return list(self.txsOrder)
+
+    def getAllTransactions(self):
+        """Return a snapshot copy of all stored transactions."""
+        with self._lock:
+            return dict(self.transactions)
+
+    def getNTxs(self, n, newestFirst=False):
+        """Return the n first (or n last) transactions, in stored order."""
+        with self._lock:
+            count = min(len(self.txsOrder), int(n))
+            if newestFirst:
+                hashes = self.txsOrder[len(self.txsOrder)-count:]
+            else:
+                hashes = self.txsOrder[:count]
+            return [self.transactions.get(hash) for hash in hashes]
+
+    def getTxsByRange(self, start, end):
+        """Return transactions whose order index falls in [start:end)."""
+        with self._lock:
+            return [self.transactions.get(hash) for hash in self.txsOrder[start:end]]
+
+    def txCount(self):
+        """Return the number of stored transactions."""
+        with self._lock:
+            return len(self.txsOrder)
+
+    def normalizeTxData(self):
+        """Rewrite transaction payloads stored as dicts to compact JSON strings."""
+        with self._lock:
+            for txid in self.txsOrder:
+                tx = self.transactions.get(txid)
+                if tx and type(tx["data"]) == dict:
+                    tx["data"] = json.dumps(tx["data"]).replace(" ", "")
+
     def save(self):
         """Atomically and durably persist the full database to disk.
 

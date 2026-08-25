@@ -80,7 +80,7 @@ def eth_gasPrice(data):
 
 
 def eth_blockNumber(data):
-    return hex(len(node.transactions) - 1)
+    return hex(node.store.txCount() - 1)
 
 
 def eth_getTransactionCount(data):
