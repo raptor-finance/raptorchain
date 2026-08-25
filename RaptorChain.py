@@ -2499,6 +2499,7 @@ class HttpUrlRedirectMiddleware:
 if __name__ == "__main__":
     node = Node(config)
     # print(node.config)
+    web3rpc.registerNode(node)
     thread = threading.Thread(target=node.networkBackgroundRoutine)
     thread.start()
 
@@ -2792,101 +2793,10 @@ def shareOnlinePeers():
     return jsonify(result=node.stringifyBatchOfPeers(node.goodPeers), success=True)
 
 
-class Web3Body(pydantic.BaseModel):
-    id: Any
-    method: str
-    params: list
+# WEB3 COMPATIBLE RPC (implemented in web3rpc.py)
+import web3rpc
+web3rpc.createRouter(app)
 
-# WEB3 COMPATIBLE RPC
-@app.post("/web3")
-def handleWeb3Request(data: Web3Body):
-    _begin = time.time()
-    
-    # data = flask.request.get_json()
-    if node.state.verbose:
-        print(f"/web3 POST received, data : {data}")
-    
-    
-    # _id = data.get("id")
-    # method = data.get("method")
-    # params = data.get("params")
-    
-    # _id = data.id
-    # method = data.method
-    # params = data.params
-    
-    result = hex(node.state.chainID)
-    if data.method == "eth_getBalance":
-        result = hex(int((node.state.getAccount(w3.toChecksumAddress(data.params[0]),True).balance)))
-    if data.method == "net_version":
-        result = str(node.state.chainID)
-    if data.method == "eth_coinbase":
-        result = node.state.beaconChain.getLastBeacon().miner
-    if data.method == "eth_mining":
-        result = False
-    if data.method == "eth_gasPrice":
-        result = hex(node.state.gasPrice)
-    if data.method == "eth_blockNumber":
-        # result = hex(len(node.state.beaconChain.blocks) - 1)
-        result = hex(len(node.transactions) - 1)
-    if data.method == "eth_getTransactionCount":
-        result = hex(len(node.state.getAccount(w3.toChecksumAddress(data.params[0]), True).sent))
-    if data.method == "eth_getCode":
-        result = "0x"
-    if data.method == "eth_estimateGas":
-        result = hex(node.state.eth_Call(data.params[0]).gasUsed)
-    # if method == "eth_sign":
-        # result = w3.eth.account.sign_message(encode_defunct(text=), private_key="").signature.hex()
-    if data.method == "eth_call":
-        result = f"0x{node.state.eth_Call(data.params[0]).returnValue.hex()}"
-    if data.method == "eth_getCompilers":
-        result = []
-    if data.method == "eth_sendRawTransaction":
-        result = node.integrateETHTransaction(data.params[0])
-    if data.method == "eth_getTransactionReceipt":
-        result = node.txReceipt(data.params[0])
-    if data.method == "eth_getCode":
-        result = f"0x{node.state.getAccount(data.params[0], True).code.hex()}"
-    if data.method == "eth_getStorageAt":
-        result = hex(int(node.state.getAccount(data.params[0], True).storage[int(data.params[1])]))
-    if data.method == "eth_getTransactionByHash":
-        result = node.ethGetTransactionByHash(data.params[0])
-    if data.method == "eth_getBlockByNumber":
-        _blockParam = data.params[0]
-        _blockTx = data.params[1] if len(data.params) > 1 else False
-        _chain = node.state.beaconChain
-        if type(_blockParam) == str:
-            if _blockParam in ("latest", "pending", "safe", "finalized"):
-                _blockNumber = len(_chain.blocks) - 1
-            elif _blockParam == "earliest":
-                _blockNumber = 0
-            else:
-                _blockNumber = int(_blockParam, 16)
-        else:
-            _blockNumber = _blockParam
-        if _blockNumber < 0 or _blockNumber >= len(_chain.blocks):
-            result = None
-        else:
-            result = _chain.blocks[_blockNumber].web3Returnable()
-            if _blockTx:  # fetch transactions as well
-                result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
-    if data.method == "eth_getBlockByHash":
-        _block = node.state.beaconChain.blocksByHash.get(data.params[0])
-        if _block is None:
-            result = None
-        else:
-            result = _block.web3Returnable()
-            if data.params[1]:  # fetch transactions as well
-                result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
-    
-    
-    _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
-    _resp = json.dumps(_respdict)
-    if node.state.verbose:
-        print(f"{data.method} request completed in {round((time.time() - _begin)*1000, 3)}ms")
-        print(f"Response : {_resp}")
-    return fastapi.Response(content=_resp, media_type='application/json');
-    
 def runAPI():
     if not node.state.verbose:
         logging.getLogger("uvicorn.error").disabled = True
