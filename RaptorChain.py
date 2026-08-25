@@ -28,6 +28,7 @@ from utils import formatAddress, printError, isNotComment
 from crypto.signatures import SignatureManager
 from crypto.eth_decoder import ETHTransactionDecoder
 import web3rpc
+from store import Store
 
 transactions = {}
 try:
@@ -1663,8 +1664,7 @@ class Node(object):
     def __init__(self, config):
         self.testnet = False
         self.propagateAtStartup = False
-        self.transactions = {}
-        self.txsOrder = []
+        self.store = Store(config["dataBaseFile"])
         self.mempool = []
         self.listenPort = constants.listen_port(self.testnet)
         self.sigmanager = SignatureManager()
@@ -1675,6 +1675,22 @@ class Node(object):
         self.goodPeers = []
         self.checkGuys()
         self.initNode()
+
+    @property
+    def transactions(self):
+        return self.store.transactions
+
+    @transactions.setter
+    def transactions(self, value):
+        self.store.transactions = value
+
+    @property
+    def txsOrder(self):
+        return self.store.txsOrder
+
+    @txsOrder.setter
+    def txsOrder(self, value):
+        self.store.txsOrder = value
 
     def stringifyBatchOfPeers(self, peers):
         stringified = []
@@ -1740,18 +1756,18 @@ class Node(object):
         _counter = 0
         _toPropagate = []
         for tx in txs:
-            playable = self.canBePlayed(tx) if (not self.transactions.get(tx["hash"])) else False
+            isNew = (not self.transactions.get(tx["hash"]))
             # print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
             if self.state.verbose:
-                print(not self.transactions.get(tx["hash"]))
-            if ((not self.transactions.get(tx["hash"])) and playable[0]):
-                self.transactions[tx["hash"]] = tx
-                self.txsOrder.append(tx["hash"])
-                self.state.playTransaction(tx, True)
-                _counter += 1
-                if shouldPropagate:
-                    _toPropagate.append(tx)
-                print(f"Successfully saved transaction {tx['hash']}")
+                print(isNew)
+            if isNew:
+                playable = self.canBePlayed(tx)
+                if playable[0] and self.store.addTransaction(tx):
+                    self.state.playTransaction(tx, True)
+                    _counter += 1
+                    if shouldPropagate:
+                        _toPropagate.append(tx)
+                    print(f"Successfully saved transaction {tx['hash']}")
         if (shouldPropagate and (len(_toPropagate))):
             self.propagateTransactions(_toPropagate)
         if _counter > 0:
@@ -1759,20 +1775,10 @@ class Node(object):
         self.saveDB()
 
     def saveDB(self):
-        toSave = json.dumps({"transactions": self.transactions, "txsOrder": self.txsOrder})
-        file = open(self.config["dataBaseFile"], "w")
-        file.write(toSave)
-        file.close()
+        self.store.save()
 
     def loadDB(self):
-#        print(self.config["dataBaseFile"])
-        file = open(self.config["dataBaseFile"], "r")
-        file.seek(0)
-        db = json.load(file)
-#        print(db)
-        self.transactions = db["transactions"]
-        self.txsOrder = db["txsOrder"]
-        file.close()
+        self.store.load()
     
     # def backgroundRoutine(self):
         # while True:
