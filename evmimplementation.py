@@ -1226,8 +1226,20 @@ class Opcodes(object):
         
 class PrecompiledContracts(object):
     class Precompile(object):
-        methods = {}    # moves declaration to inherited class
-        # no init because it forces child classes to call it (additional burden)
+        # selector->implementation map must be PER-INSTANCE : a class-level dict
+        # made every precompile share (and overwrite) each other's selectors.
+        # Implemented as a lazy property so subclasses don't need to call super().__init__()
+        @property
+        def methods(self):
+            _methods = self.__dict__.get("_methods")
+            if _methods is None:
+                _methods = {}
+                self.__dict__["_methods"] = _methods
+            return _methods
+        
+        @methods.setter
+        def methods(self, value):
+            self.__dict__["_methods"] = value
     
         def returnSingleType(self, env, _type, _arg):
             env.returnCall(eth_abi.encode_abi([_type], [_arg]))
