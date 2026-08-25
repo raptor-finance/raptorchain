@@ -119,25 +119,79 @@ def eth_getTransactionByHash(data):
     return node.ethGetTransactionByHash(data.params[0])
 
 
+def _syntheticTxBlock(txDict, blockNumber):
+    """Build a single-transaction synthetic "block" from a stored transaction.
+
+    Beacon blocks don't map 1:1 to Ethereum blocks: transactions can be valid
+    and broadcast without a beacon block being mined. Since eth_blockNumber
+    reports the transaction count, blocks are synthesized from the global tx
+    order so that every "height" resolves to exactly one transaction.
+    """
+    from RaptorChain import Transaction  # local import avoids circular imports
+    _tx = Transaction(txDict)
+    return {
+        # synthetic block hash = canonical type-0 (legacy) tx hash
+        "hash": "0x" + _tx.txid if not _tx.txid.startswith("0x") else _tx.txid,
+        "parentHash": "0x" + ("0" * 64) if blockNumber == 0 else None,
+        "number": hex(blockNumber),
+        "difficulty": hex(node.state.beaconChain.difficulty),
+        "totalDifficulty": hex(node.state.beaconChain.difficulty),
+        "extraData": "0x",
+        "gasLimit": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "gasUsed": hex(_tx.gasUsed),
+        "logsBloom": "0x" + bytes(_tx.logsBloom).hex(),
+        "miner": _tx.sender,
+        "mixHash": "0x" + ("0" * 64),
+        "nonce": "0x0000000000000000",
+        "sha3Uncles": "0x" + ("0" * 64),
+        "size": "0x0",
+        "timestamp": hex(int(_tx.timestamp or 0)),
+        "transactionsRoot": "0x" + _tx.txid,
+        "stateRoot": "0x" + node.state.hash,
+        "receiptsRoot": "0x" + _tx.txid,
+        "uncles": [],
+        "transactions": [_tx.web3Returnable()],
+    }
+
+
 def eth_getBlockByNumber(data):
-    _chain = node.state.beaconChain
     _blockTx = data.params[1] if len(data.params) > 1 else False
     _blockNumber = _resolveBlockNumber(data.params[0])
-    if _blockNumber < 0 or _blockNumber >= len(_chain.blocks):
+    _count = node.store.txCount()
+    if _blockNumber < 0 or _blockNumber >= _count:
         return None
-    result = _chain.blocks[_blockNumber].web3Returnable()
-    if _blockTx:  # fetch transactions as well
-        result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
+    _txs = node.store.getTxsByRange(_blockNumber, _blockNumber + 1)
+    if not _txs or _txs[0] is None:
+        return None
+    result = _syntheticTxBlock(_txs[0], _blockNumber)
+    if not _blockTx:  # hashes only
+        result["transactions"] = [result["transactions"][0]["hash"]]
     return result
 
 
 def eth_getBlockByHash(data):
-    _block = node.state.beaconChain.blocksByHash.get(data.params[0])
-    if _block is None:
+    _hash = data.params[0]
+    # beacon proofs still resolve to real beacon blocks
+    _block = node.state.beaconChain.blocksByHash.get(_hash)
+    if _block is not None:
+        result = _block.web3Returnable()
+        if data.params[1]:  # fetch transactions as well
+            result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
+        return result
+    # otherwise treat the hash as a transaction hash -> synthetic block
+    _tx = node.getTransaction(_hash)
+    if not _tx:
         return None
-    result = _block.web3Returnable()
-    if data.params[1]:  # fetch transactions as well
-        result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
+    _index = None
+    for i, (_h, stored) in enumerate(node.store.getOrderedTxs()):
+        if _h == _hash or node.store.getTransaction(_h, node.state.type2ToType0Hash) == _tx:
+            _index = i
+            break
+    if _index is None:
+        return None
+    result = _syntheticTxBlock(_tx, _index)
+    if not data.params[1]:  # hashes only
+        result["transactions"] = [result["transactions"][0]["hash"]]
     return result
 
 

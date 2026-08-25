@@ -55,6 +55,11 @@ class Store(object):
         with self._lock:
             return self.transactions.get(_txid)
 
+    def getOrderedTxs(self):
+        """Return [(hash, tx), ...] as one consistent snapshot."""
+        with self._lock:
+            return [(h, self.transactions.get(h)) for h in self.txsOrder]
+
     def getTxHashes(self):
         """Return a snapshot copy of the ordered transaction hash list."""
         with self._lock:
