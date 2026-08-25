@@ -34,7 +34,7 @@ DEFAULT_GAS_LIMIT = 69000              # legacy transfer gas limit
 MN_COLLATERAL = 1000000000000000000000000  # 1,000,000 RPTR
 
 # --- Software ----------------------------------------------------------------
-NODE_VERSION = "1.7.1-mainnet-beta"
+NODE_VERSION = "1.8.0-mainnet-beta"
 
 # --- Network ports -----------------------------------------------------------
 TESTNET_PORT = 6969
