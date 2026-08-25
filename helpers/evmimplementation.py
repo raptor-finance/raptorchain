@@ -1,7 +1,8 @@
 from web3.auto import w3
 import itertools, rlp, hashlib, eth_abi
 from Crypto.Hash import RIPEMD160
-import constants
+
+from . import constants
 
 class CallMemory(object):
     def __init__(self):

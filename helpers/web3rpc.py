@@ -24,7 +24,8 @@ import fastapi
 import pydantic
 from web3.auto import w3
 
-from utils import printError
+from helpers.datatypes import Transaction
+from .utils import printError
 
 # set by registerNode() before the server starts serving requests
 node = None
@@ -127,7 +128,6 @@ def _syntheticTxBlock(txDict, blockNumber):
     reports the transaction count, blocks are synthesized from the global tx
     order so that every "height" resolves to exactly one transaction.
     """
-    from RaptorChain import Transaction  # local import avoids circular imports
     _tx = Transaction(txDict)
     return {
         # synthetic block hash = canonical type-0 (legacy) tx hash
