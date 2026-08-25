@@ -297,7 +297,7 @@ class Opcodes(object):
     def div(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
-        result = 0 if (b==0) else a//b*(-1 if b * b < 0 else 1)
+        result = 0 if (b==0) else a//b
             
         env.stack.append(int(int(result)%(2**256)))
         env.consumeGas(5)
@@ -306,7 +306,9 @@ class Opcodes(object):
     def sdiv(self, env):
         a = self.unsigned_to_signed(env.stack.pop())
         b = self.unsigned_to_signed(env.stack.pop())
-        result = 0 if (b==0) else a//b*(-1 if b * b < 0 else 1)
+        # EVM SDIV truncates toward zero (Python's // floors instead)
+        _quotient = abs(a)//abs(b) if (b!=0) else 0
+        result = -_quotient if ((a < 0) != (b < 0)) else _quotient
             
         env.stack.append(int(int(result)%(2**256)))
         env.consumeGas(5)
@@ -315,14 +317,16 @@ class Opcodes(object):
     def mod(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
-        env.stack.append(int(int(0 if a == 0 else (a%b))%(2**256)))
+        # EVM spec : MOD returns 0 when divisor is 0
+        env.stack.append(int(int(0 if b == 0 else (a%b))%(2**256)))
         env.consumeGas(5)
         env.pc += 1
     
     def smod(self, env):
         a = self.unsigned_to_signed(env.stack.pop())
         b = self.unsigned_to_signed(env.stack.pop())
-        result = 0 if mod == 0 else (abs(a) % abs(b) * (-1 if a < 0 else 1)) & (2**256-1)
+        # EVM spec : SMOD returns 0 when divisor is 0, result takes sign of dividend
+        result = 0 if b == 0 else (abs(a) % abs(b) * (-1 if a < 0 else 1))
         env.stack.append(int(int(result)%(2**256)))
         env.consumeGas(5)
         env.pc += 1
@@ -332,7 +336,8 @@ class Opcodes(object):
         b = env.stack.pop()
         c = env.stack.pop()
 
-        result = 0 if mod == 0 else (a + b) % c
+        # EVM spec : ADDMOD returns 0 when modulus is 0
+        result = 0 if c == 0 else (a + b) % c
 
         env.stack.append(int(int(result)%(2**256)))
         env.consumeGas(8)
@@ -343,7 +348,8 @@ class Opcodes(object):
         b = env.stack.pop()
         c = env.stack.pop()
 
-        result = 0 if mod == 0 else (a * b) % c
+        # EVM spec : MULMOD returns 0 when modulus is 0
+        result = 0 if c == 0 else (a * b) % c
 
         env.stack.append(int(int(result)%(2**256)))
         env.consumeGas(8)
@@ -463,27 +469,30 @@ class Opcodes(object):
     def shl(self, env):
         shift = env.stack.pop()
         value = env.stack.pop()
-        result = (value << shift)%(2**256)
+        result = ((value << shift)%(2**256)) if shift < 256 else 0
         env.stack.append(int(result))
+        # NOTE: no gas charged here, matching pre-fix behavior
         env.pc += 1
     
     def shr(self, env):
         shift = env.stack.pop()
         value = env.stack.pop()
-        result = (value >> shift)%(2**256)
+        result = (value >> shift) if shift < 256 else 0
         env.stack.append(int(result))
+        # NOTE: no gas charged here, matching pre-fix behavior
         env.pc += 1
 
 
     def sar(self, env):
         shift = env.stack.pop()
         value = self.unsigned_to_signed(env.stack.pop())
-        result = (value << shift)%(2**256)
-        env.stack.append(int(result))
+        # EVM SAR : arithmetic shift right, sign-preserving
         if shift >= 256:
-            result = 0 if value >= 0 else (2**256-1)
+            result = 0 if value >= 0 else (-1)
         else:
-            result = (value >> shift) & (2**256-1)
+            result = value >> shift    # Python >> is arithmetic for signed ints
+        env.stack.append(int(result)%(2**256))
+        # NOTE: no gas charged here, matching pre-fix behavior
         env.pc += 1
 
     
@@ -578,7 +587,7 @@ class Opcodes(object):
 
     def GASPRICE(self, env):
         env.stack.append(env.tx.gasprice)
-        env.stack.consumeGas(2)
+        env.consumeGas(2)
         env.pc += 1
     
     def EXTCODESIZE(self, env):
@@ -1016,7 +1025,7 @@ class Opcodes(object):
         topic3 = env.stack.pop()
         
         _data = env.memory.read_bytes(offset, length)
-        env.postEvent([topic0, topic1, topic3], _data)
+        env.postEvent([topic0, topic1, topic2, topic3], _data)
         
         env.pc += 1
 
@@ -1173,7 +1182,7 @@ class Opcodes(object):
         env.pc += 1
 
     def SELFDESTRUCT(self, env):
-        if env.isStatic():
+        if env.isStatic:
             env.revert(b"NOT_SUPPORTED_IN_STATICCALL")
             return
         else:
@@ -1414,6 +1423,7 @@ class PrecompiledContracts(object):
             self.printCalledFunction("approve", params)
             allowanceAddress = self.calcAllowanceAddress(env.msgSender, params[0])
             env.consumeGas(16900)
+            env.writeStorageKey(allowanceAddress, int(params[1]))
             self.returnSingleType(env, "bool", True)
         
         def transfer(self, env):
@@ -1467,7 +1477,7 @@ class PrecompiledContracts(object):
             # solidity equivalent : emit Transfer(user, address(0), tokens);
             self.logTransfer(env, user, constants.ZERO_ADDRESS, tokens)
             
-            print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
+            print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} from {w3.toChecksumAddress(user)}")
         
         def fallback(self, env):
             env.revert(b"")
@@ -1866,6 +1876,7 @@ class CallEnv(object):
     
         if (self.getCode(deplAddr)):
             self.revert(b"CONTRACT_ALREADY_EXISTING")
+            return (False, b"")
         _childEnv = CallEnv(self.getAccount, self.runningAccount.address, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
         self.childEnvs.append(_childEnv)
         _result = self.callFallback(_childEnv)
@@ -1884,7 +1895,7 @@ class CallEnv(object):
     def performExternalCall(self, addr, value, gas, _calldata):
         if ((value > 0) and self.isStatic):
             self.revert(b"NOT_SUPPORTED_IN_STATICCALL") # balance transfers aren't supported in STATICCALL
-            return
+            return (False, b"")
         _acct = self.getAccount(addr)
         _childEnv = CallEnv(self.getAccount, self.runningAccount.address, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
         self.childEnvs.append(_childEnv)
