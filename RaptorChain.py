@@ -371,7 +371,7 @@ class BeaconChain(object):
         def __init__(self, testnet=True):
             self.testnet = testnet
             self.gasPricings = {137: 3, 250: 3, 1: 69}
-            self.rpcs = {56: "https://bsc.nodereal.io/", 137: "https://rpc-polygon.blockmachine.io", 250: "https://1rpc.io/ftm", 1: "https://eth.drpc.org"}
+            self.rpcs = {56: "https://bsc-dataseed3.defibit.io", 137: "https://poly.api.pocket.network", 250: "https://1rpc.io/ftm", 1: "https://eth.drpc.org"}
             self.contractAddrsTestnet = {137: "0x22264132b46365EFb0bE413144Fa4d1616D82Abe", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x8CA9f4A7098a9b5a8546F6401bB101B4FA0e6910"}
             self.contractAddrsMainnet = {137: "0x47C0D110eEB1357225B707E0515B17Ab0EB1CaF6", 250: "0xf9bEe606Ae868e05245cFDEd7AA10598ce682495", 1: "0x8CA9f4A7098a9b5a8546F6401bB101B4FA0e6910"}
             self.abi = """[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"slotOwner","type":"address"},{"indexed":true,"internalType":"bytes32","name":"slotKey","type":"bytes32"},{"indexed":false,"internalType":"bytes","name":"data","type":"bytes"}],"name":"SlotWritten","type":"event"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"getSlotData","outputs":[{"internalType":"bytes","name":"","type":"bytes"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"}],"name":"isWritten","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"","type":"address"},{"internalType":"bytes32","name":"","type":"bytes32"}],"name":"slots","outputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"data","type":"bytes"},{"internalType":"uint256","name":"timestamp","type":"uint256"},{"internalType":"bool","name":"written","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"bytes32","name":"key","type":"bytes32"},{"internalType":"bytes","name":"slotData","type":"bytes"}],"name":"writeSlot","outputs":[],"stateMutability":"nonpayable","type":"function"}]"""
@@ -2497,6 +2497,7 @@ class HttpUrlRedirectMiddleware:
       await self.app(scope, receive, send)
 
 if __name__ == "__main__":
+    import web3rpc
     node = Node(config)
     # print(node.config)
     web3rpc.registerNode(node)
