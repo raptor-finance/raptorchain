@@ -74,6 +74,29 @@ class Msg(object):
         # self.logic(env)
 
 class Opcodes(object):
+    # cache of valid JUMPDEST positions per bytecode (avoids re-analyzing on every call)
+    _jumpdestCache = {}
+
+    @classmethod
+    def computeValidJumpdests(cls, code):
+        """Returns the set of positions holding a VALID JUMPDEST (0x5B not inside PUSH data).
+        Follows EVM rules : walk the code linearly, skipping PUSH immediates."""
+        cached = cls._jumpdestCache.get(code)
+        if cached is not None:
+            return cached
+        valid = set()
+        i = 0
+        codeLen = len(code)
+        while i < codeLen:
+            op = code[i]
+            if op == 0x5B:                      # JUMPDEST
+                valid.add(i)
+            elif 0x60 <= op <= 0x7F:            # PUSH1..PUSH32 : skip immediates
+                i += (op - 0x5F)
+            i += 1
+        cls._jumpdestCache[code] = valid
+        return valid
+
     def __init__(self):
         self.opcodes = {}
         self.opcodes[0x00] = self.STOP
@@ -710,13 +733,23 @@ class Opcodes(object):
         env.pc += 1
     
     def JUMP(self, env):
-        env.pc = env.stack.pop()
+        dest = env.stack.pop()
+        if not env.isValidJumpdest(dest):
+            env.revert(b"INVALID_JUMP_DESTINATION")
+            return
+        env.pc = dest
         env.consumeGas(8)
     
     def JUMPI(self, env):
         dest = env.stack.pop()
         cond = env.stack.pop()
-        env.pc = (dest if bool(cond) else (env.pc + 1))
+        if bool(cond):
+            if not env.isValidJumpdest(dest):
+                env.revert(b"INVALID_JUMP_DESTINATION")
+                return
+            env.pc = dest
+        else:
+            env.pc = (env.pc + 1)
         env.consumeGas(10)
     
     def PC(self, env):
@@ -1743,6 +1776,7 @@ class CallEnv(object):
         self.events = []
         self.data = data
         self.code = (b"" if calledFromAcctClass else code)
+        self.validJumpdests = Opcodes.computeValidJumpdests(self.code)
         self.halt = False
         self.returnValue = b""
         self.success = True
@@ -1765,6 +1799,11 @@ class CallEnv(object):
 
     def getBlock(self, height):
         return self.chain.blocks[min(height, len(self.chain.blocks)-1)]
+
+    def isValidJumpdest(self, dest):
+        """EVM rule : jumps may only land on a JUMPDEST (0x5B) that isn't inside PUSH data.
+        Also rejects out-of-range destinations."""
+        return (type(dest) == int) and (0 <= dest < len(self.code)) and (dest in self.validJumpdests)
         
     def lastBlock(self):
         return self.chain.blocks[len(self.chain.blocks)-1]
