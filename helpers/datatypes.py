@@ -47,6 +47,7 @@ class Transaction(object):
         # to be edited later
         self.nonce = 0
         self.gasprice = 0
+        self.gasLimit = 0
         self.gasUsed = 0
         
         # tx timestamps will be used later
