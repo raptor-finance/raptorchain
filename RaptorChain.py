@@ -1113,12 +1113,13 @@ class State(object):
         return env
 
     def distributeFee(self, tx):
-        miner = self.beaconChain.blocksByHash.get(tx.epoch).miner
-        toValOwner = (0 if (miner == "0x0000000000000000000000000000000000000000") else int(tx.fee // 2))
+        _block = self.beaconChain.blocksByHash.get(tx.epoch)
+        miner = (_block.miner if (_block) else "0x0000000000000000000000000000000000000000")
+        valOwnerAcct = self.beaconChain.validators.get(self.formatAddress(miner))
+        toValOwner = (0 if ((miner == "0x0000000000000000000000000000000000000000") or (valOwnerAcct is None)) else int(tx.fee // 2))
         toBurn = int(tx.fee - toValOwner)
         if (toValOwner > 0):
-            valOwner = self.beaconChain.validators.get(self.formatAddress(miner)).owner
-            self.accounts[valOwner].balance += toValOwner
+            self.getAccount(valOwnerAcct.owner).balance += toValOwner
         self.getAccount(self.burnAddress).balance += toBurn # sends funds to burn address
 
     def delAccounts(self, tx):
@@ -1333,6 +1334,29 @@ class Node(object):
         if (self.propagateAtStartup and len(_toPropagate)):
             self.propagateTransactions(_toPropagate)
 
+    def checkTx(self, tx):
+        """
+        returns the number of txs processed
+        """
+        isNew = (not self.store.hasTransaction(tx["hash"]))
+        if self.state.verbose:
+            print(isNew)
+        if not isNew:
+            return 0 # already known
+        
+        playable = self.canBePlayed(tx)
+        if not (playable[0] and self.store.addTransaction(tx)):
+            return 0 # can't be played nor stored (invalid signature or invalid tx)
+
+        try:
+            self.state.playTransaction(tx, True)
+        except Exception as e:
+            # tx stays stored (authoritative for restart replay);
+            # state divergence is bounded and healed on restart
+            printError(f"Error playing transaction {tx['hash']}: {e.__repr__()}")
+
+        return 1
+
     def checkTxs(self, txs, shouldPropagate=True):
         # print("Pulling DUCO txs...")
         # txs = requests.get(self.config["endpoint"]).json()["result"]
@@ -1341,23 +1365,12 @@ class Node(object):
         _counter = 0
         _toPropagate = []
         for tx in txs:
-            isNew = (not self.store.hasTransaction(tx["hash"]))
-            # print(f"Result of canBePlayed for tx {tx['hash']}: {playable}")
-            if self.state.verbose:
-                print(isNew)
-            if isNew:
-                playable = self.canBePlayed(tx)
-                if playable[0] and self.store.addTransaction(tx):
-                    try:
-                        self.state.playTransaction(tx, True)
-                    except Exception as e:
-                        # tx stays stored (authoritative for restart replay);
-                        # state divergence is bounded and healed on restart
-                        printError(f"Error playing transaction {tx['hash']}: {e.__repr__()}")
-                    _counter += 1
-                    if shouldPropagate:
-                        _toPropagate.append(tx)
-                    print(f"Successfully saved transaction {tx['hash']}")
+            res = self.checkTx(tx)
+            _counter += res
+            if res > 0:
+                if shouldPropagate:
+                    _toPropagate.append(tx)
+                print(f"Successfully saved transaction {tx['hash']}")
         if (shouldPropagate and (len(_toPropagate))):
             self.propagateTransactions(_toPropagate)
         if _counter > 0:
