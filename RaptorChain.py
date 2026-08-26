@@ -448,7 +448,9 @@ class State(object):
             self.tempcode = bytes.fromhex(snapshotData.get("code", ""))
             self.storage = snapshotData.get("storage", {})
             self.tempStorage = snapshotData.get("tempStorage", {})
-            self.hash = ""
+            # initialize as bytes32 (not "") so calcStateRoot's sorted() never
+            # mixes str and HexBytes — a TypeError in Python 3.
+            self.hash = w3.keccak(b"")
             self.calcHash(False)
             self.defaultHash = snapshotData.get("defaultHash", self.hash)
             self.precompiledContract = None
@@ -697,9 +699,10 @@ class State(object):
     
     def destroyMN(self, tx):
         self.applyParentStuff(tx)
-        if not self.estimateDestroyMNSuccess(tx)[0]:
+        _validator = self.beaconChain.validators.get(tx.recipient)
+        if (not _validator) or (_validator.owner != tx.sender):
             return False
-        self.getAccount(self.beaconChain.validators.get(tx.recipient).owner).balance += constants.MN_COLLATERAL
+        self.getAccount(_validator.owner).balance += constants.MN_COLLATERAL
         self.getAccount(tx.sender).masternodes = list(filter(tx.recipient.__ne__, self.getAccount(tx.sender).masternodes)) # removes tx.recipient (aka the removed MN) from MNs list with a filter (removes element matching the removed MN)
         self.beaconChain.destroyValidator(tx.recipient)
     
@@ -750,14 +753,15 @@ class State(object):
             return (False, "Already processed")
 
     def checkDepositsTillIndex(self, tx):
-        maxIndex = tx.indexToCheck
-        _lastindex = self.lastIndex
+        maxIndex = int(tx.indexToCheck or 0)
+        _lastindex = int(self.lastIndex or 0)
+        if maxIndex <= _lastindex:
+            return
         for i in range(_lastindex, maxIndex):
             try:
                 self.checkOutDepositByIndex(tx, i)
             except Exception as e:
                 printError(e)
-                pass
             self.lastIndex = i+1
 
     def updateHolders(self):
@@ -837,7 +841,7 @@ class State(object):
             return False
             
         # set tx parent stuff (data graph)
-        self.txChilds[tx.parent].append(tx.txid)
+        self.txChilds.setdefault(tx.parent, []).append(tx.txid)
         
         # set txIndex
         self.txIndex[tx.txid] = self.lastTxIndex
@@ -897,8 +901,8 @@ class State(object):
                 self.totalSupply += self.beaconChain.blockReward
                 return True
             return False
-        except:
-            raise
+        except Exception as e:
+            printError(f"mineBlock failed for tx {tx.txid}: {e.__repr__()}")
             return False
 
     def ecRecover(self, env):
@@ -1127,7 +1131,7 @@ class State(object):
         self.getAccount(self.burnAddress).balance += toBurn # sends funds to burn address
 
     def delAccounts(self, tx):
-        for _addr in tx.accountsToDestroy:
+        for _addr in (tx.accountsToDestroy or []):
             self.deleteAccount(_addr)
 
     def playTransaction(self, tx, showMessage):
@@ -1222,6 +1226,12 @@ class State(object):
             accountsJSON[acct.address] = acct.JSONSerializable()
         beaconChainJSON = self.beaconChain.JSONSerializable()
         return {"accounts": accountsJSON, "beaconChain": beaconChainJSON, "totalSupply": self.totalSupply}
+
+# --- transaction status codes (returned by Node.checkTx) -------------------
+TX_REJECTED   = 0   # not stored (duplicate, invalid sig, or unplayable)
+TX_PLAYED     = 1   # stored + played successfully
+TX_STORED_ERR = 2   # stored but playTransaction raised (state may be divergent)
+
 
 class Node(object):
     class Peer(object):
@@ -1327,7 +1337,10 @@ class Node(object):
         _toPropagate = []
         for txHash, tx in self.store.getOrderedTxs():
             if self.canBePlayed(tx)[0]:
-                self.state.playTransaction(tx, False)
+                try:
+                    self.state.playTransaction(tx, False)
+                except Exception as e:
+                    printError(f"Failed to replay tx {txHash} on startup: {e.__repr__()}")
                 if self.propagateAtStartup:
                     _toPropagate.append(tx)
         self.store.save()
@@ -1340,17 +1353,20 @@ class Node(object):
 
     def checkTx(self, tx):
         """
-        returns the number of txs processed
+        returns a status code:
+          TX_REJECTED   (0) — not stored (duplicate, invalid sig, or unplayable)
+          TX_PLAYED     (1) — stored + played successfully
+          TX_STORED_ERR (2) — stored but playTransaction raised (state may be divergent)
         """
         isNew = (not self.store.hasTransaction(tx["hash"]))
         if self.state.verbose:
             print(isNew)
         if not isNew:
-            return 0 # already known
+            return TX_REJECTED # already known
         
         playable = self.canBePlayed(tx)
         if not (playable[0] and self.store.addTransaction(tx)):
-            return 0 # can't be played nor stored (invalid signature or invalid tx)
+            return TX_REJECTED # can't be played nor stored (invalid signature or invalid tx)
 
         try:
             self.state.playTransaction(tx, True)
@@ -1358,28 +1374,32 @@ class Node(object):
             # tx stays stored (authoritative for restart replay);
             # state divergence is bounded and healed on restart
             printError(f"Error playing transaction {tx['hash']}: {e.__repr__()}")
+            return TX_STORED_ERR
 
-        return 1
+        return TX_PLAYED
 
     def checkTxs(self, txs, shouldPropagate=True):
-        # print("Pulling DUCO txs...")
-        # txs = requests.get(self.config["endpoint"]).json()["result"]
-        # print("Successfully pulled transactions !")
-#        print("Saving transactions to DB...")
         _counter = 0
         _toPropagate = []
+        _failed = []
         for tx in txs:
             res = self.checkTx(tx)
-            _counter += res
-            if res > 0:
+            if res == TX_REJECTED:
+                continue
+            _counter += 1
+            if res == TX_PLAYED:
                 if shouldPropagate:
                     _toPropagate.append(tx)
                 print(f"Successfully saved transaction {tx['hash']}")
+            elif res == TX_STORED_ERR:
+                _failed.append(tx["hash"])
+                printError(f"Transaction {tx['hash']} stored but failed to play")
         if (shouldPropagate and (len(_toPropagate))):
             self.propagateTransactions(_toPropagate)
         if _counter > 0:
             print(f"Successfully saved {_counter} transactions !")
             self.store.save()
+        return {"processed": _counter, "failed": _failed}
 
     # def backgroundRoutine(self):
         # while True:
@@ -1561,7 +1581,9 @@ class Node(object):
     def integrateETHTransaction(self, ethTx):
         data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "indexToCheck": self.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 2})
         _txid_ = w3.solidityKeccak(["string"], [data]).hex()
-        self.checkTxs([{"data": data, "hash": _txid_}], True)
+        _result = self.checkTxs([{"data": data, "hash": _txid_}], True)
+        if _txid_ in _result["failed"]:
+            raise Exception("Transaction failed to execute")
         return _txid_
 
 

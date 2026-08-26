@@ -80,13 +80,13 @@ class Transaction(object):
         elif self.txtype == 2: # metamask transaction
             decoder = ETHTransactionDecoder()
             ethDecoded = decoder.decode_raw_tx(txData.get("rawTx"))
-            self.gasprice = ethDecoded.gas_price
-            self.gasLimit = ethDecoded.gas
-            self.fee = ethDecoded.gas_price*self.gasLimit
+            self.gasprice = int(ethDecoded.gas_price or 0)
+            self.gasLimit = int(ethDecoded.gas or 0)
+            self.fee = self.gasprice * self.gasLimit
             self.sender = ethDecoded.from_
             self.recipient = ethDecoded.to
-            self.value = int(ethDecoded.value)
-            self.nonce = ethDecoded.nonce
+            self.value = int(ethDecoded.value or 0)
+            self.nonce = int(ethDecoded.nonce or 0)
             self.ethData = ethDecoded.data
             self.ethTxid = ethDecoded.hash_tx
             self.chainId = ethDecoded.chain_id
@@ -136,7 +136,7 @@ class Transaction(object):
         self.parent = txData.get("parent")
         self.message = txData.get("message")
         self.txid = w3.solidityKeccak(["string"], [tx["data"]]).hex()
-        self.indexToCheck = txData.get("indexToCheck", 0)
+        self.indexToCheck = int(txData.get("indexToCheck", 0) or 0)
         
         # self.PoW = ""
         # self.endTimeStamp = 0
