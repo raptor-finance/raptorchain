@@ -38,7 +38,11 @@ try:
     config = json.load(configFile)
     configFile.close()
 except:
-    config = {"dataBaseFile": "raptorchain-mainnet-beta.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RaptorChainInit", "netLogFile": "rptrnetlog.log"}
+    config = {"dataBasePath": "data", "dataBaseFile": "raptorchain-mainnet-beta.json", "nodePrivKey": "20735cc14fd4a86a2516d12d880b3fa27f183a381c5c167f6ff009554c1edc69", "peers":[], "InitTxID": "RaptorChainInit", "netLogFile": "rptrnetlog.log"}
+
+# configs written before the directory-based store only have "dataBaseFile"
+if "dataBasePath" not in config:
+    config["dataBasePath"] = "data"
 
 
 try:
@@ -1268,7 +1272,7 @@ class Node(object):
     def __init__(self, config):
         self.testnet = False
         self.propagateAtStartup = False
-        self.store = Store(config["dataBaseFile"])
+        self.store = Store(config["dataBasePath"], config.get("dataBaseFile"))
         self.mempool = []
         self.listenPort = constants.listen_port(self.testnet)
         self.sigmanager = SignatureManager()
