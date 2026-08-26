@@ -18,7 +18,7 @@ if not hasattr(inspect, "getargspec"):
 
 import json
 import time
-from typing import Any
+from typing import Any, List, Union
 
 import fastapi
 import pydantic
@@ -40,7 +40,35 @@ def registerNode(_node):
 class Web3Body(pydantic.BaseModel):
     id: Any = None
     method: str
-    params: list = []
+    params: list = pydantic.Field(default_factory=list)
+
+
+# --- param validation helpers ----------------------------------------------
+# Raise _RpcError(-32602 invalid params) so clients get a spec-compliant
+# error instead of an opaque -32603 internal error from IndexError/TypeError.
+# _RpcError is defined further down; these are only called at runtime so the
+# forward reference resolves fine.
+
+def _requireParams(data, n):
+    """Ensure data.params has at least n entries, else raise -32602."""
+    if len(data.params) < n:
+        raise _RpcError({"code": -32602,
+                         "message": f"Invalid params: {data.method} requires {n} argument(s), got {len(data.params)}"})
+
+def _requireAddress(s):
+    """Validate and checksum an Ethereum address, else raise -32602."""
+    if not isinstance(s, str):
+        raise _RpcError({"code": -32602, "message": f"Invalid address: {s!r}"})
+    try:
+        return w3.toChecksumAddress(s)
+    except Exception:
+        raise _RpcError({"code": -32602, "message": f"Invalid address: {s}"})
+
+def _requireHash(s):
+    """Validate a 0x-prefixed hash string, else raise -32602."""
+    if not isinstance(s, str) or not s.startswith("0x"):
+        raise _RpcError({"code": -32602, "message": f"Invalid hash: {s!r}"})
+    return s
 
 
 # --- method handlers -------------------------------------------------------
@@ -50,13 +78,18 @@ def _resolveBlockNumber(_blockParam):
     """Translate a JSON-RPC block parameter ('latest', hex height, int, ...)
     into an integer block height.
 
+    Uses the transaction-store height (txCount - 1) for 'latest' so that it
+    stays consistent with eth_blockNumber, which also reports txCount - 1.
+    The synthetic blocks served by eth_getBlockByNumber are keyed on the tx
+    order, so 'latest' must resolve to the last tx index, not the beacon
+    block count (which can diverge).
+
     Raises _RpcError(-32602 invalid params) on malformed input so the client
     gets a real JSON-RPC error instead of a swallowed null.
     """
-    _chain = node.state.beaconChain
     if isinstance(_blockParam, str):
         if _blockParam in ("latest", "pending", "safe", "finalized"):
-            return len(_chain.blocks) - 1
+            return max(node.store.txCount() - 1, 0)
         elif _blockParam == "earliest":
             return 0
         _s = _blockParam[2:] if _blockParam.startswith("0x") else _blockParam
@@ -65,11 +98,16 @@ def _resolveBlockNumber(_blockParam):
         except ValueError:
             raise _RpcError({"code": -32602,
                               "message": f"Invalid block param: {_blockParam}"})
-    return _blockParam
+    # numeric block height passed directly (reject bool/None/dict/float)
+    if isinstance(_blockParam, int) and not isinstance(_blockParam, bool):
+        return _blockParam
+    raise _RpcError({"code": -32602, "message": f"Invalid block param: {_blockParam!r}"})
 
 
 def eth_getBalance(data):
-    return hex(int((node.state.getAccount(w3.toChecksumAddress(data.params[0]), True).balance)))
+    _requireParams(data, 1)
+    _acct = node.state.getAccount(_requireAddress(data.params[0]), True)
+    return hex(int(_acct.balance or 0))
 
 
 def net_version(data):
@@ -93,11 +131,15 @@ def eth_blockNumber(data):
 
 
 def eth_getTransactionCount(data):
-    return hex(len(node.state.getAccount(w3.toChecksumAddress(data.params[0]), True).sent))
+    _requireParams(data, 1)
+    return hex(len(node.state.getAccount(_requireAddress(data.params[0]), True).sent))
 
 
 def eth_getCode(data):
-    return f"0x{node.state.getAccount(w3.toChecksumAddress(data.params[0]), True).code.hex()}"
+    _requireParams(data, 1)
+    _code = node.state.getAccount(_requireAddress(data.params[0]), True).code
+    # guard against None (uninitialized account) — Ethereum returns "0x"
+    return f"0x{_code.hex()}" if _code is not None else "0x"
 
 
 def _execCall(data):
@@ -107,6 +149,7 @@ def _execCall(data):
     Per the execution-apis spec, both eth_call and eth_estimateGas must
     return error code 3 with the raw EVM revert data on revert.
     """
+    _requireParams(data, 1)
     _env = node.state.eth_Call(data.params[0])
     if not _env.getSuccess():
         raise _RpcError({"code": 3, "message": "execution reverted",
@@ -127,6 +170,7 @@ def eth_getCompilers(data):
 
 
 def eth_sendRawTransaction(data):
+    _requireParams(data, 1)
     _txid = node.integrateETHTransaction(data.params[0])
     # Verify the transaction was actually accepted by the store.
     # integrateETHTransaction always returns a computed hash regardless of
@@ -138,34 +182,66 @@ def eth_sendRawTransaction(data):
 
 
 def eth_getTransactionReceipt(data):
+    _requireParams(data, 1)
     return node.txReceipt(data.params[0])
 
 
 def eth_getStorageAt(data):
+    _requireParams(data, 2)
     _slot = data.params[1]
     if isinstance(_slot, str):
-        _slot = _slot[2:] if _slot.startswith("0x") else _slot
-        _slot = int(_slot, 16)
-    return hex(int(node.state.getAccount(w3.toChecksumAddress(data.params[0]), True).storage[int(_slot)]))
+        _s = _slot[2:] if _slot.startswith("0x") else _slot
+        try:
+            _slot = int(_s, 16)
+        except ValueError:
+            raise _RpcError({"code": -32602, "message": f"Invalid storage slot: {data.params[1]}"})
+    elif not isinstance(_slot, int) or isinstance(_slot, bool):
+        raise _RpcError({"code": -32602, "message": f"Invalid storage slot: {_slot!r}"})
+    # Ethereum returns 0x0 for unset storage slots, not an error.
+    return hex(int(node.state.getAccount(_requireAddress(data.params[0]), True).storage.get(int(_slot), 0)))
 
 
 def eth_getTransactionByHash(data):
+    _requireParams(data, 1)
     return node.ethGetTransactionByHash(data.params[0])
 
 
-def _syntheticTxBlock(txDict, blockNumber):
+def _syntheticTxBlock(txDict, blockNumber, parentHash=None):
     """Build a single-transaction synthetic "block" from a stored transaction.
 
     Beacon blocks don't map 1:1 to Ethereum blocks: transactions can be valid
     and broadcast without a beacon block being mined. Since eth_blockNumber
     reports the transaction count, blocks are synthesized from the global tx
     order so that every "height" resolves to exactly one transaction.
+
+    parentHash may be passed by callers that already hold the ordered hash
+    list (e.g. eth_getBlockByHash) to avoid a second O(n) copy; otherwise it
+    is resolved from the store.
     """
     _tx = Transaction(txDict)
+    # parentHash: zero for genesis, otherwise the previous tx's hash in order.
+    if blockNumber == 0:
+        _parentHash = "0x" + "0" * 64
+    elif parentHash is not None:
+        _parentHash = parentHash
+    else:
+        _hashes = node.store.getTxHashes()
+        _parentHash = _hashes[blockNumber - 1] if 0 <= blockNumber - 1 < len(_hashes) else "0x" + "0" * 64
+    # stateRoot: node.state.hash is HexBytes after calcStateRoot(), "" before.
+    # Guard against both str and bytes to avoid TypeError on concatenation.
+    _stateHash = node.state.hash
+    if _stateHash:
+        _stateRoot = _stateHash.hex() if hasattr(_stateHash, "hex") else str(_stateHash)
+        if not _stateRoot.startswith("0x"):
+            _stateRoot = "0x" + _stateRoot
+    else:
+        _stateRoot = "0x" + "0" * 64
+    # txid from w3.solidityKeccak().hex() is always 0x-prefixed; avoid double.
+    _txid = _tx.txid if _tx.txid.startswith("0x") else "0x" + _tx.txid
     return {
         # synthetic block hash = canonical type-0 (legacy) tx hash
-        "hash": "0x" + _tx.txid if not _tx.txid.startswith("0x") else _tx.txid,
-        "parentHash": "0x" + ("0" * 64) if blockNumber == 0 else None,
+        "hash": _txid,
+        "parentHash": _parentHash,
         "number": hex(blockNumber),
         "difficulty": hex(node.state.beaconChain.difficulty),
         "totalDifficulty": hex(node.state.beaconChain.difficulty),
@@ -179,15 +255,16 @@ def _syntheticTxBlock(txDict, blockNumber):
         "sha3Uncles": "0x" + ("0" * 64),
         "size": "0x0",
         "timestamp": hex(int(_tx.timestamp or 0)),
-        "transactionsRoot": "0x" + _tx.txid,
-        "stateRoot": ("0x" + node.state.hash) if node.state.hash else "0x" + "0" * 64,
-        "receiptsRoot": "0x" + _tx.txid,
+        "transactionsRoot": _txid,
+        "stateRoot": _stateRoot,
+        "receiptsRoot": _txid,
         "uncles": [],
         "transactions": [_tx.web3Returnable()],
     }
 
 
 def eth_getBlockByNumber(data):
+    _requireParams(data, 1)
     _blockTx = data.params[1] if len(data.params) > 1 else False
     _blockNumber = int(_resolveBlockNumber(data.params[0]))
     _count = node.store.txCount()
@@ -203,6 +280,7 @@ def eth_getBlockByNumber(data):
 
 
 def eth_getBlockByHash(data):
+    _requireParams(data, 1)
     _hash = data.params[0]
     _fullTx = data.params[1] if len(data.params) > 1 else False
     # beacon proofs still resolve to real beacon blocks
@@ -226,7 +304,8 @@ def eth_getBlockByHash(data):
         _index = _hashes.index(_type0Hash)
     except ValueError:
         return None
-    result = _syntheticTxBlock(_tx, _index)
+    result = _syntheticTxBlock(_tx, _index,
+                               parentHash=(_hashes[_index - 1] if _index > 0 else None))
     if not _fullTx:  # hashes only
         result["transactions"] = [result["transactions"][0]["hash"]]
     return result
@@ -276,15 +355,18 @@ METHODS = {
 def createRouter(app: fastapi.FastAPI):
     """Attach the POST /web3 route to the given FastAPI app."""
 
-    @app.post("/web3")
-    def handleWeb3Request(data: Web3Body):
+    def _handleSingle(data: Web3Body):
+        """Process one JSON-RPC request.
+
+        Returns the response dict, or None when the request is a notification
+        (no id) so the caller can omit it from the HTTP response per spec.
+        """
         _begin = time.time()
 
         if node is None:
             _respdict = {"id": data.id, "jsonrpc": "2.0",
                          "error": {"code": -32000, "message": "Node not ready"}}
-            _resp = json.dumps(_respdict)
-            return fastapi.Response(content=_resp, media_type='application/json')
+            return None if data.id is None else _respdict
 
         if node.state.verbose:
             print(f"/web3 POST received, data : {data}")
@@ -302,10 +384,30 @@ def createRouter(app: fastapi.FastAPI):
                          "error": {"code": -32603, "message": f"Internal error: {e.__repr__()}"}}
             if node.state.verbose:
                 printError(f"web3 RPC error on {data.method}: {e.__repr__()}")
-        _resp = json.dumps(_respdict)
         if node.state.verbose:
             print(f"{data.method} request completed in {round((time.time() - _begin) * 1000, 3)}ms")
-            print(f"Response : {_resp}")
+            print(f"Response : {json.dumps(_respdict)}")
+        # JSON-RPC 2.0: a request without an id is a notification → no response.
+        return None if data.id is None else _respdict
+
+    @app.post("/web3")
+    def handleWeb3Request(data: Union[Web3Body, List[Web3Body]]):
+        # Batch request: a JSON array of requests → array of responses.
+        # Notifications (no id) are processed but omitted from the response.
+        if isinstance(data, list):
+            _responses = []
+            for _item in data:
+                _r = _handleSingle(_item)
+                if _r is not None:
+                    _responses.append(_r)
+            return fastapi.Response(content=json.dumps(_responses),
+                                    media_type='application/json')
+        # Single request
+        _respdict = _handleSingle(data)
+        if _respdict is None:
+            # notification — no content
+            return fastapi.Response(status_code=204)
+        _resp = json.dumps(_respdict)
         return fastapi.Response(content=_resp, media_type='application/json')
 
     return handleWeb3Request
