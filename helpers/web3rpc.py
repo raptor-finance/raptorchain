@@ -97,7 +97,7 @@ def eth_getTransactionCount(data):
 
 
 def eth_getCode(data):
-    return f"0x{node.state.getAccount(data.params[0], True).code.hex()}"
+    return f"0x{node.state.getAccount(w3.toChecksumAddress(data.params[0]), True).code.hex()}"
 
 
 def _execCall(data):
@@ -127,7 +127,14 @@ def eth_getCompilers(data):
 
 
 def eth_sendRawTransaction(data):
-    return node.integrateETHTransaction(data.params[0])
+    _txid = node.integrateETHTransaction(data.params[0])
+    # Verify the transaction was actually accepted by the store.
+    # integrateETHTransaction always returns a computed hash regardless of
+    # whether checkTxs accepted the tx; a rejected tx would otherwise return
+    # a hash that doesn't correspond to any stored transaction.
+    if not node.store.hasTransaction(_txid):
+        raise _RpcError({"code": -32000, "message": "Transaction rejected"})
+    return _txid
 
 
 def eth_getTransactionReceipt(data):
@@ -139,7 +146,7 @@ def eth_getStorageAt(data):
     if isinstance(_slot, str):
         _slot = _slot[2:] if _slot.startswith("0x") else _slot
         _slot = int(_slot, 16)
-    return hex(int(node.state.getAccount(data.params[0], True).storage[int(_slot)]))
+    return hex(int(node.state.getAccount(w3.toChecksumAddress(data.params[0]), True).storage[int(_slot)]))
 
 
 def eth_getTransactionByHash(data):
@@ -182,7 +189,7 @@ def _syntheticTxBlock(txDict, blockNumber):
 
 def eth_getBlockByNumber(data):
     _blockTx = data.params[1] if len(data.params) > 1 else False
-    _blockNumber = _resolveBlockNumber(data.params[0])
+    _blockNumber = int(_resolveBlockNumber(data.params[0]))
     _count = node.store.txCount()
     if _blockNumber < 0 or _blockNumber >= _count:
         return None
@@ -210,19 +217,15 @@ def eth_getBlockByHash(data):
     if not _tx:
         return None
     # Look up the tx's position in the ordered list.  txsOrder stores the
-    # type-0 (raptor) hash; if the client sent a type-2 (eth) hash, resolve
-    # it via the type2ToType0Hash alias map (O(1) dict lookup).
+    # type-0 (raptor) hash; node.getTransaction already resolved any type-2
+    # (eth) alias above, so we just need the type-0 hash to index into
+    # txsOrder.  Resolve it once via the alias map (O(1) dict lookup).
+    _type0Hash = node.state.type2ToType0Hash.get(_hash, _hash)
     _hashes = node.store.getTxHashes()
     try:
-        _index = _hashes.index(_hash)
+        _index = _hashes.index(_type0Hash)
     except ValueError:
-        _alias = node.state.type2ToType0Hash.get(_hash)
-        if _alias is None:
-            return None
-        try:
-            _index = _hashes.index(_alias)
-        except ValueError:
-            return None
+        return None
     result = _syntheticTxBlock(_tx, _index)
     if not _fullTx:  # hashes only
         result["transactions"] = [result["transactions"][0]["hash"]]
@@ -276,6 +279,12 @@ def createRouter(app: fastapi.FastAPI):
     @app.post("/web3")
     def handleWeb3Request(data: Web3Body):
         _begin = time.time()
+
+        if node is None:
+            _respdict = {"id": data.id, "jsonrpc": "2.0",
+                         "error": {"code": -32000, "message": "Node not ready"}}
+            _resp = json.dumps(_respdict)
+            return fastapi.Response(content=_resp, media_type='application/json')
 
         if node.state.verbose:
             print(f"/web3 POST received, data : {data}")
