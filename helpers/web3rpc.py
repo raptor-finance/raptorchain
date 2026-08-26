@@ -38,9 +38,9 @@ def registerNode(_node):
 
 
 class Web3Body(pydantic.BaseModel):
-    id: Any
+    id: Any = None
     method: str
-    params: list
+    params: list = []
 
 
 # --- method handlers -------------------------------------------------------
@@ -48,15 +48,23 @@ class Web3Body(pydantic.BaseModel):
 
 def _resolveBlockNumber(_blockParam):
     """Translate a JSON-RPC block parameter ('latest', hex height, int, ...)
-    into an integer block height."""
+    into an integer block height.
+
+    Raises _RpcError(-32602 invalid params) on malformed input so the client
+    gets a real JSON-RPC error instead of a swallowed null.
+    """
     _chain = node.state.beaconChain
-    if type(_blockParam) == str:
+    if isinstance(_blockParam, str):
         if _blockParam in ("latest", "pending", "safe", "finalized"):
             return len(_chain.blocks) - 1
         elif _blockParam == "earliest":
             return 0
-        else:
-            return int(_blockParam, 16)
+        _s = _blockParam[2:] if _blockParam.startswith("0x") else _blockParam
+        try:
+            return int(_s, 16)
+        except ValueError:
+            raise _RpcError({"code": -32602,
+                              "message": f"Invalid block param: {_blockParam}"})
     return _blockParam
 
 
@@ -81,7 +89,7 @@ def eth_gasPrice(data):
 
 
 def eth_blockNumber(data):
-    return hex(node.store.txCount() - 1)
+    return hex(max(node.store.txCount() - 1, 0))
 
 
 def eth_getTransactionCount(data):
@@ -92,12 +100,26 @@ def eth_getCode(data):
     return f"0x{node.state.getAccount(data.params[0], True).code.hex()}"
 
 
+def _execCall(data):
+    """Run an eth_Call and return the CallEnv, raising a spec-compliant
+    code:3 "execution reverted" error if the call reverted.
+
+    Per the execution-apis spec, both eth_call and eth_estimateGas must
+    return error code 3 with the raw EVM revert data on revert.
+    """
+    _env = node.state.eth_Call(data.params[0])
+    if not _env.getSuccess():
+        raise _RpcError({"code": 3, "message": "execution reverted",
+                         "data": "0x" + _env.returnValue.hex()})
+    return _env
+
+
 def eth_estimateGas(data):
-    return hex(node.state.eth_Call(data.params[0]).gasUsed)
+    return hex(_execCall(data).gasUsed)
 
 
 def eth_call(data):
-    return f"0x{node.state.eth_Call(data.params[0]).returnValue.hex()}"
+    return f"0x{_execCall(data).returnValue.hex()}"
 
 
 def eth_getCompilers(data):
@@ -113,7 +135,11 @@ def eth_getTransactionReceipt(data):
 
 
 def eth_getStorageAt(data):
-    return hex(int(node.state.getAccount(data.params[0], True).storage[int(data.params[1])]))
+    _slot = data.params[1]
+    if isinstance(_slot, str):
+        _slot = _slot[2:] if _slot.startswith("0x") else _slot
+        _slot = int(_slot, 16)
+    return hex(int(node.state.getAccount(data.params[0], True).storage[int(_slot)]))
 
 
 def eth_getTransactionByHash(data):
@@ -147,7 +173,7 @@ def _syntheticTxBlock(txDict, blockNumber):
         "size": "0x0",
         "timestamp": hex(int(_tx.timestamp or 0)),
         "transactionsRoot": "0x" + _tx.txid,
-        "stateRoot": "0x" + node.state.hash,
+        "stateRoot": ("0x" + node.state.hash) if node.state.hash else "0x" + "0" * 64,
         "receiptsRoot": "0x" + _tx.txid,
         "uncles": [],
         "transactions": [_tx.web3Returnable()],
@@ -171,32 +197,54 @@ def eth_getBlockByNumber(data):
 
 def eth_getBlockByHash(data):
     _hash = data.params[0]
+    _fullTx = data.params[1] if len(data.params) > 1 else False
     # beacon proofs still resolve to real beacon blocks
     _block = node.state.beaconChain.blocksByHash.get(_hash)
     if _block is not None:
         result = _block.web3Returnable()
-        if data.params[1]:  # fetch transactions as well
+        if _fullTx:  # fetch transactions as well
             result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
         return result
     # otherwise treat the hash as a transaction hash -> synthetic block
     _tx = node.getTransaction(_hash)
     if not _tx:
         return None
-    _index = None
-    for i, (_h, stored) in enumerate(node.store.getOrderedTxs()):
-        if _h == _hash or node.store.getTransaction(_h, node.state.type2ToType0Hash) == _tx:
-            _index = i
-            break
-    if _index is None:
-        return None
+    # Look up the tx's position in the ordered list.  txsOrder stores the
+    # type-0 (raptor) hash; if the client sent a type-2 (eth) hash, resolve
+    # it via the type2ToType0Hash alias map (O(1) dict lookup).
+    _hashes = node.store.getTxHashes()
+    try:
+        _index = _hashes.index(_hash)
+    except ValueError:
+        _alias = node.state.type2ToType0Hash.get(_hash)
+        if _alias is None:
+            return None
+        try:
+            _index = _hashes.index(_alias)
+        except ValueError:
+            return None
     result = _syntheticTxBlock(_tx, _index)
-    if not data.params[1]:  # hashes only
+    if not _fullTx:  # hashes only
         result["transactions"] = [result["transactions"][0]["hash"]]
     return result
 
 
-# default result when the method is unknown (matches old behaviour of chainID)
-DEFAULT_RESULT = lambda data: hex(node.state.chainID)
+# JSON-RPC 2.0 error codes
+ERR_METHOD_NOT_FOUND = {"code": -32601, "message": "Method not found"}
+
+
+class _RpcError(Exception):
+    """Carries a JSON-RPC 2.0 error object to the dispatcher."""
+    def __init__(self, errorObj):
+        self.errorObj = errorObj
+
+
+def _methodNotFound(data):
+    # signal to the dispatcher that this is an error, not a result
+    raise _RpcError(ERR_METHOD_NOT_FOUND)
+
+
+DEFAULT_RESULT = _methodNotFound
 
 METHODS = {
     "eth_getBalance": eth_getBalance,
@@ -216,6 +264,7 @@ METHODS = {
     "eth_getTransactionByHash": eth_getTransactionByHash,
     "eth_getBlockByNumber": eth_getBlockByNumber,
     "eth_getBlockByHash": eth_getBlockByHash,
+    "eth_chainId": lambda data: hex(node.state.chainID),
 }
 
 
@@ -234,12 +283,16 @@ def createRouter(app: fastapi.FastAPI):
         handler = METHODS.get(data.method, DEFAULT_RESULT)
         try:
             result = handler(data)
+            _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
+        except _RpcError as e:
+            _respdict = {"id": data.id, "jsonrpc": "2.0", "error": e.errorObj}
+            if node.state.verbose:
+                printError(f"web3 RPC error on {data.method}: {e.errorObj}")
         except Exception as e:
-            result = None
+            _respdict = {"id": data.id, "jsonrpc": "2.0",
+                         "error": {"code": -32603, "message": f"Internal error: {e.__repr__()}"}}
             if node.state.verbose:
                 printError(f"web3 RPC error on {data.method}: {e.__repr__()}")
-
-        _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
         _resp = json.dumps(_respdict)
         if node.state.verbose:
             print(f"{data.method} request completed in {round((time.time() - _begin) * 1000, 3)}ms")
