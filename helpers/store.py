@@ -65,7 +65,14 @@ class Store(object):
 
         Imports the legacy JSON database first if it exists, then reads the
         line-oriented files. Tolerates a truncated final line in either file
-        (crash mid-append) and re-attaches orphaned transactions.
+        (crash mid-append).
+
+        The transactions dict and txsOrder list are loaded independently: a
+        transaction may exist in the dict without being in the order (an
+        "orphan"). This is a valid state, not corruption — the dict is a
+        hash->data store, while txsOrder is the source of truth for chain
+        history. Orphans are NOT re-attached to the order here; doing so would
+        silently mutate chain history on every restart.
         """
         with self._lock:
             self._importLegacyIfNeeded()
@@ -95,19 +102,8 @@ class Store(object):
                     txHash = line.strip()
                     if not txHash or txHash in seen:
                         continue  # tolerate duplicates defensively
-                    if txHash in self.transactions:
-                        self.txsOrder.append(txHash)
-                        seen.add(txHash)
-            # orphaned txs: stored but never ordered (crash between appends).
-            # They were validated before being stored, so replaying them is safe.
-            orphans = [h for h in self.transactions if h not in seen]
-            if orphans:
-                with open(self._orderPath(), "a") as file:
-                    for txHash in orphans:
-                        file.write(txHash + "\n")
-                    file.flush()
-                    os.fsync(file.fileno())
-                self.txsOrder.extend(orphans)
+                    self.txsOrder.append(txHash)
+                    seen.add(txHash)
             self._savedCount = len(self.txsOrder)
 
     def _importLegacyIfNeeded(self):
@@ -129,13 +125,18 @@ class Store(object):
             except (ValueError, KeyError, OSError):
                 continue  # unreadable/absent legacy file: ignore it
             os.makedirs(self._dirPath(), exist_ok=True)
+            # Write the full transactions dict (hash->data store) independently
+            # of the order: every tx in the legacy dict is preserved, including
+            # any that the legacy order did not reference (orphans). The dict is
+            # a lookup table, not chain history, so order is irrelevant here.
             with open(self._txsPath(), "w") as file:
-                for txHash in legacyOrder:
-                    tx = legacyTxs.get(txHash)
-                    if tx is not None:
-                        file.write(json.dumps(tx) + "\n")
+                for txHash, tx in legacyTxs.items():
+                    file.write(json.dumps(tx) + "\n")
                 file.flush()
                 os.fsync(file.fileno())
+            # Write txsOrder verbatim from the legacy order, but drop any entry
+            # whose hash has no data in the dict (a dangling order entry is
+            # genuinely corrupt and would index into a missing tx).
             with open(self._orderPath(), "w") as file:
                 for txHash in legacyOrder:
                     if txHash in legacyTxs:
