@@ -1339,10 +1339,10 @@ class Node(object):
             if self.canBePlayed(tx)[0]:
                 try:
                     self.state.playTransaction(tx, False)
+                    if self.propagateAtStartup:
+                        _toPropagate.append(tx)
                 except Exception as e:
                     printError(f"Failed to replay tx {txHash} on startup: {e.__repr__()}")
-                if self.propagateAtStartup:
-                    _toPropagate.append(tx)
         self.store.save()
         # self.syncDB()
         self.syncByBlock()
