@@ -50,6 +50,15 @@ class Transaction(object):
         self.gasLimit = 0
         self.gasUsed = 0
         
+        # EVM call data + signature fields — not all tx types set these
+        # (only types 0 and 2 have call data; only 0, 1, 2 have sigs).
+        # Defaulted here so web3Returnable() and other accessors don't
+        # raise AttributeError on non-EVM tx types (1, 3, 4, 5, 6, 7).
+        self.data = b""
+        self.v = 0
+        self.r = b""
+        self.s = b""
+        
         # tx timestamps will be used later
         self.timestamp = txData.get("timestamp")
         
