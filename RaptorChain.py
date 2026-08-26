@@ -1090,7 +1090,7 @@ class State(object):
             if msg.overrideStorage: # save storage on override
                 msg.runningAccount.tempStorage = msg.storage
         else:   # in case msg didn't revert (could happen if it runs out of gas)
-            msg.revert()
+            msg.revert(b"")
             
         return (msg.getSuccess(), msg.returnValue)
             
