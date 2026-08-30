@@ -16,9 +16,9 @@ PUBLIC_RPC_TESTNET = "https://rpc-testnet.raptorchain.io/"
 # reads its BSC entries (56 = mainnet, 97 = testnet) instead of keeping its
 # own copies.
 DATAFEED_RPCS = {
-    56: "wss://bsc.api.pocket.network",
+    56: "https://rpc-bsc.blockmachine.io",
     97: "https://data-seed-prebsc-2-s1.binance.org:8545/",
-    137: "wss://polygon.drpc.org",
+    137: "https://poly.api.pocket.network",
     250: "https://fantom.drpc.org",
     1: "https://rpc-eth.blockmachine.io",
 }
