@@ -13,6 +13,7 @@ import json
 import eth_abi
 import rlp
 from web3.auto import w3
+from eth_account import Account
 
 from . import constants
 from .utils import formatAddress
@@ -68,8 +69,8 @@ class Transaction(object):
         if _sig:
             (self.v, self.r, self.s) = (self.sig[64], self.sig[0:32], self.sig[32:64])
         if (self.txtype == 0): # legacy transfer
-            self.sender = w3.toChecksumAddress(txData.get("from"))
-            self.recipient = w3.toChecksumAddress(txData.get("to"))
+            self.sender = w3.to_checksum_address(txData.get("from"))
+            self.recipient = w3.to_checksum_address(txData.get("to"))
             self.value = max(int(txData.get("tokens")), 0)
             self.affectedAccounts = [self.sender, self.recipient]
             self.gasprice = constants.DEFAULT_GAS_PRICE
@@ -81,7 +82,7 @@ class Transaction(object):
                 self.data = b""
         if (self.txtype == 1): # block mining/staking tx
             self.fee = 0
-            self.sender = w3.toChecksumAddress(txData.get("from"))
+            self.sender = w3.to_checksum_address(txData.get("from"))
             self.blockData = txData.get("blockData")
             self.recipient = constants.ZERO_ADDRESS
             self.value = 0
@@ -108,26 +109,26 @@ class Transaction(object):
             
             self.data = bytes.fromhex(ethDecoded.data.replace("0x", ""))
             if not self.recipient:
-                self.recipient = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(self.sender.replace("0x", "")), int(self.nonce)]))[12:])
+                self.recipient = w3.to_checksum_address(w3.keccak(rlp.encode([bytes.fromhex(self.sender.replace("0x", "")), int(self.nonce)]))[12:])
                 self.contractDeployment = True
         elif self.txtype == 3: # deposits checking trigger
             self.fee = 0
             self.l2hash = txData["l2hash"]
             self.value = 0
-            self.sender = w3.toChecksumAddress(txData.get("from"))
+            self.sender = w3.to_checksum_address(txData.get("from"))
             self.recipient = constants.ZERO_ADDRESS
             self.affectedAccounts = [self.sender]
         elif self.txtype == 4: # MN create
             self.fee = 0
             self.value = constants.MN_COLLATERAL
-            self.sender = w3.toChecksumAddress(txData.get("from"))
-            self.recipient = w3.toChecksumAddress(txData.get("to"))
+            self.sender = w3.to_checksum_address(txData.get("from"))
+            self.recipient = w3.to_checksum_address(txData.get("to"))
             self.affectedAccounts = [self.sender, self.recipient]
         elif self.txtype == 5: # MN destroy
             self.fee = 0
             self.value = 0
-            self.sender = w3.toChecksumAddress(txData.get("from"))
-            self.recipient = w3.toChecksumAddress(txData.get("to"))
+            self.sender = w3.to_checksum_address(txData.get("from"))
+            self.recipient = w3.to_checksum_address(txData.get("to"))
             self.affectedAccounts = [self.sender, self.recipient]
         elif self.txtype == 6: # system transaction
             self.fee = 0
@@ -145,7 +146,7 @@ class Transaction(object):
         self.bio = txData.get("bio")
         self.parent = txData.get("parent")
         self.message = txData.get("message")
-        self.txid = w3.solidityKeccak(["string"], [tx["data"]]).hex()
+        self.txid = w3.solidity_keccak(["string"], [tx["data"]]).hex()
         self.indexToCheck = int(txData.get("indexToCheck", 0) or 0)
         
         # self.PoW = ""
@@ -205,14 +206,14 @@ class Transaction(object):
 
 class Masternode(object):
     def __init__(self, owner, operator, collateral=constants.MN_COLLATERAL):
-        self.owner = w3.toChecksumAddress(owner)
-        self.operator = w3.toChecksumAddress(operator)
+        self.owner = w3.to_checksum_address(owner)
+        self.operator = w3.to_checksum_address(operator)
         self.collateral = collateral
-        self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
+        self.hash = w3.solidity_keccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
         self.blocks = []
     
     def updateHash(self):
-        self.hash = w3.solidityKeccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
+        self.hash = w3.solidity_keccak(["address", "address", "uint256"], [self.owner, self.operator, int(self.collateral)])
 
     def JSONSerializable(self):
         return {"owner": self.owner, "operator": self.operator, "collateral": self.collateral, "blocks": self.blocks, "hash": self.hash.hex()}
@@ -279,7 +280,7 @@ class GenesisBeacon(BeaconBase):
             self.parent = "Initializing the RaptorChain...".encode()
             self.difficulty = 1
             self.decodedMessages = ["Hey guys, just trying to implement a kind of raptor chain, feel free to have a look".encode()]
-            self.messages = eth_abi.encode_abi(["bytes[]"], [self.decodedMessages])
+            self.messages = eth_abi.encode(["bytes[]"], [self.decodedMessages])
             self.nonce = 0
             self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
             self.proof = self.proofOfWork()
@@ -289,7 +290,7 @@ class GenesisBeacon(BeaconBase):
             self.parent = b"Say hello to RaptorChain Mainnet"
             self.difficulty = 1
             self.decodedMessages = [b"Hey guys, I'm working on RaptorChain and expecting it to work very soon !!! - 10/06/2022"]
-            self.messages = eth_abi.encode_abi(["bytes[]"], [self.decodedMessages])
+            self.messages = eth_abi.encode(["bytes[]"], [self.decodedMessages])
             self.nonce = 0
             self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
             self.proof = self.proofOfWork()
@@ -308,13 +309,13 @@ class GenesisBeacon(BeaconBase):
         self.relayerSigs = {}
         
     def beaconRoot(self):
-        messagesHash = w3.keccak(eth_abi.encode_abi(["bytes[]"], [self.decodedMessages]))
-        bRoot = w3.solidityKeccak(["bytes32", "uint256", "bytes","address"], [self.parent, self.timestamp, messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
+        messagesHash = w3.keccak(eth_abi.encode(["bytes[]"], [self.decodedMessages]))
+        bRoot = w3.solidity_keccak(["bytes32", "uint256", "bytes","address"], [self.parent, self.timestamp, messagesHash, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), beacon miner (address)
         return bRoot.hex()
 
     def proofOfWork(self):
         bRoot = self.beaconRoot()
-        proof = w3.solidityKeccak(["bytes32", "uint256"], [bRoot, int(self.nonce)])
+        proof = w3.solidity_keccak(["bytes32", "uint256"], [bRoot, int(self.nonce)])
         return proof.hex()
 
     def messagesToHex(self):
@@ -338,7 +339,7 @@ class GenesisBeacon(BeaconBase):
         # return {"transactions": self.transactions, "messages": self.messages.hex(), "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}}
 
     def txsRoot(self):
-        return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
+        return w3.solidity_keccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
 
     def exportJson(self):
         return {"transactions": (self.fullTxList + [self.nextBlockTx]), "txsRoot": self.txsRoot().hex(), "messages": self.messages.hex(), "decodedMessages": self.messagesToHex(), "parentTxRoot": self.parentTxRoot, "parent": self.parent.hex(), "son": self.son, "timestamp": self.timestamp, "height": self.number, "miningData": {"miner": self.miner, "nonce": self.nonce, "difficulty": self.difficulty, "miningTarget": self.miningTarget, "proof": self.proof}, "signature": {"v": self.v, "r": self.r, "s": self.s, "sig": self.sig}, "relayerSigs": [f"{s}" for r, s in self.relayerSigs.items()]}
@@ -360,12 +361,12 @@ class Beacon(BeaconBase):
         miningData = data["miningData"]
         self.fullTxList = []
         self.depCheckerTxs = []
-        self.miner = w3.toChecksumAddress(miningData["miner"])
+        self.miner = w3.to_checksum_address(miningData["miner"])
         self.parentTxRoot = data.get("parentTxRoot", "0x0000000000000000000000000000000000000000000000000000000000000000")
         self.nonce = miningData["nonce"]
         self.difficulty = difficulty
         self.messages = bytes.fromhex(data['messages'].replace('0x', ''))
-        self.decodedMessages = list(eth_abi.decode_abi(["bytes[]"], bytes.fromhex(data["messages"].replace("0x", "")))[0])
+        self.decodedMessages = list(eth_abi.decode(["bytes[]"], bytes.fromhex(data["messages"].replace("0x", "")))[0])
         self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
         self.stateRoot = stateRoot
         self.timestamp = int(data["timestamp"])
@@ -383,27 +384,27 @@ class Beacon(BeaconBase):
     
 
     def beaconRoot(self):
-        messagesHash = w3.solidityKeccak(["bytes"], [self.messages])
-        bRoot = w3.solidityKeccak(["bytes32", "uint256", "bytes32", "bytes32","address"], [self.parent, int(self.timestamp), messagesHash, self.parentTxRoot, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
+        messagesHash = w3.solidity_keccak(["bytes"], [self.messages])
+        bRoot = w3.solidity_keccak(["bytes32", "uint256", "bytes32", "bytes32","address"], [self.parent, int(self.timestamp), messagesHash, self.parentTxRoot, self.miner]) # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
         return bRoot.hex()
 
     def proofOfWork(self):
         bRoot = self.beaconRoot()
 #        print(f"Beacon root : {bRoot}")
-        proof = w3.solidityKeccak(["bytes32", "uint256"], [bRoot, int(self.nonce)])
+        proof = w3.solidity_keccak(["bytes32", "uint256"], [bRoot, int(self.nonce)])
         return proof.hex()
 
     def difficultyMatched(self):
         return int(self.proofOfWork(), 16) < int(self.miningTarget, 16)
 
     def signatureMatched(self):
-        return (w3.eth.account.recoverHash(self.proof, vrs=(self.v, self.r, self.s)) == self.miner)
+        return (Account._recover_hash(self.proof, vrs=(self.v, self.r, self.s)) == self.miner)
 
     def canAddSig(self, sig):
         _bytesSig = bytes.fromhex(sig.replace("0x", "")) if (type(sig) == str) else sig
         if (len(_bytesSig) != 65):
             return (False, "INVALID_SIG")
-        signer = w3.eth.account.recoverHash(self.proof, signature=sig)
+        signer = Account._recover_hash(self.proof, signature=sig)
         if self.relayerSigs.get(signer):
             return (False, "SIG_ALREADY_EXISTS")
         return (True, signer)
@@ -426,7 +427,7 @@ class Beacon(BeaconBase):
         self.fullTxList.append(txid)
 
     def txsRoot(self):
-        return w3.solidityKeccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
+        return w3.solidity_keccak(["bytes32", "bytes32[]"], [self.proof, sorted(self.transactions)])
 
     def ABIEncodable(self):
         return ([self.miner, int(self.nonce),[f"0x{m.hex()}" for m in self.decodedMessages],int(self.difficulty), self.miningTarget, int(self.timestamp), self.parent, self.proof, int(self.number), "0x0000000000000000000000000000000000000000000000000000000000000000", self.parentTxRoot, int(self.v), "0x" + self.r.to_bytes(32, "big").hex(), "0x" + self.s.to_bytes(32, "big").hex(), [f"{s}" for r, s in self.relayerSigs.items()]])

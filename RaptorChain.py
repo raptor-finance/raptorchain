@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 global config
 from web3.auto import w3
 from web3 import Web3
+from eth_account import Account
 from eth_account.messages import encode_defunct
 from dataclasses import dataclass
 from typing import Optional, Any
@@ -123,7 +124,7 @@ class BeaconChain(object):
                 self.chain = Web3(Web3.WebsocketProvider(self.rpcurl))
             elif (rpcprotocol) in ["http", "https"]:
                 self.chain = Web3(Web3.HTTPProvider(self.rpcurl))
-            self.masterContract = self.chain.eth.contract(address=Web3.toChecksumAddress(MasterContractAddress), abi=MasterContractABI)
+            self.masterContract = self.chain.eth.contract(address=Web3.to_checksum_address(MasterContractAddress), abi=MasterContractABI)
             # self.stakingContract = self.chain.eth.contract(address=self.masterContract.functions.staking().call(), abi=StakingContractABI)
             self.custodyContract = self.chain.eth.contract(address=self.masterContract.functions.custody().call(), abi=CustodyContractABI)
             self.beaconChainContract = self.chain.eth.contract(address=self.masterContract.functions.beaconchain().call(), abi=BeaconChainContractABI)
@@ -148,7 +149,7 @@ class BeaconChain(object):
         def getBEP20At(self, addr):
             if self.cachedTokens.get(addr):
                 return self.cachedTokens[addr]
-            _cached = self.CachedToken(self.chain.eth.contract(address=Web3.toChecksumAddress(addr), abi=self.BEP20ABI))
+            _cached = self.CachedToken(self.chain.eth.contract(address=Web3.to_checksum_address(addr), abi=self.BEP20ABI))
             self.cachedTokens[addr] = _cached
             self.saveCacheFile()
             return _cached
@@ -161,7 +162,7 @@ class BeaconChain(object):
             
         def loadCachedTokens(self, data):
             for address, cached in data.items():
-                self.cachedTokens[address] = self.CachedToken(self.chain.eth.contract(address=Web3.toChecksumAddress(address), abi=self.BEP20ABI), cached)
+                self.cachedTokens[address] = self.CachedToken(self.chain.eth.contract(address=Web3.to_checksum_address(address), abi=self.BEP20ABI), cached)
             
         def serializeCachedDeposits(self):
             returnValue = {}
@@ -212,20 +213,20 @@ class BeaconChain(object):
                 _chains[chainid] = Web3(Web3.HTTPProvider(url))
                 _addr = (self.contractAddrsTestnet if self.testnet else self.contractAddrsMainnet).get(chainid)
                 if _addr:
-                    self.contracts[chainid] = _chains[chainid].eth.contract(address=w3.toChecksumAddress(_addr), abi=self.abi)
+                    self.contracts[chainid] = _chains[chainid].eth.contract(address=w3.to_checksum_address(_addr), abi=self.abi)
             self.chains = _chains
             
         def slotExists(self, chainid, addr, key):
             cnt = self.contracts.get(int(chainid))
             if not cnt:
                 return b""
-            return cnt.functions.isWritten(w3.toChecksumAddress(addr), key).call()
+            return cnt.functions.isWritten(w3.to_checksum_address(addr), key).call()
             
         def getSlotData(self, chainid, addr, key):
             cnt = self.contracts.get(int(chainid))
             if not cnt:
                 return b""
-            return cnt.functions.getSlotData(w3.toChecksumAddress(addr), key).call()
+            return cnt.functions.getSlotData(w3.to_checksum_address(addr), key).call()
 
         def testSpecificFeed(self, chainid, slotOwner, slotKey, chainName):
             data = self.getSlotData(chainid, slotOwner, slotKey)
@@ -253,7 +254,7 @@ class BeaconChain(object):
         self.blockReward = 0
         self.blockTime = 600 # in seconds
         self.validators = {"0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846": Masternode("0x0000000000000000000000000000000000000000", "0x6Ff24B19489E3Fe97cfE5239d17b745D4cEA5846")}
-        self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
+        self.defaultMessage = eth_abi.encode(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.bsc = self.BSCInterface(True, "0x96aEF4543F0D4b2706DCF2cddAf4aB107e9497Ac", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21") if self.testnet else self.BSCInterface(False, "0x410fdf2756cbd237351186c3aebf1a9a8bab2229", "0x44C99Ca267C2b2646cEEc72e898273085aB87ca5")
         self.STIUpgradeBlock = 1 # STI hard fork (txsRoot strict checking)
         self.persistencyUpgradeBlock = 7 # persistency hard fork (contract nonce persistency upgrade)
@@ -282,7 +283,7 @@ class BeaconChain(object):
         return min(max((currentDiff * expectedDelay)/max((timestamp2 - timestamp1), 1), currentDiff * 0.9, 1), currentDiff*1.1)
     
     def isValidatorAllowed(self, beacon):
-        return (self.whoseTurnAtTimestamp(int(beacon.timestamp)) == w3.toChecksumAddress(beacon.miner))
+        return (self.whoseTurnAtTimestamp(int(beacon.timestamp)) == w3.to_checksum_address(beacon.miner))
     
     def isBeaconValid(self, beacon):
         _lastBeacon = self.getLastBeacon()
@@ -336,7 +337,7 @@ class BeaconChain(object):
         beacon.number = currentChainLength
         self.blocks.append(beacon)
         self.blocksByHash[beacon.proof] = beacon
-        self.validators.get(w3.toChecksumAddress(beacon.miner)).blocks.append(beacon.proof)
+        self.validators.get(w3.to_checksum_address(beacon.miner)).blocks.append(beacon.proof)
         self.updateLastTS(beacon.timestamp) # updates last timestamp
         # print(f"\n===================================\n\nBeacon block mined !\nHeight : {beacon.number}\nProof : {beacon.proof}\nMasternode : {beacon.miner}\nMinted reward : 0 RPTR\n\n===================================\n")
         _timestamp = datetime.fromtimestamp(beacon.timestamp).strftime("%d %h %Y - %H:%M:%S") # proper timestamp format
@@ -387,7 +388,7 @@ class BeaconChain(object):
     
     def postMessage(self, to, data, _chainid=None):
         _chainid = self.bsc.chainID if (_chainid == None) else _chainid
-        self.pendingMessages.append(eth_abi.encode_abi(["address", "uint256", "bytes"], [w3.toChecksumAddress(to), _chainid, data]))
+        self.pendingMessages.append(eth_abi.encode(["address", "uint256", "bytes"], [w3.to_checksum_address(to), _chainid, data]))
 #			(recipient, chainID, data) = abi.decode(_beacon.messages[n], (address, uint256, bytes));
     
     def createValidator(self, owner, operator):
@@ -402,7 +403,7 @@ class BeaconChain(object):
         valHashes = []
         for op, val in self.validators.items():
             valHashes.append(val.hash)
-        return w3.solidityKeccak(["bytes32[]"], [sorted(valHashes)])
+        return w3.solidity_keccak(["bytes32[]"], [sorted(valHashes)])
     
     def updateStateRoot(self, newRoot):
         self.stateRoot = newRoot
@@ -435,7 +436,7 @@ class BeaconChain(object):
 class State(object):
     class Account(object):
         def __init__(self, address, initTxID, accountGetter, callfallback, chainAccess, snapshotData={}):
-            self.address = w3.toChecksumAddress(address)
+            self.address = w3.to_checksum_address(address)
             self.initialized = False
             self.balance = snapshotData.get("balance", 0)
             self.masternodes = snapshotData.get("masternodes", [])
@@ -480,8 +481,8 @@ class State(object):
                 self.initialized = True
             storageHash = w3.keccak(self.serializeEVMStorage())
             codeHash = w3.keccak(self.code)
-            historyHash = w3.solidityKeccak(["bytes32[]", "bytes32[]"], [self.transactions[1:], self.sent[1:]])
-            self.hash = w3.solidityKeccak(["address", "uint256", "bytes32", "bytes32", "bytes32", "string"], [self.address, self.balance, historyHash, codeHash, storageHash, self.bio])
+            historyHash = w3.solidity_keccak(["bytes32[]", "bytes32[]"], [self.transactions[1:], self.sent[1:]])
+            self.hash = w3.solidity_keccak(["address", "uint256", "bytes32", "bytes32", "bytes32", "string"], [self.address, self.balance, historyHash, codeHash, storageHash, self.bio])
             return self.hash
         
         def makeChangesPermanent(self):
@@ -545,8 +546,8 @@ class State(object):
             self.notTry = False
             self.contractDeployment = False
             self.accountsToDestroy = []
-            self.sender = w3.toChecksumAddress(call.get("from", constants.ZERO_ADDRESS))
-            self.recipient = w3.toChecksumAddress(call.get("to", constants.ZERO_ADDRESS))
+            self.sender = w3.to_checksum_address(call.get("from", constants.ZERO_ADDRESS))
+            self.recipient = w3.to_checksum_address(call.get("to", constants.ZERO_ADDRESS))
             if (self.recipient == constants.ZERO_ADDRESS):
                 self.contractDeployment = True
             self.value = call.get("value", 0)
@@ -629,9 +630,9 @@ class State(object):
         for (addr, acct) in self.accounts.items():
             if acct.isInitialized():
                 accountHashes.append(acct.hash)
-        accountingRoot = w3.solidityKeccak(["bytes32[]"], [sorted(accountHashes)])
+        accountingRoot = w3.solidity_keccak(["bytes32[]"], [sorted(accountHashes)])
         masternodesRoot = self.beaconChain.validatorSetHash()
-        self.hash = w3.solidityKeccak(["bytes32", "bytes32"], [accountingRoot, masternodesRoot])
+        self.hash = w3.solidity_keccak(["bytes32", "bytes32"], [accountingRoot, masternodesRoot])
         self.beaconChain.updateStateRoot(self.hash)
         return self.hash
         
@@ -866,7 +867,7 @@ class State(object):
 
 
     def crossChainFallback(self, recipient, token, user, value, nonce):
-        encodedData = eth_abi.encode_abi(["address", "address", "uint256", "uint256"], [token, user, value, nonce]) # decoder on solidity side : (address token, address withdrawer, uint256 amount, uint256 nonce) = abi.decode(_data, (address, address, uint256, uint256));
+        encodedData = eth_abi.encode(["address", "address", "uint256", "uint256"], [token, user, value, nonce]) # decoder on solidity side : (address token, address withdrawer, uint256 amount, uint256 nonce) = abi.decode(_data, (address, address, uint256, uint256));
         recipient = recipient
         return (recipient, encodedData)
     
@@ -909,7 +910,7 @@ class State(object):
     def ecRecover(self, env):
         sig = env.data[63:]
         try:
-            recovered = w3.eth.account.recoverHash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
+            recovered = Account._recover_hash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
         except:
             recovered = "0x0000000000000000000000000000000000000000"
         env.returnValue = int(recovered, 16).to_bytes(32, "big")
@@ -942,7 +943,7 @@ class State(object):
 
     def deployContract(self, tx):
         self.applyParentStuff(tx)
-        deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(tx.sender.replace("0x", "")), int(tx.nonce)]))[12:])
+        deplAddr = w3.to_checksum_address(w3.keccak(rlp.encode([bytes.fromhex(tx.sender.replace("0x", "")), int(tx.nonce)]))[12:])
         self.ensureExistence(tx.sender)
         self.ensureExistence(deplAddr)
         
@@ -1198,7 +1199,7 @@ class State(object):
         return feedback
 
     def getLastUserTx(self, _user):
-        user = w3.toChecksumAddress(_user)
+        user = w3.to_checksum_address(_user)
         self.ensureExistence(user)
         if (len(self.accounts[user].transactions))>0:
             return self.accounts[user].transactions[len(self.accounts[user].transactions)-1]
@@ -1206,7 +1207,7 @@ class State(object):
             return self.initTxID
             
     def getLastSentTx(self, _user):
-        user = w3.toChecksumAddress(_user)
+        user = w3.to_checksum_address(_user)
         self.ensureExistence(user)
         if (len(self.accounts[user].sent))>0:
             return self.accounts[user].sent[len(self.accounts[user].sent)-1]
@@ -1214,7 +1215,7 @@ class State(object):
             return self.initTxID
             
     def getLastReceivedTx(self, _user):
-        user = w3.toChecksumAddress(_user)
+        user = w3.to_checksum_address(_user)
         self.ensureExistence(user)
         if (len(self.accounts[user].received))>0:
             return self.accounts[user].received[len(self.accounts[user].received)-1]
@@ -1313,7 +1314,7 @@ class Node(object):
         if not (json.loads(tx.get("data")).get("type") in [1,2, 6]):
             sigVerified = self.sigmanager.verifyTransaction(tx)
         elif (json.loads(tx.get("data")).get("type") in [2]):
-            sigVerified = (tx.get("hash") == w3.solidityKeccak(["string"], [tx.get("data")]).hex()) # fixes a bug with chain
+            sigVerified = (tx.get("hash") == w3.solidity_keccak(["string"], [tx.get("data")]).hex()) # fixes a bug with chain
         else:
             sigVerified = True
         playableByState = self.state.willTransactionSucceed(tx)
@@ -1576,12 +1577,12 @@ class Node(object):
         if self.state.lastIndex >= _index:
             return
         data = json.dumps({"epoch": self.state.getCurrentEpoch(), "indexToCheck": _index, "type": 6})
-        _txid_ = w3.solidityKeccak(["string"], [data]).hex()
+        _txid_ = w3.solidity_keccak(["string"], [data]).hex()
         self.checkTxs([{"data": data, "hash": _txid_}], True)
 
     def integrateETHTransaction(self, ethTx):
         data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "indexToCheck": self.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 2})
-        _txid_ = w3.solidityKeccak(["string"], [data]).hex()
+        _txid_ = w3.solidity_keccak(["string"], [data]).hex()
         _result = self.checkTxs([{"data": data, "hash": _txid_}], True)
         if _txid_ in _result["failed"]:
             raise Exception("Transaction failed to execute")
@@ -1592,7 +1593,7 @@ class RaptorBlockSigner(object):
     def __init__(self, node, privkey):
         self.node = node
         self.bsc = node.state.beaconChain.bsc
-        self.acct = w3.eth.account.from_key(privkey)
+        self.acct = Account.from_key(privkey)
         self.node.state.beaconChain.onBlockMined = self.onBlockMined
         print(f"Raptor block signer started with address {self.acct.address}")
         self.signLastBlock()
@@ -1605,7 +1606,7 @@ class RaptorBlockSigner(object):
         lastTx = acctTxs[len(acctTxs)-1]
         epoch = self.node.state.beaconChain.getLastBeacon().proof
         txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blocksig": blocksig, "blockhash": blockhash, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 7})
-        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
+        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}
         feedback = self.node.checkTxs([tx])
         return feedback
         
@@ -1633,11 +1634,11 @@ class RaptorBlockProducer(object):
     
     def __init__(self, node, privkey):
         self.node = node
-        self.acct = w3.eth.account.from_key(privkey)
+        self.acct = Account.from_key(privkey)
         if not (self.acct.address in self.node.state.beaconChain.validators):
             raise self.NotInSetError("Not in validator set")
         self.bsc = node.state.beaconChain.bsc
-        self.defaultMessage = eth_abi.encode_abi(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
+        self.defaultMessage = eth_abi.encode(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.fancyPrint(f"RaptorChain masternode started using address {self.acct.address}", 2)
         self.thread = threading.Thread(target=self.blockProductionLoop)
         self.thread.start()
@@ -1655,8 +1656,8 @@ class RaptorBlockProducer(object):
     
     def blockHash(self, block):
         messagesHash = w3.keccak(bytes.fromhex(block["messages"])).hex()
-        bRoot = w3.solidityKeccak(["bytes32", "uint256", "bytes32", "bytes32", "address"], [block["parent"], int(block["timestamp"]), messagesHash, block["parentTxRoot"], self.acct.address]).hex() # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
-        return w3.solidityKeccak(["bytes32", "uint256"], [bRoot, int(0)]).hex()
+        bRoot = w3.solidity_keccak(["bytes32", "uint256", "bytes32", "bytes32", "address"], [block["parent"], int(block["timestamp"]), messagesHash, block["parentTxRoot"], self.acct.address]).hex() # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
+        return w3.solidity_keccak(["bytes32", "uint256"], [bRoot, int(0)]).hex()
     
     def buildBlock(self):
         blockHeight = len(self.node.state.beaconChain.blocks)
@@ -1667,7 +1668,7 @@ class RaptorBlockProducer(object):
         if (len(pulledMessages) == 0):
             pulledMessages = [self.defaultMessage]
         
-        abiencodedmessages = eth_abi.encode_abi(["bytes[]"], [pulledMessages])
+        abiencodedmessages = eth_abi.encode(["bytes[]"], [pulledMessages])
         
         blockData = {"parentTxRoot": parentTxRoot.hex(), "miningData" : {"miner": self.acct.address,"nonce": 0,"difficulty": 1,"miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","proof": None}, "height": blockHeight,"parent": lastBlockHash,"messages": abiencodedmessages.hex(), "timestamp": int(time.time()), "son": "0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": None, "r": None, "s": None, "sig": None}, "minerVersion": self.node.state.version}
         blockData["miningData"]["proof"] = self.blockHash(blockData)
@@ -1683,14 +1684,14 @@ class RaptorBlockProducer(object):
         lastTx = acctTxs[len(acctTxs)-1]
         epoch = block["parent"]
         txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blockData": block, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 1})
-        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
+        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}
         feedback = self.node.checkTxs([tx])
         return feedback
     
     
     
     def blockStruct(self, block):
-        msgsList = list(eth_abi.decode_abi(["bytes[]"], bytes.fromhex(block["messages"]))[0])
+        msgsList = list(eth_abi.decode(["bytes[]"], bytes.fromhex(block["messages"]))[0])
         # msgsList = eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"]))
         _encodedParent = bytes.fromhex(block["parent"].replace("0x", ""))
         _encodedProof = bytes.fromhex(block["miningData"]["proof"].replace("0x", ""))
@@ -1752,7 +1753,7 @@ class Wallet(object):
         lastTx = acctTxs[len(acctTxs)-1]
         epoch = self.node.state.beaconChain.getLastBeacon().proof
         txdata = json.dumps({"from": self.address, "to": self.address, "tokens": constants.MN_COLLATERAL, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 4})
-        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
+        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}
         feedback = self.node.checkTxs([tx])
         return feedback
         
@@ -1761,7 +1762,7 @@ class Wallet(object):
         lastTx = acctTxs[len(acctTxs)-1]
         epoch = self.node.state.beaconChain.getLastBeacon().proof
         txdata = json.dumps({"from": self.address, "to": toDestroy, "tokens": 0, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 5})
-        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
+        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}
         feedback = self.node.checkTxs([tx])
         return feedback
         
@@ -1771,18 +1772,18 @@ class Wallet(object):
         lastTx = acctTxs[len(acctTxs)-1]
         epoch = self.node.state.beaconChain.getLastBeacon().proof
         txdata = json.dumps({"from": self.address, "to": to, "tokens": tokens, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 0})
-        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidityKeccak(["string"], [txdata]).hex()}
+        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}
         feedback = self.node.checkTxs([tx])
         return feedback
         
     def sendBSCTx(self, preparedCall, gasPrice=10000000000):
-        tx = preparedCall.buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.address),'chainId': self.bsc.chainID, 'gasPrice': gasPrice, 'from':self.address, 'value': 0})
+        tx = preparedCall.build_transaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.address),'chainId': self.bsc.chainID, 'gasPrice': gasPrice, 'from':self.address, 'value': 0})
         tx = self.acct.sign_transaction(tx)
         txid = tx.hash.hex()
         print(f"BSC-side txid: {txid}")
         self.bsc.chain.eth.send_raw_transaction(tx.rawTransaction)
         print("Waiting for bsc-side tx confirmation...")
-        receipt = self.bsc.chain.eth.waitForTransactionReceipt(txid)
+        receipt = self.bsc.chain.eth.wait_for_transaction_receipt(txid)
         print("Tx confirmed !")
         return receipt
         
@@ -1815,7 +1816,7 @@ class Wallet(object):
        
         
     def computePassword(self, passwd):
-        return base64.b64encode(w3.solidityKeccak(["string"], [passwd]))
+        return base64.b64encode(w3.solidity_keccak(["string"], [passwd]))
         
     def loadConfig(self):
         data = {}
@@ -1844,7 +1845,7 @@ class Wallet(object):
         password = input("Password: ")
         self.fernet = Fernet(self.computePassword(password))
         key = secrets.token_hex(32)
-        self.acct = w3.eth.account.from_key(key)
+        self.acct = Account.from_key(key)
         self.address = self.acct.address
         bkey = bytes.fromhex(key)
         encKey = self.fernet.encrypt(bkey)
@@ -1860,7 +1861,7 @@ class Wallet(object):
         print("Please create a password. It will be used to encrypt your private key !")
         password = input("Password: ")
         self.fernet = Fernet(self.computePassword(password))
-        self.acct = w3.eth.account.from_key(key)
+        self.acct = Account.from_key(key)
         self.address = self.acct.address
         bkey = bytes.fromhex(key)
         encKey = self.fernet.encrypt(bkey)
@@ -1873,7 +1874,7 @@ class Wallet(object):
     def decrypt(self, keyInput=["decrypt"]):
         password = keyInput[1] if (len(keyInput) > 1) else input("Password: ")
         self.fernet = Fernet(self.computePassword(password))
-        self.acct = w3.eth.account.from_key(self.fernet.decrypt(self.encryptedkey))
+        self.acct = Account.from_key(self.fernet.decrypt(self.encryptedkey))
         print(f"Successfully decrypted wallet !")
         
     def changepasswd(self, keyInput):
@@ -1913,9 +1914,9 @@ class Wallet(object):
 
     def send(self, keyInput):
         try:
-            _to = w3.toChecksumAddress(keyInput[1])
+            _to = w3.to_checksum_address(keyInput[1])
         except:
-            _to = w3.toChecksumAddress(input("Recipient: "))
+            _to = w3.to_checksum_address(input("Recipient: "))
         try:
             _value = float(keyInput[2])
         except:
@@ -2015,7 +2016,7 @@ class Terminal(object):
     def _encodeWithSelector(self, functionName, params):
         selector = bytes(w3.keccak(str(functionName).encode()))[0:4]
         argTypes = list(filter(("").__ne__, functionName.replace(")", "").split("(")[1].split(",")))
-        encodedParams = eth_abi.encode_abi(argTypes, params)
+        encodedParams = eth_abi.encode(argTypes, params)
         return (selector + encodedParams)
         
     def encodeWithSelector(self, keyInput):
@@ -2025,7 +2026,7 @@ class Terminal(object):
     def callContract(self, to, function, params, returnTypes):
         callData = self._encodeWithSelector(function, params)
         rawRetValue = self.node.state.eth_Call({"to": to, "data": callData}).returnValue
-        return eth_abi.decode_abi(returnTypes, rawRetValue)
+        return eth_abi.decode(returnTypes, rawRetValue)
 
     def skip(self, keyInput):
         pass
@@ -2242,7 +2243,7 @@ def numberOfTxs():
 # ACCOUNT-BASED GETTERS (obtained from `State` class)
 @app.get("/accounts/accountInfo/{account}") # Get account info (balance and transaction hashes)
 def accountInfo(account):
-    _address = w3.toChecksumAddress(account)
+    _address = w3.to_checksum_address(account)
     acct = node.state.getAccount(_address, True)
     balance = acct.balance
     transactions = acct.transactions
@@ -2257,18 +2258,18 @@ def accountInfo(account):
 
 @app.get("/accounts/sent/{account}")
 def sentByAccount(account):
-    _address = w3.toChecksumAddress(account)    
+    _address = w3.to_checksum_address(account)    
     return jsonify(result=node.state.getAccount(_address, True).sent, success=True)
 
 @app.get("/accounts/tempcode/{account}")
 def tempcodeByAccount(account):
-    _address = w3.toChecksumAddress(account)    
+    _address = w3.to_checksum_address(account)    
     return jsonify(result=node.state.getAccount(_address, True).tempcode.hex(), success=True)
 
 
 @app.get("/accounts/accountBalance/{account}")
 def accountBalance(account):
-    _address = w3.toChecksumAddress(account)
+    _address = w3.to_checksum_address(account)
     balance = 0
     try:
         balance = node.state.accounts.get(_address).balance

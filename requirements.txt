@@ -1,7 +1,7 @@
 parsimonious
 requests
 flask
-web3==5.31.3
+web3==6.20.4
 pyopenssl
 eth_account
 flask_cors

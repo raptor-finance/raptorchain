@@ -60,7 +60,7 @@ def _requireAddress(s):
     if not isinstance(s, str):
         raise _RpcError({"code": -32602, "message": f"Invalid address: {s!r}"})
     try:
-        return w3.toChecksumAddress(s)
+        return w3.to_checksum_address(s)
     except Exception:
         raise _RpcError({"code": -32602, "message": f"Invalid address: {s}"})
 

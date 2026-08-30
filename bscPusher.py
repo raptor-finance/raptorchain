@@ -1,5 +1,6 @@
 from web3 import Web3
 from web3.auto import w3
+from eth_account import Account
 import time, requests, eth_abi, sys
 
 class Chain(object):
@@ -35,11 +36,11 @@ class BSCInterface(object):
             self.chain = Web3(Web3.WebsocketProvider(rpc))
         elif (rpc.split(":")[0]) in ["http", "https"]:
             self.chain = Web3(Web3.HTTPProvider(rpc))
-        self.beaconInstance = self.chain.eth.contract(address=Web3.toChecksumAddress(params.cntAddress), abi=BeaconChainContractABI)
+        self.beaconInstance = self.chain.eth.contract(address=Web3.to_checksum_address(params.cntAddress), abi=BeaconChainContractABI)
         
         
     def buildTx(self, call, _from):
-        return call.buildTransaction({'nonce': self.chain.eth.get_transaction_count(_from),'chainId': self.chainID,'maxFeePerGas': self.gasPrice, "maxPriorityFeePerGas": self.params.tip, 'from':_from}) if self.eip1559 else call.buildTransaction({'nonce': self.chain.eth.get_transaction_count(_from),'chainId': self.chainID,'gasPrice': self.gasPrice, 'from':_from})
+        return call.build_transaction({'nonce': self.chain.eth.get_transaction_count(_from),'chainId': self.chainID,'maxFeePerGas': self.gasPrice, "maxPriorityFeePerGas": self.params.tip, 'from':_from}) if self.eip1559 else call.build_transaction({'nonce': self.chain.eth.get_transaction_count(_from),'chainId': self.chainID,'gasPrice': self.gasPrice, 'from':_from})
         
     def chainLength(self):
         return self.beaconInstance.functions.chainLength().call()
@@ -49,7 +50,7 @@ class BSCPusher(object):
     def __init__(self, node, privkey, bscInterface):
         self.bsc = bscInterface
         self.node = node
-        self.acct = w3.eth.account.from_key(privkey)
+        self.acct = Account.from_key(privkey)
         print(f"Relayer address : {self.acct.address}")
 
     def bytes32Padding(self, hexStr):
@@ -57,7 +58,7 @@ class BSCPusher(object):
         return (("0" * (64 - len(_hexstr))) + _hexstr)
 
     def blockStruct(self, block):
-        msgsList = list(eth_abi.decode_abi(["bytes[]"], bytes.fromhex(block["messages"]))[0])
+        msgsList = list(eth_abi.decode(["bytes[]"], bytes.fromhex(block["messages"]))[0])
         # msgsList = eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"]))
         _encodedParent = bytes.fromhex(block["parent"].replace("0x", ""))
         _encodedProof = bytes.fromhex(block["miningData"]["proof"].replace("0x", ""))
@@ -86,11 +87,11 @@ class BSCPusher(object):
 
         tx = self.bsc.buildTx(self.bsc.beaconInstance.functions.pushBeacon(data), self.acct.address)
         # tx = self.bsc.stakingContract.functions.sendL2Block(self.acct.address, int(0), eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"])), 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), bytes.fromhex(block["parent"].replace("0x", "")), bytes.fromhex(block["miningData"]["proof"].replace("0x", "")), int(block["height"]), bytes.fromhex(block["son"].replace("0x", "")), int(block["signature"]["v"]), bytes.fromhex(hex(block["signature"]["r"])[2:]), bytes.fromhex(hex(block["signature"]["s"])[2:])).buildTransaction({'nonce': self.bsc.chain.eth.get_transaction_count(self.acct.address),'chainId': self.bsc.chainID, 'gasPrice': 10, 'from':self.acct.address})
-        signedtx = self.acct.signTransaction(tx)
+        signedtx = self.acct.sign_transaction(tx)
         self.bsc.chain.eth.send_raw_transaction(signedtx.rawTransaction)
-        txid = w3.toHex(w3.keccak(signedtx.rawTransaction))
+        txid = w3.to_hex(w3.keccak(signedtx.rawTransaction))
         print(txid)
-        receipt = self.bsc.chain.eth.waitForTransactionReceipt(txid)
+        receipt = self.bsc.chain.eth.wait_for_transaction_receipt(txid)
         print(receipt)
         return receipt
     

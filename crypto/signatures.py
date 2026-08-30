@@ -8,6 +8,7 @@ Responsible for signing and verifying RaptorChain-native transactions
 import json
 
 from web3.auto import w3
+from eth_account import Account
 from eth_account.messages import encode_defunct
 
 
@@ -18,10 +19,10 @@ class SignatureManager(object):
 
     def signTransaction(self, private_key, transaction):
         message = encode_defunct(text=transaction["data"])
-        transaction["hash"] = w3.solidityKeccak(["string"], [transaction["data"]]).hex()
-        _signature = w3.eth.account.sign_message(message, private_key=private_key).signature.hex()
-        signer = w3.eth.account.recover_message(message, signature=_signature)
-        sender = w3.toChecksumAddress(json.loads(transaction["data"])["from"])
+        transaction["hash"] = w3.solidity_keccak(["string"], [transaction["data"]]).hex()
+        _signature = Account.sign_message(message, private_key=private_key).signature.hex()
+        signer = Account.recover_message(message, signature=_signature)
+        sender = w3.to_checksum_address(json.loads(transaction["data"])["from"])
         if (signer == sender):
             transaction["sig"] = _signature
             self.signed += 1
@@ -29,10 +30,10 @@ class SignatureManager(object):
 
     def verifyTransaction(self, transaction):
         message = encode_defunct(text=transaction["data"])
-        _hash = w3.solidityKeccak(["string"], [transaction["data"]]).hex()
+        _hash = w3.solidity_keccak(["string"], [transaction["data"]]).hex()
         _hashInTransaction = transaction["hash"]
-        signer = w3.eth.account.recover_message(message, signature=transaction["sig"])
-        sender = w3.toChecksumAddress(json.loads(transaction["data"])["from"])
+        signer = Account.recover_message(message, signature=transaction["sig"])
+        sender = w3.to_checksum_address(json.loads(transaction["data"])["from"])
         result = ((signer == sender) and (_hash == _hashInTransaction))
         self.verified += int(result)
         return result

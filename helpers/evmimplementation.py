@@ -1,5 +1,6 @@
 from web3.auto import w3
 import itertools, rlp, hashlib, eth_abi
+from eth_account import Account
 from Crypto.Hash import RIPEMD160
 
 from . import constants
@@ -1073,7 +1074,7 @@ class Opcodes(object):
         _nonce = len(env.runningAccount.sent)
         if env.tx.persist:
             env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
-        deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(_nonce)]))[12:])
+        deplAddr = w3.to_checksum_address(w3.keccak(rlp.encode([bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(_nonce)]))[12:])
 
         _initBytecode = env.memory.read_bytes(offset, length)
 
@@ -1171,7 +1172,7 @@ class Opcodes(object):
             env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce (TODO : update that shit for estimateGas)
             
         # calculate deployment address
-        deplAddr = w3.toChecksumAddress(w3.keccak(((b'\xff' + bytes.fromhex(env.runningAccount.address.replace("0x", "")) + int(salt).to_bytes(32, "big") + w3.keccak(_initBytecode))))[12:])
+        deplAddr = w3.to_checksum_address(w3.keccak(((b'\xff' + bytes.fromhex(env.runningAccount.address.replace("0x", "")) + int(salt).to_bytes(32, "big") + w3.keccak(_initBytecode))))[12:])
         print(f"CREATE2 called to deploy address {deplAddr}")
         
         # exec creation
@@ -1243,10 +1244,10 @@ class PrecompiledContracts(object):
             self.__dict__["_methods"] = value
     
         def returnSingleType(self, env, _type, _arg):
-            env.returnCall(eth_abi.encode_abi([_type], [_arg]))
+            env.returnCall(eth_abi.encode([_type], [_arg]))
         
         def returnMultipleTypes(self, env, types, args):
-            env.returnCall(eth_abi.encode_abi(types, args))
+            env.returnCall(eth_abi.encode(types, args))
 
         def calcFunctionSelector(self, functionName):
             return bytes(w3.keccak(str(functionName).encode()))[0:4]
@@ -1258,12 +1259,12 @@ class PrecompiledContracts(object):
             self.methods[self.calcFunctionSelector(_name)] = _implementation    # calculates selector and binds implementation
 
         def decodeParams(self, env, _types):
-            return eth_abi.decode_abi(_types, env.data[4:]) # wrapper around decode_abi, improves readability
+            return eth_abi.decode(_types, env.data[4:]) # wrapper around decode_abi, improves readability
 
         def formatAddress(self, _addr):
             if (type(_addr) == int):
-                return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
-            return w3.toChecksumAddress(_addr)
+                return w3.to_checksum_address(_addr.to_bytes(20, "big"))
+            return w3.to_checksum_address(_addr)
 
         def addressToInt(self, _addr):
             # already int
@@ -1303,7 +1304,7 @@ class PrecompiledContracts(object):
         def call(self, env):
             sig = env.data[63:] # as v is one-byte, 32:63 is empty (only zeroes) due to EVM's 32-bytes word size
             try:
-                recovered = w3.eth.account.recoverHash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
+                recovered = Account._recover_hash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
             except:
                 recovered = constants.ZERO_ADDRESS
             env.returnCall(int(recovered, 16).to_bytes(32, "big"))
@@ -1343,7 +1344,7 @@ class PrecompiledContracts(object):
                 env.returnCall(b"")
                 return
             try:
-                params = eth_abi.decode_abi(["string"], env.data[4:])
+                params = eth_abi.decode(["string"], env.data[4:])
                 _bio = params[0]
                 env.getAccount(env.msgSender).bio = _bio
             except:
@@ -1354,10 +1355,10 @@ class PrecompiledContracts(object):
         def getAccountBio(self, env):
             env.consumeGas(2300)
             try:
-                params = eth_abi.decode_abi(["address"], env.data[4:])
+                params = eth_abi.decode(["address"], env.data[4:])
                 addr = params[0]
                 bio = env.getAccount(addr).bio
-                env.returnCall(eth_abi.encode_abi(["string"], [bio]))
+                env.returnCall(eth_abi.encode(["string"], [bio]))
             except:
                 env.revert(b"ERROR_PARSING_PARAMS")
                 
@@ -1369,13 +1370,13 @@ class PrecompiledContracts(object):
     class CrossChainToken(Precompile):
         def __init__(self, bsc, token, _bridge):
             self.bsc = bsc
-            self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
+            self.BEP20Instance = bsc.getBEP20At(w3.to_checksum_address(token))
             self.bridge = _bridge
             self._name = self.BEP20Instance.name
             self._symbol = self.BEP20Instance.symbol
             self._decimals = self.BEP20Instance.decimals
             # avoids possible address collisions (bridging a remote token to an existing local address)
-            self.address = w3.toChecksumAddress((int(self.BEP20Instance.address, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
+            self.address = w3.to_checksum_address((int(self.BEP20Instance.address, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
             self.supply = 0
             
@@ -1413,10 +1414,10 @@ class PrecompiledContracts(object):
             
         
         def calcBalanceAddress(self, tokenOwner):
-            return int.from_bytes(w3.solidityKeccak(["uint256", "address"], [int(self.balancesSlot), w3.toChecksumAddress(tokenOwner)]), "big")
+            return int.from_bytes(w3.solidity_keccak(["uint256", "address"], [int(self.balancesSlot), w3.to_checksum_address(tokenOwner)]), "big")
             
         def calcAllowanceAddress(self, tokenOwner, spender):
-            return int.from_bytes(w3.solidityKeccak(["uint256", "address", "address"], [int(self.allowancesSlot), w3.toChecksumAddress(tokenOwner), w3.toChecksumAddress(spender)]), "big")
+            return int.from_bytes(w3.solidity_keccak(["uint256", "address", "address"], [int(self.allowancesSlot), w3.to_checksum_address(tokenOwner), w3.to_checksum_address(spender)]), "big")
         
         def totalSupply(self, env):
             env.consumeGas(2300)
@@ -1503,7 +1504,7 @@ class PrecompiledContracts(object):
        
         def mint(self, env, to, tokens):
             print(f"Cross-chain depositing {tokens} to {to}")
-            depositorAddr = self.calcBalanceAddress(w3.toChecksumAddress(to))
+            depositorAddr = self.calcBalanceAddress(w3.to_checksum_address(to))
             env.safeIncrease(depositorAddr, tokens)
             env.safeIncrease(self.supplySlot, tokens)
             
@@ -1515,7 +1516,7 @@ class PrecompiledContracts(object):
             # print(f"Minted {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
         
         def burn(self, env, user, tokens):
-            depositorAddr = self.calcBalanceAddress(w3.toChecksumAddress(user))
+            depositorAddr = self.calcBalanceAddress(w3.to_checksum_address(user))
             
             env.safeDecrease(depositorAddr, tokens)
             env.safeDecrease(self.supplySlot, tokens)
@@ -1523,7 +1524,7 @@ class PrecompiledContracts(object):
             # solidity equivalent : emit Transfer(user, address(0), tokens);
             self.logTransfer(env, user, constants.ZERO_ADDRESS, tokens)
             
-            print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} from {w3.toChecksumAddress(user)}")
+            print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} from {w3.to_checksum_address(user)}")
         
         def fallback(self, env):
             env.revert(b"")
@@ -1585,7 +1586,7 @@ class PrecompiledContracts(object):
             return bool(cnt) # True if chain is supported, False otherwise
             
         def encodePayload(self, _from, _to, gasLimit, callData):
-            return eth_abi.encode_abi(["address", "address", "uint256", "bytes"], [_from, _to, gasLimit, callData]) # decoder on solidity side : (address from, address to, uint256 gasLimit, bytes memory data) = abi.decode(_data, (address, address, uint256, bytes));
+            return eth_abi.encode(["address", "address", "uint256", "bytes"], [_from, _to, gasLimit, callData]) # decoder on solidity side : (address from, address to, uint256 gasLimit, bytes memory data) = abi.decode(_data, (address, address, uint256, bytes));
             
         def packPayload(self, env, payload, chainid):
             handlerContract = env.chain.datafeed.contracts.get(chainid)
@@ -1597,7 +1598,7 @@ class PrecompiledContracts(object):
             # keccak256("CrossChainCall(address,address,uint256,bytes)")
             topic0 = 0x337c45501bcc201af5d31f9837c1719713ee31ed90fc42e5ced404c087a3d951
             # gas limit and calldata aren't indexed, thus they're instead encoded into event data
-            _eventdata = eth_abi.encode_abi(["uint256", "bytes"], [_gas, _calldata])
+            _eventdata = eth_abi.encode(["uint256", "bytes"], [_gas, _calldata])
             
             env.postEvent([topic0, self.addressToInt(caller), self.addressToInt(recipient), _chainid], _eventdata)
             
@@ -1682,7 +1683,7 @@ class PrecompiledContracts(object):
         _acct.setPrecompiledContract(contract, initialize)
         
     def calcBridgedAddress(self, addr):
-        return w3.toChecksumAddress((int(addr, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
+        return w3.to_checksum_address((int(addr, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
     def mintCrossChainToken(self, env, tokenAddress, to, tokens):
         _bridgedAddr = self.calcBridgedAddress(tokenAddress)
@@ -1721,8 +1722,8 @@ class CallEnv(object):
         # TODO : move this function to a common class
         def formatAddress(self, _addr):
             if (type(_addr) == int):
-                return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
-            return w3.toChecksumAddress(_addr)
+                return w3.to_checksum_address(_addr.to_bytes(20, "big"))
+            return w3.to_checksum_address(_addr)
     
         def byteAddress(self, _addr):
             if (type(_addr) == int):    # EVM loves integers lol
@@ -1832,7 +1833,7 @@ class CallEnv(object):
     
     def currentAddr(self):
         if type(self.recipient) == str:
-            return w3.toChecksumAddress(self.recipient)
+            return w3.to_checksum_address(self.recipient)
     
     def consumeGas(self, units):
         self.gasUsed += units

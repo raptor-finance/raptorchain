@@ -10,6 +10,7 @@ from typing import Optional
 
 import rlp
 from web3.auto import w3
+from eth_account import Account
 from eth_utils import keccak
 from rlp.sedes import Binary, big_endian_int, binary
 
@@ -46,10 +47,10 @@ class ETHTransactionDecoder(object):
     def decode_raw_tx(self, raw_tx: str):
         bytesTx = bytes.fromhex(raw_tx.replace("0x", ""))
         tx = rlp.decode(bytesTx, self.Transaction)
-        hash_tx = w3.toHex(keccak(bytesTx))
-        from_ = w3.eth.account.recover_transaction(raw_tx)
-        to = w3.toChecksumAddress(tx.to) if tx.to else None
-        data = w3.toHex(tx.data)
+        hash_tx = w3.to_hex(keccak(bytesTx))
+        from_ = Account.recover_transaction(raw_tx)
+        to = w3.to_checksum_address(tx.to) if tx.to else None
+        data = w3.to_hex(tx.data)
         r = hex(tx.r)
         s = hex(tx.s)
         chain_id = (tx.v - 35) // 2 if tx.v % 2 else (tx.v - 36) // 2

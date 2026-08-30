@@ -18,8 +18,8 @@ def formatAddress(_addr):
     State.CallBlankTransaction and State.
     """
     if type(_addr) == int:
-        return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
-    return w3.toChecksumAddress(_addr)
+        return w3.to_checksum_address(_addr.to_bytes(20, "big"))
+    return w3.to_checksum_address(_addr)
 
 
 def printError(errorMessage):
