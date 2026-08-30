@@ -11,18 +11,22 @@ PUBLIC_RPC = "https://rpc.raptorchain.io/"
 PUBLIC_RPC_TESTNET = "https://rpc-testnet.raptorchain.io/"
 
 # --- External chain RPCs (used by DataFeedInterface) ------------------------
-# chainid -> RPC URL used by the node to pull cross-chain data
+# chainid -> RPC URL used by the node to pull cross-chain data.
+# This dict is the SINGLE source of truth for chain RPCs: BSCInterface also
+# reads its BSC entries (56 = mainnet, 97 = testnet) instead of keeping its
+# own copies.
 DATAFEED_RPCS = {
-    56: "https://bsc-dataseed3.defibit.io",
-    137: "https://poly.api.pocket.network",
+    56: "wss://bsc.api.pocket.network",
+    97: "https://data-seed-prebsc-2-s1.binance.org:8545/",
+    137: "wss://polygon.drpc.org",
     250: "https://fantom.drpc.org",
-    1: "https://eth.drpc.org",
+    1: "https://rpc-eth.blockmachine.io",
 }
 
 # --- BSC bridge RPCs (used by BSCInterface) ---------------------------------
-# testnet / mainnet
-BSC_RPC_TESTNET = "https://data-seed-prebsc-2-s1.binance.org:8545/"
-BSC_RPC_MAINNET = "https://bsc.nodereal.io/"
+# Kept as aliases into DATAFEED_RPCS so BSCInterface reads the same dict.
+BSC_RPC_TESTNET = DATAFEED_RPCS[97]
+BSC_RPC_MAINNET = DATAFEED_RPCS[56]
 
 
 def bsc_rpc(testnet: bool) -> str:
