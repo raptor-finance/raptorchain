@@ -40,6 +40,9 @@ NODE_VERSION = "1.8.0-mainnet-beta"
 TESTNET_PORT = 6969
 MAINNET_PORT = 4242
 
+# --- Networking --------------------------------------------------------------
+MAX_PEERS = 200  # hard cap on the tracked peer table (see Node.askForMorePeers)
+
 
 def chain_id(testnet: bool) -> int:
     """Return the RaptorChain chain ID for the given network mode."""

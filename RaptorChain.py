@@ -1417,12 +1417,22 @@ class Node(object):
     
     # REQUESTING DATA FROM PEERS
     def askForMorePeers(self):
+        # normalize + dedupe against the peers we ALREADY track (the old check
+        # compared the asking peer against the list, which is always present,
+        # so discovery was a silent no-op)
+        known = set(self.stringifyBatchOfPeers(self.peers))
         for peer in self.goodPeers:
             try:
                 obtainedPeers = requests.get(f"{peer}/net/getOnlinePeers").json().get("result", [])
                 for _peer in obtainedPeers:
-                    if not ((str(peer) if str(peer)[len(str(peer))-1] == "/" else (str(peer) + "/")) in self.stringifyBatchOfPeers(self.peers)):
+                    # Peer.__init__ normalizes URLs to a trailing slash; do the
+                    # same here so "http://host:port" and "http://host:port/"
+                    # are treated as the same peer
+                    _str = str(_peer)
+                    _normalized = _str if _str[len(_str)-1] == "/" else (_str + "/")
+                    if (_normalized not in known) and (len(self.peers) < constants.MAX_PEERS):
                         self.peers.append(self.Peer(_peer))
+                        known.add(_normalized)
             except:
                 pass
     
