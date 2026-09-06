@@ -282,7 +282,7 @@ class GenesisBeacon(BeaconBase):
             self.decodedMessages = ["Hey guys, just trying to implement a kind of raptor chain, feel free to have a look".encode()]
             self.messages = eth_abi.encode(["bytes[]"], [self.decodedMessages])
             self.nonce = 0
-            self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            self.miningTarget = constants.MAX_TARGET
             self.proof = self.proofOfWork()
         else:
             self.timestamp = 1658340032
@@ -292,7 +292,7 @@ class GenesisBeacon(BeaconBase):
             self.decodedMessages = [b"Hey guys, I'm working on RaptorChain and expecting it to work very soon !!! - 10/06/2022"]
             self.messages = eth_abi.encode(["bytes[]"], [self.decodedMessages])
             self.nonce = 0
-            self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+            self.miningTarget = constants.MAX_TARGET
             self.proof = self.proofOfWork()
         self.parentTxRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
         self.stateRoot = "0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -367,7 +367,7 @@ class Beacon(BeaconBase):
         self.difficulty = difficulty
         self.messages = bytes.fromhex(data['messages'].replace('0x', ''))
         self.decodedMessages = list(eth_abi.decode(["bytes[]"], bytes.fromhex(data["messages"].replace("0x", "")))[0])
-        self.miningTarget = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        self.miningTarget = constants.MAX_TARGET
         self.stateRoot = stateRoot
         self.timestamp = int(data["timestamp"])
         self.parent = data["parent"]

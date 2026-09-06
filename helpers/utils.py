@@ -13,6 +13,8 @@ import eth_abi
 from web3.auto import w3
 from eth_account.messages import encode_defunct
 
+from . import constants
+
 
 def formatAddress(_addr):
     """Normalize an address to a checksummed hex string.
@@ -109,12 +111,12 @@ def assembleBlockData(miner, height, parent, parentTxRoot, messagesHex, timestam
         _txRoot = "0x" + _txRoot
     blockData = {"parentTxRoot": _txRoot,
                  "miningData": {"miner": miner, "nonce": 0, "difficulty": 1,
-                                "miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                                "miningTarget": constants.MAX_TARGET,
                                 "proof": None},
                  "height": height, "parent": parent,
                  "messages": messagesHex,
                  "timestamp": (int(time.time()) if timestamp is None else int(timestamp)),
-                 "son": "0x" + ("0" * 64),
+                 "son": constants.ZERO_HASH,
                  "signature": {"v": None, "r": None, "s": None, "sig": None}}
     blockData["miningData"]["proof"] = beaconBlockHash(
         blockData["parent"], blockData["timestamp"], blockData["messages"],
@@ -145,7 +147,7 @@ def defaultMessages():
                                         [ZERO_ADDRESS, 0, b""])
     """
     return [eth_abi.encode(["address", "uint256", "bytes"],
-                           ["0x0000000000000000000000000000000000000000", 0, b""])]
+                           [constants.ZERO_ADDRESS, 0, b""])]
 
 
 def _padSigComponent(value):
@@ -185,6 +187,6 @@ def beaconBlockStruct(miner, block):
     _encodedSon = bytes.fromhex(block["son"].replace("0x", ""))
     _encodedSigR = _padSigComponent(hex(block["signature"]["r"]))
     _encodedSigS = _padSigComponent(hex(block["signature"]["s"]))
-    return (miner, int(0), msgsList, 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+    return (miner, int(0), msgsList, 1, bytes.fromhex(constants.MAX_TARGET[2:]),
             int(block["timestamp"]), _encodedParent, _encodedProof, int(block["height"]),
             _encodedSon, int(block["signature"]["v"]), _encodedSigR, _encodedSigS)

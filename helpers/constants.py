@@ -20,6 +20,12 @@ DATAFEED_ADDRESS = "0x000000000000000000000000000000000000FEeD"
 # 32-byte zero hash (used for empty parent/stateRoot/txRoot/etc.)
 ZERO_HASH = "0x0000000000000000000000000000000000000000000000000000000000000000"
 
+# Maximum PoW mining target (difficulty-1): block hashes must be below it
+MAX_TARGET = "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+
+# Empty 256-byte logs bloom (hex), as served in receipts / block headers
+ZERO_BLOOM = "0x" + ("00" * 256)
+
 # --- Chain IDs ---------------------------------------------------------------
 TESTNET_CHAIN_ID = 499597202514
 MAINNET_CHAIN_ID = 1380996178
