@@ -16,7 +16,6 @@ global config
 from web3.auto import w3
 from web3 import Web3
 from eth_account import Account
-from eth_account.messages import encode_defunct
 from dataclasses import dataclass
 from typing import Optional, Any
 from eth_utils import keccak
@@ -26,7 +25,7 @@ from cryptography.fernet import Fernet
 import helpers.constants as constants
 import helpers.rpcs as rpcs
 import helpers.utils as utils
-from helpers.utils import formatAddress, printError, isNotComment
+from helpers.utils import formatAddress, printError, isNotComment, lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages
 from helpers.datatypes import (Message, Transaction,  # re-exported for backwards compatibility
     Masternode, BeaconBase, GenesisBeacon, Beacon)
 from crypto.signatures import SignatureManager
@@ -1613,10 +1612,10 @@ class RaptorBlockSigner(object):
         
     def submitSig(self, blockhash, blocksig):
         acctTxs = self.node.state.getAccount(self.acct.address).transactions
-        lastTx = acctTxs[len(acctTxs)-1]
+        lastTx = lastOf(acctTxs)
         epoch = self.node.state.beaconChain.getLastBeacon().proof
         txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blocksig": blocksig, "blockhash": blockhash, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 7})
-        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}
+        tx = signTxData(self.acct, txdata)
         feedback = self.node.checkTxs([tx])
         return feedback
         
@@ -1648,7 +1647,6 @@ class RaptorBlockProducer(object):
         if not (self.acct.address in self.node.state.beaconChain.validators):
             raise self.NotInSetError("Not in validator set")
         self.bsc = node.state.beaconChain.bsc
-        self.defaultMessage = eth_abi.encode(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
         self.fancyPrint(f"RaptorChain masternode started using address {self.acct.address}", 2)
         self.thread = threading.Thread(target=self.blockProductionLoop)
         self.thread.start()
@@ -1664,11 +1662,6 @@ class RaptorBlockProducer(object):
         print("")
     
     
-    def blockHash(self, block):
-        messagesHash = w3.keccak(bytes.fromhex(block["messages"])).hex()
-        bRoot = w3.solidity_keccak(["bytes32", "uint256", "bytes32", "bytes32", "address"], [block["parent"], int(block["timestamp"]), messagesHash, block["parentTxRoot"], self.acct.address]).hex() # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
-        return w3.solidity_keccak(["bytes32", "uint256"], [bRoot, int(0)]).hex()
-    
     def buildBlock(self):
         blockHeight = len(self.node.state.beaconChain.blocks)
         lastBlock = self.node.state.beaconChain.getLastBeacon()
@@ -1676,25 +1669,20 @@ class RaptorBlockProducer(object):
         parentTxRoot = lastBlock.txsRoot()
         pulledMessages = self.pullAvailableMessages()
         if (len(pulledMessages) == 0):
-            pulledMessages = [self.defaultMessage]
+            pulledMessages = defaultMessages()
         
         abiencodedmessages = eth_abi.encode(["bytes[]"], [pulledMessages])
         
-        blockData = {"parentTxRoot": parentTxRoot.hex(), "miningData" : {"miner": self.acct.address,"nonce": 0,"difficulty": 1,"miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","proof": None}, "height": blockHeight,"parent": lastBlockHash,"messages": abiencodedmessages.hex(), "timestamp": int(time.time()), "son": "0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": None, "r": None, "s": None, "sig": None}, "minerVersion": self.node.state.version}
-        blockData["miningData"]["proof"] = self.blockHash(blockData)
-        _sig = self.acct.signHash(blockData["miningData"]["proof"])
-        blockData["signature"]["v"] = _sig.v
-        blockData["signature"]["r"] = _sig.r
-        blockData["signature"]["s"] = _sig.s
-        blockData["signature"]["sig"] = _sig.signature.hex()
-        return blockData
+        blockData = assembleBlockData(self.acct.address, blockHeight, lastBlockHash, parentTxRoot.hex(), abiencodedmessages.hex())
+        blockData["minerVersion"] = self.node.state.version
+        return signBlockData(self.acct, blockData)
         
     def submitBlock(self, block):
         acctTxs = self.node.state.getAccount(self.acct.address).transactions
-        lastTx = acctTxs[len(acctTxs)-1]
+        lastTx = lastOf(acctTxs)
         epoch = block["parent"]
         txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blockData": block, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 1})
-        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}
+        tx = signTxData(self.acct, txdata)
         feedback = self.node.checkTxs([tx])
         return feedback
     
@@ -1760,29 +1748,29 @@ class Wallet(object):
         
     def createMNForSelf(self):
         acctTxs = self.node.state.getAccount(self.address).transactions
-        lastTx = acctTxs[len(acctTxs)-1]
+        lastTx = lastOf(acctTxs)
         epoch = self.node.state.beaconChain.getLastBeacon().proof
         txdata = json.dumps({"from": self.address, "to": self.address, "tokens": constants.MN_COLLATERAL, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 4})
-        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}
+        tx = signTxData(self.acct, txdata)
         feedback = self.node.checkTxs([tx])
         return feedback
         
     def destroyOwnedMN(self, toDestroy):
         acctTxs = self.node.state.getAccount(self.address).transactions
-        lastTx = acctTxs[len(acctTxs)-1]
+        lastTx = lastOf(acctTxs)
         epoch = self.node.state.beaconChain.getLastBeacon().proof
         txdata = json.dumps({"from": self.address, "to": toDestroy, "tokens": 0, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 5})
-        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}
+        tx = signTxData(self.acct, txdata)
         feedback = self.node.checkTxs([tx])
         return feedback
         
         
     def sendTransaction(self, to, tokens):
         acctTxs = self.node.state.getAccount(self.address).transactions
-        lastTx = acctTxs[len(acctTxs)-1]
+        lastTx = lastOf(acctTxs)
         epoch = self.node.state.beaconChain.getLastBeacon().proof
         txdata = json.dumps({"from": self.address, "to": to, "tokens": tokens, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 0})
-        tx = {"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}
+        tx = signTxData(self.acct, txdata)
         feedback = self.node.checkTxs([tx])
         return feedback
         

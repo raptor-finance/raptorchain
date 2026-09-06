@@ -2,7 +2,7 @@ from web3.auto import w3
 import eth_abi, requests, time, json
 from web3 import Web3
 from eth_account import Account
-from eth_account.messages import encode_defunct
+from helpers.utils import lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages
 
 class BSCInterface(object):
     def __init__(self, rpc, MasterContractAddress, tokenAddress):
@@ -42,51 +42,35 @@ class RaptorBlockProducer(object):
         self.node = nodeip
         self.acct = Account.from_key(privkey)
         self.bsc = BSCInterface("https://data-seed-prebsc-1-s1.binance.org:8545/", "0x62bba42220be7acf52bb923a0bdc098ff4db4a36", "0xC64518Fb9D74fabA4A748EA1Db1BdDA71271Dc21")
-        self.defaultMessage = eth_abi.encode(["address", "uint256", "bytes"], ["0x0000000000000000000000000000000000000000", 0, b""])
     
     def pullAvailableMessages(self):
         hexmessages = requests.get(f"{self.node}/chain/mempool").json().get("result")
-        print(hexmessages)
         bytesmessages = []
         for hexmsg in hexmessages:
             bytesmessages.append(bytes.fromhex(hexmsg.replace("0x", "")))
-        print(len(bytesmessages))
         return bytesmessages
     
     
-    def blockHash(self, block):
-        print(block["messages"])
-        messagesHash = w3.keccak(bytes.fromhex(block["messages"])).hex()
-        print(messagesHash)
-        bRoot = w3.solidity_keccak(["bytes32", "uint256", "bytes32","address"], [block["parent"], int(block["timestamp"]), messagesHash, self.acct.address]).hex() # parent PoW hash (bytes32), beacon's timestamp (uint256), hash of messages (bytes32), beacon miner (address)
-        print(bRoot)
-        return w3.solidity_keccak(["bytes32", "uint256"], [bRoot, int(0)]).hex()
-    
     def buildBlock(self):
         blockHeight = requests.get(f"{self.node}/chain/length").json().get("result")
-        lastBlockHash = requests.get(f"{self.node}/chain/miningInfo").json().get("result").get("lastBlockHash")
+        lastBlock = requests.get(f"{self.node}/chain/getlastblock").json().get("result")
+        lastBlockHash = lastBlock.get("miningData").get("proof")
+        parentTxRoot = lastBlock.get("txsRoot")
         pulledMessages = self.pullAvailableMessages()
         if (len(pulledMessages) == 0):
-            pulledMessages = [self.defaultMessage]
+            pulledMessages = defaultMessages()
         
         abiencodedmessages = eth_abi.encode(["bytes[]"], [pulledMessages])
         
-        blockData = {"miningData" : {"miner": self.acct.address,"nonce": 0,"difficulty": 1,"miningTarget": "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","proof": None}, "height": blockHeight,"parent": lastBlockHash,"messages": abiencodedmessages.hex(), "timestamp": int(time.time()), "son": "0000000000000000000000000000000000000000000000000000000000000000", "signature": {"v": None, "r": None, "s": None, "sig": None}}
-        blockData["miningData"]["proof"] = self.blockHash(blockData)
-        print(blockData["miningData"]["proof"])
-        _sig = self.acct.signHash(blockData["miningData"]["proof"])
-        blockData["signature"]["v"] = _sig.v
-        blockData["signature"]["r"] = _sig.r
-        blockData["signature"]["s"] = _sig.s
-        blockData["signature"]["sig"] = _sig.signature.hex()
-        return blockData
+        blockData = assembleBlockData(self.acct.address, blockHeight, lastBlockHash, parentTxRoot, abiencodedmessages.hex())
+        return signBlockData(self.acct, blockData)
         
     def submitBlock(self, block):
         acctTxs = requests.get(f"{self.node}/accounts/accountInfo/{self.acct.address}").json().get("result").get("transactions")
-        lastTx = acctTxs[len(acctTxs)-1]
+        lastTx = lastOf(acctTxs)
         epoch = block["parent"]
         txdata = json.dumps({"from": "0x0000000000000000000000000000000000000000", "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blockData": block, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 1})
-        tx = json.dumps({"data": txdata, "sig": self.acct.sign_message(encode_defunct(text=txdata)).signature.hex(), "hash": w3.solidity_keccak(["string"], [txdata]).hex()}).encode().hex()
+        tx = json.dumps(signTxData(self.acct, txdata)).encode().hex()
         feedback = requests.get(f"{self.node}/send/rawtransaction/?tx={tx}").json()
         print(feedback)
         return feedback
