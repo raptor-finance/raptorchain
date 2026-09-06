@@ -25,7 +25,7 @@ from cryptography.fernet import Fernet
 import helpers.constants as constants
 import helpers.rpcs as rpcs
 import helpers.utils as utils
-from helpers.utils import formatAddress, printError, isNotComment, lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages
+from helpers.utils import formatAddress, printError, isNotComment, lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages, beaconBlockStruct
 from helpers.datatypes import (Message, Transaction,  # re-exported for backwards compatibility
     Masternode, BeaconBase, GenesisBeacon, Beacon)
 from crypto.signatures import SignatureManager
@@ -144,6 +144,10 @@ class BeaconChain(object):
                 print(f"Deposit {_hash} pulled from BSC")
             self.saveCacheFile()
             return cachedDeposit.legacyFormat
+            
+        def currentDepositsIndex(self):
+            # live on-chain read - MUST NOT cache (drives indexToCheck semantics)
+            return self.custodyContract.functions.depositsLength().call()
             
         def getBEP20At(self, addr):
             if self.cachedTokens.get(addr):
@@ -1582,7 +1586,7 @@ class Node(object):
             raise
 
     def createRefreshTx(self):
-        _index = self.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
+        _index = self.state.beaconChain.bsc.currentDepositsIndex()
         if self.state.lastIndex >= _index:
             return
         data = json.dumps({"epoch": self.state.getCurrentEpoch(), "indexToCheck": _index, "type": 6})
@@ -1590,7 +1594,7 @@ class Node(object):
         self.checkTxs([{"data": data, "hash": _txid_}], True)
 
     def integrateETHTransaction(self, ethTx):
-        data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "indexToCheck": self.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 2})
+        data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "indexToCheck": self.state.beaconChain.bsc.currentDepositsIndex(), "type": 2})
         _txid_ = w3.solidity_keccak(["string"], [data]).hex()
         _result = self.checkTxs([{"data": data, "hash": _txid_}], True)
         if _txid_ in _result["failed"]:
@@ -1614,7 +1618,7 @@ class RaptorBlockSigner(object):
         acctTxs = self.node.state.getAccount(self.acct.address).transactions
         lastTx = lastOf(acctTxs)
         epoch = self.node.state.beaconChain.getLastBeacon().proof
-        txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blocksig": blocksig, "blockhash": blockhash, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 7})
+        txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blocksig": blocksig, "blockhash": blockhash, "indexToCheck": self.bsc.currentDepositsIndex(), "type": 7})
         tx = signTxData(self.acct, txdata)
         feedback = self.node.checkTxs([tx])
         return feedback
@@ -1681,7 +1685,7 @@ class RaptorBlockProducer(object):
         acctTxs = self.node.state.getAccount(self.acct.address).transactions
         lastTx = lastOf(acctTxs)
         epoch = block["parent"]
-        txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blockData": block, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 1})
+        txdata = json.dumps({"from": self.acct.address, "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blockData": block, "indexToCheck": self.bsc.currentDepositsIndex(), "type": 1})
         tx = signTxData(self.acct, txdata)
         feedback = self.node.checkTxs([tx])
         return feedback
@@ -1689,16 +1693,7 @@ class RaptorBlockProducer(object):
     
     
     def blockStruct(self, block):
-        msgsList = list(eth_abi.decode(["bytes[]"], bytes.fromhex(block["messages"]))[0])
-        # msgsList = eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"]))
-        _encodedParent = bytes.fromhex(block["parent"].replace("0x", ""))
-        _encodedProof = bytes.fromhex(block["miningData"]["proof"].replace("0x", ""))
-        _encodedSon = bytes.fromhex(block["son"].replace("0x", ""))
-        _encodedSigR = bytes.fromhex(hex(block["signature"]["r"])[2:])
-        print(hex(block["signature"]["s"]))
-        _encodedSigS = bytes.fromhex(hex(block["signature"]["s"])[2:])
-        
-        return (self.acct.address, int(0), msgsList, 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), _encodedParent, _encodedProof, int(block["height"]), _encodedSon, int(block["signature"]["v"]), _encodedSigR, _encodedSigS)
+        return beaconBlockStruct(self.acct.address, block)
     
     def produceNewBlock(self):
         _block = self.buildBlock()
@@ -1750,7 +1745,7 @@ class Wallet(object):
         acctTxs = self.node.state.getAccount(self.address).transactions
         lastTx = lastOf(acctTxs)
         epoch = self.node.state.beaconChain.getLastBeacon().proof
-        txdata = json.dumps({"from": self.address, "to": self.address, "tokens": constants.MN_COLLATERAL, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 4})
+        txdata = json.dumps({"from": self.address, "to": self.address, "tokens": constants.MN_COLLATERAL, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.currentDepositsIndex(), "type": 4})
         tx = signTxData(self.acct, txdata)
         feedback = self.node.checkTxs([tx])
         return feedback
@@ -1759,7 +1754,7 @@ class Wallet(object):
         acctTxs = self.node.state.getAccount(self.address).transactions
         lastTx = lastOf(acctTxs)
         epoch = self.node.state.beaconChain.getLastBeacon().proof
-        txdata = json.dumps({"from": self.address, "to": toDestroy, "tokens": 0, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 5})
+        txdata = json.dumps({"from": self.address, "to": toDestroy, "tokens": 0, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.currentDepositsIndex(), "type": 5})
         tx = signTxData(self.acct, txdata)
         feedback = self.node.checkTxs([tx])
         return feedback
@@ -1769,7 +1764,7 @@ class Wallet(object):
         acctTxs = self.node.state.getAccount(self.address).transactions
         lastTx = lastOf(acctTxs)
         epoch = self.node.state.beaconChain.getLastBeacon().proof
-        txdata = json.dumps({"from": self.address, "to": to, "tokens": tokens, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call(), "type": 0})
+        txdata = json.dumps({"from": self.address, "to": to, "tokens": tokens, "parent": lastTx, "epoch": epoch, "indexToCheck": self.node.state.beaconChain.bsc.currentDepositsIndex(), "type": 0})
         tx = signTxData(self.acct, txdata)
         feedback = self.node.checkTxs([tx])
         return feedback
@@ -2286,7 +2281,7 @@ def txParent(tx):
 def processListOfTxs(_txs):
     hashes = []
     txs = []
-    _depsLength = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
+    _depsLength = node.state.beaconChain.bsc.currentDepositsIndex()
     for tx in _txs:
         _tx = json.loads(tx)
         if (type(_tx["data"]) == dict):
@@ -2313,7 +2308,7 @@ def sendRawTransactions(tx: str = None):
         if (type(tx["data"]) == dict):
             tx["data"] = json.dumps(tx["data"]).replace(" ", "")
         if not tx.get("indexToCheck", None):
-            tx["indexToCheck"] = node.state.beaconChain.bsc.custodyContract.functions.depositsLength().call()
+            tx["indexToCheck"] = node.state.beaconChain.bsc.currentDepositsIndex()
         txs.append(tx)
         hashes.append(tx["hash"])
     node.checkTxs(txs, True)

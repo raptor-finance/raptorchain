@@ -146,3 +146,45 @@ def defaultMessages():
     """
     return [eth_abi.encode(["address", "uint256", "bytes"],
                            ["0x0000000000000000000000000000000000000000", 0, b""])]
+
+
+def _padSigComponent(value):
+    """Left-pad an EVM signature r/s component to exactly 32 bytes (64 hex chars).
+
+    Real ECDSA r/s values carry 61-64 hex chars (~9% are SHORTER than 64).
+    bytesN values are left-aligned in the ABI: a short value that is not
+    left-padded gets zero-padded on the RIGHT by eth_abi, so the contract
+    would decode it as value * 256 — silently corrupted (the old inline
+    code had exactly this bug for even-length-short hex, and crashed with
+    ValueError for odd-length hex).  This mirrors bscPusher.bytes32Padding.
+    """
+    _s = value.replace("0x", "")
+    return bytes.fromhex(_s.zfill(64))
+
+
+def beaconBlockStruct(miner, block):
+    """Encode a beacon block for the legacy ``sendL2Block`` contract.
+
+    Returns the 12-field ``Beacon`` tuple consumed by the OLD StakeManager
+    ``sendL2Block`` function (miner, nonce, messages, difficulty,
+    miningTarget, timestamp, parent, proof, height, son, v, r, s).
+
+    This shared version replaces the three byte-identical copies that used
+    to live in RaptorBlockProducer (RaptorChain.py), blockProducer.py and
+    raptormasternode.py.  It hardens the r/s encoding: the originals did
+    ``bytes.fromhex(hex(r)[2:])`` which crashes on odd-length hex; this
+    pads to a full byte first.
+
+    NOTE: this is NOT the tuple shape bscPusher.py sends to the NEW
+    ``pushBeacon`` contract (which adds parentTxRoot + relayerSigs) — that
+    is a different, newer contract ABI and deliberately stays separate.
+    """
+    msgsList = list(eth_abi.decode(["bytes[]"], bytes.fromhex(block["messages"]))[0])
+    _encodedParent = bytes.fromhex(block["parent"].replace("0x", ""))
+    _encodedProof = bytes.fromhex(block["miningData"]["proof"].replace("0x", ""))
+    _encodedSon = bytes.fromhex(block["son"].replace("0x", ""))
+    _encodedSigR = _padSigComponent(hex(block["signature"]["r"]))
+    _encodedSigS = _padSigComponent(hex(block["signature"]["s"]))
+    return (miner, int(0), msgsList, 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+            int(block["timestamp"]), _encodedParent, _encodedProof, int(block["height"]),
+            _encodedSon, int(block["signature"]["v"]), _encodedSigR, _encodedSigS)

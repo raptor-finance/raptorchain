@@ -2,7 +2,7 @@ from web3.auto import w3
 import eth_abi, requests, time, json
 from web3 import Web3
 from eth_account import Account
-from helpers.utils import lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages
+from helpers.utils import lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages, beaconBlockStruct
 
 class BSCInterface(object):
     def __init__(self, rpc, MasterContractAddress, tokenAddress):
@@ -32,6 +32,10 @@ class BSCInterface(object):
         if (w3.to_checksum_address(self.token) != w3.to_checksum_address(returnValue["token"])):
             returnValue["amount"] = 0
         return returnValue
+
+    def currentDepositsIndex(self):
+        # live on-chain read - MUST NOT cache (drives indexToCheck semantics)
+        return self.custodyContract.functions.depositsLength().call()
 
     def chainLength(self):
         print(self.beaconChainContract.address)
@@ -69,7 +73,7 @@ class RaptorBlockProducer(object):
         acctTxs = requests.get(f"{self.node}/accounts/accountInfo/{self.acct.address}").json().get("result").get("transactions")
         lastTx = lastOf(acctTxs)
         epoch = block["parent"]
-        txdata = json.dumps({"from": "0x0000000000000000000000000000000000000000", "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blockData": block, "indexToCheck": self.bsc.custodyContract.functions.depositsLength().call(), "type": 1})
+        txdata = json.dumps({"from": "0x0000000000000000000000000000000000000000", "to": "0x0000000000000000000000000000000000000000", "tokens": 0, "parent": lastTx, "epoch": epoch, "blockData": block, "indexToCheck": self.bsc.currentDepositsIndex(), "type": 1})
         tx = json.dumps(signTxData(self.acct, txdata)).encode().hex()
         feedback = requests.get(f"{self.node}/send/rawtransaction/?tx={tx}").json()
         print(feedback)
@@ -78,16 +82,7 @@ class RaptorBlockProducer(object):
     
     
     def blockStruct(self, block):
-        msgsList = list(eth_abi.decode(["bytes[]"], bytes.fromhex(block["messages"]))[0])
-        # msgsList = eth_abi.decode_abi(["bytes32[]"], bytes.fromhex(block["messages"]))
-        _encodedParent = bytes.fromhex(block["parent"].replace("0x", ""))
-        _encodedProof = bytes.fromhex(block["miningData"]["proof"].replace("0x", ""))
-        _encodedSon = bytes.fromhex(block["son"].replace("0x", ""))
-        _encodedSigR = bytes.fromhex(hex(block["signature"]["r"])[2:])
-        print(hex(block["signature"]["s"]))
-        _encodedSigS = bytes.fromhex(hex(block["signature"]["s"])[2:])
-        
-        return (self.acct.address, int(0), msgsList, 1, bytes.fromhex("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), int(block["timestamp"]), _encodedParent, _encodedProof, int(block["height"]), _encodedSon, int(block["signature"]["v"]), _encodedSigR, _encodedSigS)
+        return beaconBlockStruct(self.acct.address, block)
 
     def pushMissingBlocksToBSC(self):
         for i in range(int(self.bsc.chainLength()), int(int(requests.get(f"{self.node}/chain/length").json().get("result"))-1)):
