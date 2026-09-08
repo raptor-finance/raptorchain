@@ -57,11 +57,9 @@ class CallMemory(object):
         # self.data += [0]*length
 
 
-class Msg(object):
-    def __init__(self, sender, recipient, value):
-        self.sender = sender
-        self.recipient = recipient
-        self.value = 0
+# NOTE: an older 3-arg Msg stub used to live here; the live 8-arg Msg is
+# defined below (next to CallEnv). The stub is removed so imports can't
+# accidentally pick up the wrong signature.
 
 
 # CallEnv(tx.sender, self.accounts.get(),)
@@ -1719,11 +1717,9 @@ class CallEnv(object):
             self.data = data
 
     class Event(object):
-        # TODO : move this function to a common class
         def formatAddress(self, _addr):
-            if (type(_addr) == int):
-                return w3.to_checksum_address(_addr.to_bytes(20, "big"))
-            return w3.to_checksum_address(_addr)
+            from .utils import formatAddress as _sharedFormatAddress
+            return _sharedFormatAddress(_addr)
     
         def byteAddress(self, _addr):
             if (type(_addr) == int):    # EVM loves integers lol

@@ -12,7 +12,7 @@ from starlette.datastructures import URL
 from starlette.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-global config
+global config  # (legacy statement; config is assigned below)
 from web3.auto import w3
 from web3 import Web3
 from eth_account import Account
@@ -34,7 +34,7 @@ from crypto.eth_decoder import ETHTransactionDecoder
 import helpers.web3rpc as web3rpc
 from helpers.store import Store
 
-transactions = {}
+# transactions = {}  # legacy module-level store (dead: Store owns persistence)
 try:
     configFile = open("raptorchainconfig.json", "r")
     config = json.load(configFile)
@@ -375,7 +375,10 @@ class BeaconChain(object):
     
     def getBlockByHeightJSON(self, height):
         try:
-            return self.blocks[height].exportJson()
+            # reject negatives explicitly: blocks[-1] would return the tip
+            if int(height) < 0:
+                return None
+            return self.blocks[int(height)].exportJson()
         except Exception as e:
             printError(f"Exception happened while pulling block {height}: {e.__repr__()}")
             return None
@@ -944,6 +947,19 @@ class State(object):
         if _debug:
             env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.getStorage()} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
 
+    _RECEIPT_UNSET = object()
+    def makeReceipt(self, tx, gasUsed, contractAddress=_RECEIPT_UNSET, logs=None, logsBloom=None, status="0x1", blockNumber=None, blockHash=None):
+        """Build a receipt dict. Read-only helper: identical output shape to
+        the previous inline literals, using constants.ZERO_BLOOM."""
+        return {"transactionHash": tx.txid, "transactionIndex": '0x1',
+                "blockNumber": (self.txIndex.get(tx.txid, 0) if blockNumber is None else blockNumber),
+                "blockHash": (tx.txid if blockHash is None else blockHash),
+                "cumulativeGasUsed": hex(gasUsed), "gasUsed": hex(gasUsed),
+                "contractAddress": (tx.recipient if contractAddress is self._RECEIPT_UNSET else contractAddress),
+                "logs": ([] if logs is None else logs),
+                "logsBloom": (constants.ZERO_BLOOM if logsBloom is None else logsBloom),
+                "status": status}
+
     def deployContract(self, tx):
         self.applyParentStuff(tx)
         deplAddr = w3.to_checksum_address(w3.keccak(rlp.encode([bytes.fromhex(tx.sender.replace("0x", "")), int(tx.nonce)]))[12:])
@@ -962,11 +978,11 @@ class State(object):
         deplAcct.storage = env.getStorage().copy()
         deplAcct.tempStorage = env.getStorage().copy()
         if env.getSuccess():
-            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'}
+            self.receipts[tx.txid] = self.makeReceipt(tx, env.gasUsed, tx.recipient if tx.contractDeployment else None, blockHash=tx.epoch)
             if self.verbose:
                 print(f"Deployed contract {deplAddr} in tx {tx.txid}")
         else:
-            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid), "blockHash": tx.epoch, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
+            self.receipts[tx.txid] = self.makeReceipt(tx, env.gasUsed, tx.recipient if tx.contractDeployment else None, status="0x0", blockHash=tx.epoch)
         # for _addr in tx.affectedAccounts:
             # self.getAccount(_addr).addParent(tx.txid)
 
@@ -1016,7 +1032,7 @@ class State(object):
         self.applyParentStuff(tx)
         if ((tx.value + tx.fee) > self.getAccount(tx.sender).balance):
             # no environment exists yet at this point - report zero gas usage
-            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(0), "gasUsed": hex(0),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
+            self.receipts[tx.txid] = self.makeReceipt(tx, 0, tx.recipient if tx.contractDeployment else None, status="0x0")
             return (False, b"")
         self.ensureExistence(tx.sender)
         self.ensureExistence(tx.recipient)
@@ -1057,15 +1073,15 @@ class State(object):
             # system messages
             tx.systemMessages = tx.systemMessages + env.systemMessages
             
-            # save receipt (TODO : make this code easier to read)
-            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": tx.events, "logsBloom": "0x" + tx.logsBloom.hex(),"status": '0x1'}
+# save receipt
+            self.receipts[tx.txid] = self.makeReceipt(tx, env.gasUsed, tx.recipient if tx.contractDeployment else None, tx.events, "0x" + tx.logsBloom.hex())
         else:
             # cancel storage/balance changes
             for _addr in tx.affectedAccounts:
                 self.getAccount(_addr).cancelChanges()
-                
+
             # save receipt
-            self.receipts[tx.txid] = {"transactionHash": tx.txid,"transactionIndex": '0x1',"blockNumber": self.txIndex.get(tx.txid, 0), "blockHash": tx.txid, "cumulativeGasUsed": hex(env.gasUsed), "gasUsed": hex(env.gasUsed),"contractAddress": (tx.recipient if tx.contractDeployment else None),"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x0'}
+            self.receipts[tx.txid] = self.makeReceipt(tx, env.gasUsed, tx.recipient if tx.contractDeployment else None, status="0x0")
 
         # unused gas refund
         feeToRefund = max((tx.gasprice * env.remainingGas()), 0) # can't spend more than gas limit (even if gas usage is slightly superior)
@@ -1491,8 +1507,12 @@ class Node(object):
     def pullTxsByBlockNumber(self, blockNumber):
         txs = []
         try:
-            txs = self.state.beaconChain.blocks.get(blockNumber).transactions.copy()
-        except:
+            _n = int(blockNumber)
+            # blocks is a list, not a dict; reject negatives explicitly
+            # (blocks[-1] would silently return the tip)
+            if _n >= 0:
+                txs = self.state.beaconChain.blocks[_n].transactions.copy()
+        except (ValueError, TypeError, IndexError, AttributeError):
             txs = []
         for peer in self.goodPeers:
             try:
@@ -1573,7 +1593,7 @@ class Node(object):
             _tx_ = Transaction(self.store.getTransaction(_txid))
             _blockHash = _tx_.epoch or self.state.getGenesisEpoch()
             _beacon_ = self.state.beaconChain.blocksByHash.get(_blockHash)
-            return self.state.receipts.get(_txid, {"transactionHash": _txid,"transactionIndex":  '0x1',"blockNumber": _beacon_.number, "blockHash": _blockHash, "cumulativeGasUsed": '0x5208', "gasUsed": '0x5208',"contractAddress": None,"logs": [], "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","status": '0x1'})
+            return self.state.receipts.get(_txid, {"transactionHash": _txid,"transactionIndex":  '0x1',"blockNumber": _beacon_.number, "blockHash": _blockHash, "cumulativeGasUsed": '0x5208', "gasUsed": '0x5208',"contractAddress": None,"logs": [], "logsBloom": constants.ZERO_BLOOM,"status": '0x1'})
         except Exception:
             return None
     
@@ -1624,7 +1644,10 @@ class RaptorBlockSigner(object):
         return feedback
         
     def signBlockByHeight(self, blockheight):
-        bkhash = self.node.state.beaconChain.blocks[int(blockheight)].proof
+        _n = int(blockheight)
+        if _n < 0:
+            raise ValueError(f"Invalid block height: {blockheight}")
+        bkhash = self.node.state.beaconChain.blocks[_n].proof
         bksig = self.generateBlockSig(bkhash)
         self.submitSig(bkhash, bksig)
         
@@ -2067,7 +2090,10 @@ class Terminal(object):
         _id = keyInput[1]
         try:
             if _id.isnumeric():
-                print(json.dumps(self.node.state.beaconChain.blocks[int(_id)].ABIEncodable()))
+                _n = int(_id)
+                if _n < 0:
+                    raise ValueError(f"Invalid block height: {_id}")
+                print(json.dumps(self.node.state.beaconChain.blocks[_n].ABIEncodable()))
             else:
                 print(json.dumps(self.node.state.beaconChain.blocksByHash.get(_id).ABIEncodable()))
         except Exception as e:
@@ -2154,11 +2180,11 @@ app.add_middleware(
     HttpUrlRedirectMiddleware,
 )
 
-def jsonify(result, success=True, message=None):
+def jsonify(result=None, success=True, message=None, status_code=200):
     responseBody = {"result": result, "success": success}
     if (type(message) == str):
         responseBody["message"] = message
-    return fastapi.Response(content=json.dumps(responseBody), media_type="application/json")
+    return fastapi.Response(content=json.dumps(responseBody), media_type="application/json", status_code=status_code)
 
 def retPlainText(data):
     return fastapi.Response(content=data, media_type="text/plain")
@@ -2197,7 +2223,8 @@ def nLastTxs(n):
 def getTxsByBound(upperBound, lowerBound):
     upperBound = min(int(upperBound), node.store.txCount()-1)
     lowerBound = max(int(lowerBound), 0)
-    return jsonify(result=node.store.getTxsByRange(lowerBound, upperBound), success=True)
+    # getTxsByRange is [start:end); +1 so the upper bound is inclusive
+    return jsonify(result=node.store.getTxsByRange(lowerBound, upperBound + 1), success=True)
 
 @app.get("/get/txIndex/{index}")
 def getTxIndex(index):
@@ -2205,7 +2232,7 @@ def getTxIndex(index):
     if _index != None:
         return jsonify(result=_index, success=True)
     else:
-        return (jsonify(message="TX_NOT_FOUND", success=False), 404)
+        return jsonify(message="TX_NOT_FOUND", success=False, status_code=404)
 
 @app.get("/get/transaction/{txhash}") # get specific tx by hash
 def getTransactionByHash(txhash):
@@ -2213,7 +2240,7 @@ def getTransactionByHash(txhash):
     if (tx != None):
         return jsonify(result=tx, success=True)
     else:
-        return (jsonify(message="TX_NOT_FOUND", success=False), 404)
+        return jsonify(message="TX_NOT_FOUND", success=False, status_code=404)
 
 @app.get("/get/transactions/{txhashes}") # get specific tx by hash
 def getMultipleTransactionsByHashes(txhashes):
@@ -2271,7 +2298,7 @@ def accountBalance(account):
     return jsonify(result={"balance": (balance or 0)}, success=True)
 
 @app.get("/accounts/txChilds/{tx}")
-def txParent(tx):
+def txChilds(tx):
     _kids = node.state.txChilds.get(tx)
     if _kids != None:
         return jsonify(result=_kids, success=True)
@@ -2281,13 +2308,13 @@ def txParent(tx):
 def processListOfTxs(_txs):
     hashes = []
     txs = []
-    _depsLength = node.state.beaconChain.bsc.currentDepositsIndex()
     for tx in _txs:
         _tx = json.loads(tx)
         if (type(_tx["data"]) == dict):
             _tx["data"] = json.dumps(_tx["data"]).replace(" ", "")
-        if not _tx.get("indexToCheck", None):
-            _tx["indexToCheck"] = _depsLength
+        # NOTE: no outer "indexToCheck" default here — Transaction reads
+        # indexToCheck from inside tx["data"], so a top-level default would
+        # be dead (and a falsy check would clobber a valid 0).
         txs.append(_tx)
         hashes.append(_tx["hash"])
     node.checkTxs(txs, True)
@@ -2307,8 +2334,7 @@ def sendRawTransactions(tx: str = None):
         print(tx)
         if (type(tx["data"]) == dict):
             tx["data"] = json.dumps(tx["data"]).replace(" ", "")
-        if not tx.get("indexToCheck", None):
-            tx["indexToCheck"] = node.state.beaconChain.bsc.currentDepositsIndex()
+        # NOTE: no outer "indexToCheck" default — see processListOfTxs.
         txs.append(tx)
         hashes.append(tx["hash"])
     node.checkTxs(txs, True)

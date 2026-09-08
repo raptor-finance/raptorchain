@@ -195,11 +195,12 @@ class Store(object):
             return dict(self.transactions)
 
     def getNTxs(self, n, newestFirst=False):
-        """Return the n first (or n last) transactions, in stored order."""
+        """Return the n first (or n last, newest-first) transactions."""
         with self._lock:
             count = min(len(self.txsOrder), int(n))
             if newestFirst:
                 hashes = self.txsOrder[len(self.txsOrder)-count:]
+                hashes = hashes[::-1]
             else:
                 hashes = self.txsOrder[:count]
             return [self.transactions.get(hash) for hash in hashes]

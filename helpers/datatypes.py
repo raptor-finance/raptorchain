@@ -219,8 +219,25 @@ class Masternode(object):
         return {"owner": self.owner, "operator": self.operator, "collateral": self.collateral, "blocks": self.blocks, "hash": self.hash.hex()}
 
 class BeaconBase(object):
-    logsBloom = bytearray(256)
+    # NOTE: logsBloom/totalDifficulty were class attributes (shared mutable
+    # bytearray across ALL beacons). They are instance state now; each beacon
+    # gets its own bloom in __init__-equivalent setup below.
     totalDifficulty = 0
+
+    def _initBloom(self):
+        # per-instance bloom; called lazily so subclasses that don't call
+        # super().__init__ still get isolated state on first use
+        if "_logsBloom" not in self.__dict__:
+            self._logsBloom = bytearray(256)
+        return self._logsBloom
+
+    @property
+    def logsBloom(self):
+        return self._initBloom()
+
+    @logsBloom.setter
+    def logsBloom(self, value):
+        self._logsBloom = bytearray(value)
 
     def addTransaction(self, txid):
         if not txid in self.transactions:
