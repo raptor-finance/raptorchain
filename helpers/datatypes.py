@@ -263,6 +263,10 @@ class BeaconBase(object):
             self.addEventToBloom(_event)
             
     def web3Returnable(self):
+        # txsRoot() returns HexBytes, whose .hex() already includes the "0x"
+        # prefix — "0x" + ....hex() produced malformed "0x0x..." hashes.
+        # Computed once here (previously called three times = 3 extra keccaks).
+        _txsRoot = self.txsRoot().hex()
         return {'difficulty': hex(self.difficulty),
             'extraData': '0x',
             # gas limit not limited by beacon blocks, thus returning highest possible number
@@ -276,10 +280,11 @@ class BeaconBase(object):
             'nonce': hex(self.nonce),
             'number': hex(self.number),
             'parentHash': self.parent.hex() if type(self.parent) == bytes else self.parent,
-            # compatibility
-            'stateRoot': "0x" + self.txsRoot().hex(),
-            'receiptsRoot': "0x" + self.txsRoot().hex(),
-            'transactionsRoot': "0x" + self.txsRoot().hex(),
+            # compatibility: all three mirror txsRoot (the real State.hash is
+            # served by the synthetic-block path in helpers/web3rpc.py)
+            'stateRoot': _txsRoot,
+            'receiptsRoot': _txsRoot,
+            'transactionsRoot': _txsRoot,
             
             'sha3Uncles': '0x0000000000000000000000000000000000000000000000000000000000000000',
             'size': '0x0',

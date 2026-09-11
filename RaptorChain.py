@@ -5,6 +5,9 @@ if not hasattr(inspect, "getargspec"):
     inspect.getargspec = inspect.getfullargspec
 
 import requests, time, json, threading, rlp, eth_abi, itertools, base64, secrets, sys, fastapi, pydantic, uvicorn, re, rich, logging
+import os
+import stat
+import tempfile
 from datetime import datetime
 
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -26,7 +29,7 @@ import helpers.constants as constants
 import helpers.rpcs as rpcs
 import helpers.abis as abis
 import helpers.utils as utils
-from helpers.utils import formatAddress, printError, isNotComment, lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages, beaconBlockStruct
+from helpers.utils import formatAddress, printError, isNotComment, lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages, beaconBlockStruct, promptInteractive, NonInteractiveError
 from helpers.datatypes import (Message, Transaction,  # re-exported for backwards compatibility
     Masternode, BeaconBase, GenesisBeacon, Beacon)
 from crypto.signatures import SignatureManager
@@ -235,7 +238,10 @@ class BeaconChain(object):
             data = self.getSlotData(chainid, slotOwner, slotKey)
             print(f"Testing datafeed for {chainName}: {data}")
             if not data:
-                rich.print("[red]Warning : no data returned, node might not work properly !\nPress enter to continue startup...[/red]", end=""); input()
+                rich.print("[red]Warning : no data returned, node might not work properly ![/red]")
+                # interactive : keeps the "press enter to continue" pause.
+                # headless    : default "" so startup can never block on input().
+                promptInteractive("Press enter to continue startup...", default="")
 
         def testFeeds(self):
             self.testSpecificFeed(137, "0x3f119Cef08480751c47a6f59Af1AD2f90b319d44", "0x99c5fd30bd0ae7473ceceebe9b03158a0401f6e5ba371131b888c7f1419c4579", "Polygon")
@@ -484,6 +490,7 @@ class State(object):
             
         def calcHash(self, init=True):
             if init:
+                # initialization is a one-way operation: once initialized, it cannot be un-initialized
                 self.initialized = True
             storageHash = w3.keccak(self.serializeEVMStorage())
             codeHash = w3.keccak(self.code)
@@ -619,7 +626,15 @@ class State(object):
         chkaddr = self.formatAddress(_addr)
         if not skipInit:
             self.ensureExistence(chkaddr)
-        return self.accounts.get(chkaddr, self.Account(chkaddr, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain))
+        # NOTE: dict.get(key, default) evaluates the default EAGERLY, so the
+        # old one-liner built a full Account (6 keccaks + EIP-55 checksum) on
+        # every call and threw it away on hits.  Look the account up first.
+        acct = self.accounts.get(chkaddr)
+        if acct is not None:
+            return acct
+        # not registered (reachable with skipInit=True): same behaviour as
+        # before — a detached Account used as a read view, never inserted here
+        return self.Account(chkaddr, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)
 
     def deleteAccount(self, addrs):
         destroyable = self.formatAddress(addrs[0])
@@ -1675,7 +1690,9 @@ class RaptorBlockProducer(object):
             raise self.NotInSetError("Not in validator set")
         self.bsc = node.state.beaconChain.bsc
         self.fancyPrint(f"RaptorChain masternode started using address {self.acct.address}", 2)
-        self.thread = threading.Thread(target=self.blockProductionLoop)
+        # daemon: block production must not keep the process alive after the
+        # main (terminal) thread returns
+        self.thread = threading.Thread(target=self.blockProductionLoop, daemon=True)
         self.thread.start()
     
     def pullAvailableMessages(self):
@@ -1835,30 +1852,78 @@ class Wallet(object):
         return base64.b64encode(w3.solidity_keccak(["string"], [passwd]))
         
     def loadConfig(self):
-        data = {}
         try:
-            file = open(self.configfile, "r")
-            _data = file.read()
-            file.close()
-            data = json.loads(_data)
-        except:
-            print("Do you want to import en existing key (e) or generate a new one (n) [default: n]")
-            _a = input("Answer: ")
-            if (_a.lower() == "e"):
-                self.importKey()
-            elif (_a.lower() == "n"):
-                self.create()
-            else:
-                print("Operation Aborted")
-                self.creationAborted = True
+            with open(self.configfile, "r") as file:
+                data = json.load(file)
+            _encryptedkey = bytes.fromhex(data["encryptedkey"])
+            _address = data["address"]
+        except FileNotFoundError:
+            # no wallet yet: first-run path below (unchanged behaviour)
+            pass
+        except Exception as e:
+            # The file EXISTS but its contents are unusable. Never offer to
+            # overwrite it: a corrupt wallet may still hold a recoverable key,
+            # and both create()/importKey() would truncate it.
+            printError(f"Wallet file {self.configfile!r} exists but could not be loaded: {e.__repr__()}")
+            printError("Refusing to overwrite it. Move it aside or repair it, then restart.")
+            self.creationAborted = True
+            return
         else:
-            self.encryptedkey = bytes.fromhex(data.get("encryptedkey"))
-            self.address = data.get("address")
-            
+            self.encryptedkey = _encryptedkey
+            self.address = _address
+            return
+
+        print("Do you want to import en existing key (e) or generate a new one (n) [default: n]")
+        # headless : use the documented default ("n") instead of blocking
+        _a = promptInteractive("Answer: ", default="n")
+        if (_a.lower() == "e"):
+            self.importKey()
+        elif (_a.lower() == "n"):
+            self.create()
+        else:
+            print("Operation Aborted")
+            self.creationAborted = True
+
+    def _writeConfig(self, data):
+        """Atomically persist the wallet file (tmp + fsync + rename).
+
+        A plain open(self.configfile, "w") truncates before writing, so a crash
+        or full disk mid-write destroys the key. Same pattern as helpers.store.
+
+        Two details that keep this transparent to operators:
+          - symlinks are followed (realpath), because os.replace() would
+            otherwise swap the link itself for a regular file and leave the
+            real config stale;
+          - the existing file's permission bits are preserved, so a wallet the
+            operator deliberately chmodded (e.g. 0640 for a group service)
+            keeps them. New files default to 0600, which is right for key
+            material.
+        """
+        target = os.path.realpath(self.configfile)
+        dirPath = os.path.dirname(target) or "."
+        try:
+            mode = stat.S_IMODE(os.stat(target).st_mode)
+        except OSError:
+            mode = 0o600
+        fd, tmpPath = tempfile.mkstemp(prefix=os.path.basename(target) + ".", suffix=".tmp", dir=dirPath)
+        try:
+            with os.fdopen(fd, "w") as file:
+                file.write(json.dumps(data))
+                file.flush()
+                os.fsync(file.fileno())
+            os.chmod(tmpPath, mode)
+            os.replace(tmpPath, target)
+        except BaseException:
+            try:
+                os.unlink(tmpPath)
+            except OSError:
+                pass
+            raise
+
     def create(self):
         data = {}
         print("Please create a password. It will be used to encrypt your private key !")
-        password = input("Password: ")
+        password = promptInteractive("Password: ")
         self.fernet = Fernet(self.computePassword(password))
         key = secrets.token_hex(32)
         self.acct = Account.from_key(key)
@@ -1867,15 +1932,13 @@ class Wallet(object):
         encKey = self.fernet.encrypt(bkey)
         data["encryptedkey"] = encKey.hex()
         data["address"] = self.acct.address
-        file = open(self.configfile, "w")
-        file.write(json.dumps(data))
-        file.close()
-        
+        self._writeConfig(data)
+
     def importKey(self):
         data = {}
-        key = input("Input your private key: ")
+        key = promptInteractive("Input your private key: ")
         print("Please create a password. It will be used to encrypt your private key !")
-        password = input("Password: ")
+        password = promptInteractive("Password: ")
         self.fernet = Fernet(self.computePassword(password))
         self.acct = Account.from_key(key)
         self.address = self.acct.address
@@ -1883,22 +1946,20 @@ class Wallet(object):
         encKey = self.fernet.encrypt(bkey)
         data["encryptedkey"] = encKey.hex()
         data["address"] = self.acct.address
-        file = open(self.configfile, "w")
-        file.write(json.dumps(data))
-        file.close()
+        self._writeConfig(data)
         
     def decrypt(self, keyInput=["decrypt"]):
-        password = keyInput[1] if (len(keyInput) > 1) else input("Password: ")
+        password = keyInput[1] if (len(keyInput) > 1) else promptInteractive("Password: ")
         self.fernet = Fernet(self.computePassword(password))
         self.acct = Account.from_key(self.fernet.decrypt(self.encryptedkey))
         print(f"Successfully decrypted wallet !")
         
     def changepasswd(self, keyInput):
-        oldpasswd = input("Old password: ")
+        oldpasswd = promptInteractive("Old password: ")
         fernet = Fernet(self.computePassword(oldpasswd))
         key = fernet.decrypt(self.encryptedkey)
-        newpasswd = input("New password: ")
-        newpasswdconf = input("Confirm new password: ")
+        newpasswd = promptInteractive("New password: ")
+        newpasswdconf = promptInteractive("Confirm new password: ")
         if (newpasswd != newpasswdconf):
             print("Passwords don't match :/")
             return
@@ -1907,9 +1968,7 @@ class Wallet(object):
         data = {}
         data["encryptedkey"] = encKey.hex()
         data["address"] = self.address
-        file = open(self.configfile, "w")
-        file.write(json.dumps(data))
-        file.close()
+        self._writeConfig(data)
         print("Successfully changed password ! It will take effect after restarting program !")
         
     def balance(self, keyInput):
@@ -1932,11 +1991,11 @@ class Wallet(object):
         try:
             _to = w3.to_checksum_address(keyInput[1])
         except:
-            _to = w3.to_checksum_address(input("Recipient: "))
+            _to = w3.to_checksum_address(promptInteractive("Recipient: "))
         try:
             _value = float(keyInput[2])
         except:
-            _value = float(input("Amount: "))
+            _value = float(promptInteractive("Amount: "))
         _decr = self.requireDecryption()
         if _decr:
             self.sendTransaction(_to, int(_value*(10**18)))
@@ -2129,6 +2188,11 @@ class Terminal(object):
                 rich.print("[yellow]RaptorChain Terminal - $[/yellow] ", end="")
                 cmd = input()
                 self.execCommand(cmd)
+            except EOFError:
+                # stdin closed (Ctrl-D, or started without a terminal attached):
+                # exit cleanly instead of spinning on a permanent error
+                printError("Terminal input closed, exiting command prompt")
+                return
             except Exception as e:
                 printError(f"Exception occured executing command: {e.__repr__()}")
 
@@ -2156,7 +2220,9 @@ if __name__ == "__main__":
     node = Node(config)
     # print(node.config)
     web3rpc.registerNode(node)
-    thread = threading.Thread(target=node.networkBackgroundRoutine)
+    # daemon: the network sync loop must not keep the process alive after the
+    # main (terminal) thread returns
+    thread = threading.Thread(target=node.networkBackgroundRoutine, daemon=True)
     thread.start()
 
 
@@ -2452,6 +2518,14 @@ def runAPI():
 
 if __name__ == "__main__":
     print(ssl_context or "No SSL context defined")
-    _thread = threading.Thread(target=runAPI)
+    # daemon: the API thread must not keep the process alive once the terminal
+    # loop has returned (e.g. stdin closed on a headless start)
+    _thread = threading.Thread(target=runAPI, daemon=True)
     _thread.start()
-    Terminal(node).terminalLoop()
+    try:
+        Terminal(node).terminalLoop()
+    except NonInteractiveError as e:
+        # a wallet/CLI prompt was needed but no terminal is attached:
+        # report clearly and exit instead of dumping a traceback
+        printError(str(e))
+        sys.exit(1)

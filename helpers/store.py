@@ -195,9 +195,16 @@ class Store(object):
             return dict(self.transactions)
 
     def getNTxs(self, n, newestFirst=False):
-        """Return the n first (or n last, newest-first) transactions."""
+        """Return the n first (or n last, newest-first) transactions.
+
+        n is clamped to [0, len(txsOrder)].  A negative n used to survive the
+        min() and reach the slice, so getNTxs(-3) returned
+        txsOrder[:-3] — i.e. almost the whole database — and the newest-first
+        variant returned nothing.  Out-of-range requests now clamp, while a
+        negative count is an empty result.
+        """
         with self._lock:
-            count = min(len(self.txsOrder), int(n))
+            count = max(0, min(len(self.txsOrder), int(n)))
             if newestFirst:
                 hashes = self.txsOrder[len(self.txsOrder)-count:]
                 hashes = hashes[::-1]
@@ -206,9 +213,15 @@ class Store(object):
             return [self.transactions.get(hash) for hash in hashes]
 
     def getTxsByRange(self, start, end):
-        """Return transactions whose order index falls in [start:end)."""
+        """Return transactions whose order index falls in [start:end).
+
+        start/end are clamped so a negative start (or an end before start)
+        cannot silently select a slice from the wrong end of the database.
+        """
         with self._lock:
-            return [self.transactions.get(hash) for hash in self.txsOrder[start:end]]
+            _start = max(0, int(start))
+            _end = max(_start, int(end))
+            return [self.transactions.get(hash) for hash in self.txsOrder[_start:_end]]
 
     def txCount(self):
         """Return the number of stored transactions."""

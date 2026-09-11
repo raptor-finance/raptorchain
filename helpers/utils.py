@@ -5,6 +5,7 @@ times in RaptorChain.py alone) or lived as module-level functions mixed
 into the main file.
 """
 
+import sys
 import time
 
 import rich
@@ -34,6 +35,60 @@ def printError(errorMessage):
         rich.print(f"[red]{errorMessage}[/red]")
     except Exception:
         print(errorMessage)
+
+
+class NonInteractiveError(Exception):
+    """Raised when operator input is required but no terminal is attached.
+
+    Carries the question so the caller (or the top-level handler) can report
+    exactly which prompt could not be answered instead of an opaque EOFError.
+    """
+    def __init__(self, question):
+        self.question = question
+        super().__init__(f"No terminal attached, cannot ask: {question}")
+
+    def __str__(self):
+        return (f"Operator input required ({self.question}) but stdin is not "
+                f"an interactive terminal")
+
+
+def isInteractive():
+    """Return True when stdin is an attached terminal.
+
+    False for pipes, redirects, /dev/null and closed stdin, so callers can
+    never block an unattended (systemd, container, CI) startup.
+    """
+    try:
+        return sys.stdin is not None and sys.stdin.isatty()
+    except (ValueError, AttributeError):
+        # stdin replaced by a non-file object that has no isatty()
+        return False
+
+
+def promptInteractive(question, default=None):
+    """Ask the operator a question, keeping the interactive UX unchanged.
+
+    On a terminal this is exactly ``input(question)``: the prompt is shown and
+    the typed answer is returned verbatim.
+
+    Without a terminal it never blocks. If ``default`` is provided that value
+    is returned (with a notice); otherwise NonInteractiveError is raised so
+    the caller fails with a clear message rather than an EOFError deep in a
+    constructor.
+
+    ``default`` is compared against None, so falsy defaults such as "" or 0
+    are honoured.
+    """
+    if isInteractive():
+        try:
+            return input(question)
+        except EOFError:
+            # terminal went away between the check and the prompt
+            pass
+    if default is not None:
+        printError(f"Non-interactive: {question.strip()} -> using default {default!r}")
+        return default
+    raise NonInteractiveError(question)
 
 
 def isNotComment(line):
