@@ -603,7 +603,9 @@ class State(object):
         self.totalSupply = 0
         self.type2ToType0Hash = {}
         self.type0ToType2Hash = {}
-        self.processedL2Hashes = []
+        # a set: membership is checked for every deposit (O(1) vs O(n)) and
+        # nothing iterates or orders this collection
+        self.processedL2Hashes = set()
         self.accounts = {constants.ZERO_ADDRESS: self.Account(constants.ZERO_ADDRESS, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain), constants.ECRECOVER_ADDRESS: self.Account(constants.ECRECOVER_ADDRESS, self.initTxID, self.getAccount, self.executeChildCall, self.beaconChain)}
         self.crossChainAddress = constants.CROSSCHAIN_ADDRESS
         self.lastIndex = 0
@@ -773,7 +775,7 @@ class State(object):
             # all raise). Otherwise a failure here leaves the deposit credited
             # but unmarked, and the retry credits it a SECOND time
             # (verified: double-credit + totalSupply inflation).
-            self.processedL2Hashes.append(_depositHash)
+            self.processedL2Hashes.add(_depositHash)
 
             # add deposit to tx history
             _depositor.addParent(_hashHex)

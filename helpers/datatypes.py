@@ -113,7 +113,12 @@ class Transaction(object):
                 self.contractDeployment = True
         elif self.txtype == 3: # deposits checking trigger
             self.fee = 0
-            self.l2hash = txData["l2hash"]
+            # normalized to BYTES so it can be compared against
+            # State.processedL2Hashes, which stores the raw 32-byte deposit
+            # hash.  It used to keep the JSON hex string, so the membership
+            # test was always False (str never equals bytes).
+            _l2 = txData["l2hash"]
+            self.l2hash = bytes.fromhex(_l2.replace("0x", "")) if isinstance(_l2, str) else _l2
             self.value = 0
             self.sender = w3.to_checksum_address(txData.get("from"))
             self.recipient = constants.ZERO_ADDRESS
