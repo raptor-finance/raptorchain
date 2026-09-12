@@ -125,7 +125,8 @@ class BeaconChain(object):
             if (rpcprotocol) in ["ws", "wss"]:
                 self.chain = Web3(Web3.WebsocketProvider(self.rpcurl))
             elif (rpcprotocol) in ["http", "https"]:
-                self.chain = Web3(Web3.HTTPProvider(self.rpcurl))
+                # timeout: without it a black-holed RPC blocks startup forever
+                self.chain = Web3(Web3.HTTPProvider(self.rpcurl, request_kwargs={"timeout": constants.HTTP_TIMEOUT_SECONDS}))
             self.masterContract = self.chain.eth.contract(address=Web3.to_checksum_address(MasterContractAddress), abi=MasterContractABI)
             # self.stakingContract = self.chain.eth.contract(address=self.masterContract.functions.staking().call(), abi=StakingContractABI)
             self.custodyContract = self.chain.eth.contract(address=self.masterContract.functions.custody().call(), abi=CustodyContractABI)
@@ -216,7 +217,8 @@ class BeaconChain(object):
         def loadChains(self):
             _chains = {}
             for chainid, url in self.rpcs.items():
-                _chains[chainid] = Web3(Web3.HTTPProvider(url))
+                # timeout: a black-holed datafeed RPC must not block startup
+                _chains[chainid] = Web3(Web3.HTTPProvider(url, request_kwargs={"timeout": constants.HTTP_TIMEOUT_SECONDS}))
                 _addr = (self.contractAddrsTestnet if self.testnet else self.contractAddrsMainnet).get(chainid)
                 if _addr:
                     self.contracts[chainid] = _chains[chainid].eth.contract(address=w3.to_checksum_address(_addr), abi=self.abi)
@@ -733,20 +735,23 @@ class State(object):
     def checkOutDepositByIndex(self, tx, _index):
         depositInfo = self.beaconChain.bsc.getDepositDetails(int(_index))
         if not depositInfo["hash"] in self.processedL2Hashes:
-            self.ensureExistence(depositInfo["depositor"])
+            # getAccount() normalizes the address. The raw self.accounts[...]
+            # lookups used further down KeyError on a non-checksummed address,
+            # which (before this fix) silently skipped the deposit.
+            _depositor = self.getAccount(depositInfo["depositor"])
+            _depositHash = depositInfo["hash"]
+            _hashHex = f"0x{_depositHash.hex()}"
+            _isRPTR = (depositInfo["token"] == self.beaconChain.bsc.token)
             # log stuff
             if self.verbose:
                 print(depositInfo)
-            if (depositInfo["token"] == self.beaconChain.bsc.token):
+            if _isRPTR:
                 # increase balance and tempbalance
-                self.accounts[depositInfo["depositor"]].balance += depositInfo["amount"]
-                self.accounts[depositInfo["depositor"]].tempBalance += depositInfo["amount"]
+                _depositor.balance += depositInfo["amount"]
+                _depositor.tempBalance += depositInfo["amount"]
                 
                 # increase supply
                 self.totalSupply += depositInfo["amount"]
-                
-                # print message
-                rich.print(f"[orange_red1]Cross-chain[/orange_red1][yellow] deposit of[/yellow] [green1]{depositInfo['amount'] / (10**18)} {self.ticker}[/green1] [yellow]to[/yellow] [green1]{depositInfo['depositor']}[/green1]")
             else:
                 # calculate local token address
                 _calculatedAddress = self.precompiledContractsHandler.calcBridgedAddress(depositInfo["token"])
@@ -762,20 +767,45 @@ class State(object):
                 if env.getSuccess():
                     _calculatedAccount.makeChangesPermanent()
                     
+            # --- COMMIT POINT -------------------------------------------------
+            # The deposit is applied at this stage. Mark it processed BEFORE
+            # the fallible steps below (addParent / calcHash / rich.print can
+            # all raise). Otherwise a failure here leaves the deposit credited
+            # but unmarked, and the retry credits it a SECOND time
+            # (verified: double-credit + totalSupply inflation).
+            self.processedL2Hashes.append(_depositHash)
+
             # add deposit to tx history
-            self.accounts[depositInfo["depositor"]].addParent(f"0x{depositInfo['hash'].hex()}")
-            
-            # mark deposit hash as processed (to avoid double deposits)
-            self.processedL2Hashes.append(depositInfo["hash"])
-            
+            _depositor.addParent(_hashHex)
+
             # set txChilds of deposit hash
-            self.txChilds[f"0x{depositInfo['hash'].hex()}"] = []
-            self.accounts[depositInfo["depositor"]].calcHash()
+            self.txChilds[_hashHex] = []
+            _depositor.calcHash()
+
+            if _isRPTR:
+                # cosmetic only: logging must never break the apply
+                try:
+                    rich.print(f"[orange_red1]Cross-chain[/orange_red1][yellow] deposit of[/yellow] [green1]{depositInfo['amount'] / (10**18)} {self.ticker}[/green1] [yellow]to[/yellow] [green1]{depositInfo['depositor']}[/green1]")
+                except Exception:
+                    pass
             return (True, f"Deposited {depositInfo['amount']} to {depositInfo['depositor']}")
         else:
             return (False, "Already processed")
 
     def checkDepositsTillIndex(self, tx):
+        """Apply BSC deposits up to tx.indexToCheck, advancing only on success.
+
+        The cursor is a high-water mark, so it can only move over work that
+        actually completed.  Previously lastIndex advanced even when the apply
+        raised, which marked an unread deposit as done: the deposit was never
+        credited and later retries short-circuited on `maxIndex <= lastIndex`
+        (verified: cursor reached N with 0 successful reads).
+
+        Advancement is deliberately driven by the EXCEPTION, not by the return
+        value: checkOutDepositByIndex returns (False, "Already processed") for an
+        already-applied deposit without raising, and that case must still
+        advance or the cursor would stall on the same index forever.
+        """
         maxIndex = int(tx.indexToCheck or 0)
         _lastindex = int(self.lastIndex or 0)
         if maxIndex <= _lastindex:
@@ -784,7 +814,11 @@ class State(object):
             try:
                 self.checkOutDepositByIndex(tx, i)
             except Exception as e:
-                printError(e)
+                # Transient failure (BSC unreachable, refusals, parse errors):
+                # stop at i and leave lastIndex there so a later refresh tx
+                # retries this deposit instead of skipping it.
+                printError(f"Deposit {i} failed, will retry: {e.__repr__()}")
+                return
             self.lastIndex = i+1
 
     def updateHolders(self):
@@ -1286,7 +1320,9 @@ class Node(object):
             return f"Peer({self.node})"
         
         def sendRequest(self, path):
-            return requests.get(f"{self.node}{path}")
+            # timeout: this is called from Peer.__init__/refreshOkayNess, so a
+            # black-holed peer would otherwise hang Node construction forever
+            return requests.get(f"{self.node}{path}", timeout=constants.PEER_TIMEOUT_SECONDS)
         
         def refreshOkayNess(self):
             try:
@@ -1457,7 +1493,7 @@ class Node(object):
         known = set(self.stringifyBatchOfPeers(self.peers))
         for peer in self.goodPeers:
             try:
-                obtainedPeers = requests.get(f"{peer}/net/getOnlinePeers").json().get("result", [])
+                obtainedPeers = requests.get(f"{peer}/net/getOnlinePeers", timeout=constants.PEER_TIMEOUT_SECONDS).json().get("result", [])
                 for _peer in obtainedPeers:
                     # Peer.__init__ normalizes URLs to a trailing slash; do the
                     # same here so "http://host:port" and "http://host:port/"
@@ -1480,7 +1516,7 @@ class Node(object):
         self.goodPeers = []
         for peer in self.peers:
             try:
-                if (requests.get(f"{peer}/ping").json()["success"]):
+                if (requests.get(f"{peer}/ping", timeout=constants.PEER_TIMEOUT_SECONDS).json()["success"]):
                     self.goodPeers.append(peer)
             except:
                 pass
@@ -1508,7 +1544,7 @@ class Node(object):
         children = vwjnvfeuuqubb.copy()
         for peer in self.goodPeers:
             try:
-                _childs = requests.get(f"{peer}/accounts/txChilds/{txid}").json()["result"]
+                _childs = requests.get(f"{peer}/accounts/txChilds/{txid}", timeout=constants.PEER_TIMEOUT_SECONDS).json()["result"]
                 for child in _childs:
                     if not (child in children):
                         pulledTxData = json.loads(self.pullSetOfTxs([child])[0]["data"])
@@ -1531,7 +1567,7 @@ class Node(object):
             txs = []
         for peer in self.goodPeers:
             try:
-                _txs = requests.get(f"{peer}/chain/block/{blockNumber}").json()["result"]["transactions"]
+                _txs = requests.get(f"{peer}/chain/block/{blockNumber}", timeout=constants.PEER_TIMEOUT_SECONDS).json()["result"]["transactions"]
                 for _tx in _txs:
                     if not (_tx in txs):
                         txs.append(_tx)
@@ -1556,10 +1592,24 @@ class Node(object):
             _childs = self.execTxAndRetryWithChilds(txid)
     
     def getChainLength(self):
+        """Return the highest chain length reported by any good peer.
+
+        Every OTHER peer-facing method in this class wraps its request in a
+        try/except and skips the peer on failure; this one was bare, so a
+        single bad peer raised out through syncByBlock -> initNode ->
+        Node.__init__, killing startup after the whole DB had been replayed.
+
+        A peer that fails to answer now simply contributes nothing. When no
+        peer answers, 0 is returned, which makes syncByBlock's range empty —
+        sync becomes a no-op and the next 60s cycle retries.
+        """
         self.checkGuys()
         length = 0
         for peer in self.goodPeers:
-            length = max(requests.get(f"{peer}/chain/length").json()["result"], length)
+            try:
+                length = max(requests.get(f"{peer}/chain/length", timeout=constants.PEER_TIMEOUT_SECONDS).json()["result"], length)
+            except Exception as e:
+                printError(f"Peer {peer} chain length failed: {e.__repr__()}")
         return length
     
     def syncByBlock(self):
@@ -1584,7 +1634,7 @@ class Node(object):
         # toPush = ",".join(toPush)
         for node in self.goodPeers:
             try:
-                r = requests.post(f"{str(node)}/send/postrawtransaction/", json={"txs": toPush})
+                r = requests.post(f"{str(node)}/send/postrawtransaction/", json={"txs": toPush}, timeout=constants.PEER_TIMEOUT_SECONDS)
                 print(r)
             except Exception as e:
                 print(e.__repr__())
@@ -1596,9 +1646,12 @@ class Node(object):
                 self.checkGuys()
                 self.syncByBlock()
                 self.createRefreshTx()
-                time.sleep(60)
             except Exception as e:
-                    printError(e.__repr__())
+                printError(e.__repr__())
+            # sleep OUTSIDE the try: an exception used to skip it, so a
+            # permanently failing dependency (e.g. BSC down -> createRefreshTx
+            # raises) spun this loop ~360x/second, printing an error each time
+            time.sleep(60)
 
     def txReceipt(self, txid):
         try:
@@ -1747,9 +1800,10 @@ class RaptorBlockProducer(object):
         while True:
             try:
                 self.produceNewBlock()
-                time.sleep(60)
             except Exception as e:
                 printError(f"Exception caught : {e}")
+            # sleep outside the try: a persistent failure must not busy-loop
+            time.sleep(60)
 
 class Wallet(object):
     def __init__(self, node, configfile):

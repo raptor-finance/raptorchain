@@ -49,6 +49,18 @@ MAINNET_PORT = 4242
 # --- Networking --------------------------------------------------------------
 MAX_PEERS = 200  # hard cap on the tracked peer table (see Node.askForMorePeers)
 
+# --- Timeouts (seconds) ------------------------------------------------------
+# Without these, a dependency that accepts a TCP connection but never replies
+# blocks the caller *indefinitely* (no socket-level default exists). That turns
+# a degraded RPC into a hung node: startup never completes, or the background
+# loop stops without a word.  A bounded failure is always preferable, because
+# the surrounding code already handles exceptions (it does not handle hangs).
+#
+# Note: web3's retry middleware issues up to 3 attempts with backoff, so the
+# worst-case wall time is a few multiples of HTTP_TIMEOUT_SECONDS.
+HTTP_TIMEOUT_SECONDS = 30        # web3 JSON-RPC providers (BSC + datafeed)
+PEER_TIMEOUT_SECONDS = 30        # requests.get() to RaptorChain peers
+
 
 def chain_id(testnet: bool) -> int:
     """Return the RaptorChain chain ID for the given network mode."""
