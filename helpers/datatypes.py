@@ -117,8 +117,18 @@ class Transaction(object):
             # State.processedL2Hashes, which stores the raw 32-byte deposit
             # hash.  It used to keep the JSON hex string, so the membership
             # test was always False (str never equals bytes).
+            # A malformed value is kept verbatim rather than raising: this
+            # constructor sits on the tx-ingest path with no guard above it,
+            # so a bad l2hash must not turn into an unhandled error.
             _l2 = txData["l2hash"]
-            self.l2hash = bytes.fromhex(_l2.replace("0x", "")) if isinstance(_l2, str) else _l2
+            if isinstance(_l2, str):
+                try:
+                    _hex = _l2[2:] if _l2[:2].lower() == "0x" else _l2
+                    self.l2hash = bytes.fromhex(_hex)
+                except ValueError:
+                    self.l2hash = _l2
+            else:
+                self.l2hash = _l2
             self.value = 0
             self.sender = w3.to_checksum_address(txData.get("from"))
             self.recipient = constants.ZERO_ADDRESS
