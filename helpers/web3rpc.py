@@ -318,6 +318,236 @@ def eth_getBlockByHash(data):
     return result
 
 
+# --- read-only convenience methods -------------------------------------------
+# These are the lightweight, always-truthful responses wallets/ethers.js probe
+# on startup and around eth_call.  None of them fabricate data: where the node
+# has no real value to give (accounts, uncles, fee history) it returns the
+# honest empty/identity value the spec expects, so clients don't choke.
+
+def eth_syncing(data):
+    """This node is never "syncing" in the geth sense — it is always serving.
+    Spec allows a plain boolean False."""
+    return False
+
+
+def eth_accounts(data):
+    """No unlocked accounts are held server-side."""
+    return []
+
+
+def web3_clientVersion(data):
+    """Identity string for user-agents / client detection."""
+    return f"RaptorChain/{node.state.version}"
+
+
+def _txIndexForHash(_hash):
+    """Resolve a tx/block hash to its index in the global tx order.
+
+    Returns None when the hash is neither a stored transaction (any type) nor
+    a beacon block hash.  Mirrors the resolution eth_getBlockByHash uses.
+    """
+    # beacon proofs resolve to real beacon blocks, which are NOT part of the
+    # synthetic tx-index numbering — return None so callers treat them as
+    # "not a tx-indexed block"
+    if node.state.beaconChain.blocksByHash.get(_hash) is not None:
+        return None
+    _type0Hash = node.state.type2ToType0Hash.get(_hash, _hash)
+    _hashes = node.store.getTxHashes()
+    try:
+        return _hashes.index(_type0Hash)
+    except ValueError:
+        return None
+
+
+def eth_getBlockTransactionCountByNumber(data):
+    _requireParams(data, 1)
+    _blockNumber = int(_resolveBlockNumber(data.params[0]))
+    _count = node.store.txCount()
+    if _blockNumber < 0 or _blockNumber >= _count:
+        return None
+    _txs = node.store.getTxsByRange(_blockNumber, _blockNumber + 1)
+    if not _txs or _txs[0] is None:
+        return None
+    return hex(len(_syntheticTxBlock(_txs[0], _blockNumber)["transactions"]))
+
+
+def eth_getBlockTransactionCountByHash(data):
+    _requireParams(data, 1)
+    _hash = data.params[0]
+    # beacon proofs still resolve to real beacon blocks
+    _block = node.state.beaconChain.blocksByHash.get(_hash)
+    if _block is not None:
+        return hex(len(_block.web3Returnable()["transactions"]))
+    _index = _txIndexForHash(_hash)
+    if _index is None:
+        return None
+    _txs = node.store.getTxsByRange(_index, _index + 1)
+    if not _txs or _txs[0] is None:
+        return None
+    return hex(len(_syntheticTxBlock(_txs[0], _index)["transactions"]))
+
+
+def eth_getTransactionByBlockNumberAndIndex(data):
+    """Return the transaction at the given index of a synthetic block.
+
+    Synthetic blocks always contain exactly one transaction, so index 0
+    returns that transaction and any other index returns null.  Beacon-block
+    hashes are not part of the tx-index numbering and return null.
+    """
+    _requireParams(data, 2)
+    _index = data.params[1]
+    try:
+        _index = int(_index, 16) if isinstance(_index, str) else int(_index)
+    except (TypeError, ValueError):
+        raise _RpcError({"code": -32602, "message": f"Invalid transaction index: {data.params[1]!r}"})
+    _blockNumber = int(_resolveBlockNumber(data.params[0]))
+    _count = node.store.txCount()
+    if _blockNumber < 0 or _blockNumber >= _count:
+        return None
+    if _index != 0:
+        return None
+    _txs = node.store.getTxsByRange(_blockNumber, _blockNumber + 1)
+    if not _txs or _txs[0] is None:
+        return None
+    return _syntheticTxBlock(_txs[0], _blockNumber)["transactions"][0]
+
+
+def eth_getUncleCountByBlockHash(data):
+    _requireParams(data, 1)
+    if node.state.beaconChain.blocksByHash.get(data.params[0]) is None \
+            and _txIndexForHash(data.params[0]) is None:
+        return None
+    return "0x0"
+
+
+def eth_getUncleCountByBlockNumber(data):
+    _requireParams(data, 1)
+    _blockNumber = int(_resolveBlockNumber(data.params[0]))
+    if _blockNumber < 0 or _blockNumber >= node.store.txCount():
+        return None
+    return "0x0"
+
+
+def eth_feeHistory(data):
+    """A minimal but spec-valid shape.
+
+    Fabricating per-block base fees or gas-used ratios would be a lie — there
+    is no base-fee market on RaptorChain.  The empty-but-valid response keeps
+    ethers/viem from choking on fee estimation without inventing data.
+    """
+    _requireParams(data, 2)
+    # validate block param the same way the other handlers do, so a malformed
+    # "newestBlock" still yields a spec-compliant -32602
+    _resolveBlockNumber(data.params[1])
+    _blockCount = data.params[0]
+    if isinstance(_blockCount, str):
+        try:
+            _blockCount = int(_blockCount, 16) if _blockCount.startswith("0x") else int(_blockCount)
+        except ValueError:
+            raise _RpcError({"code": -32602, "message": f"Invalid block count: {data.params[0]}"})
+    if not isinstance(_blockCount, int) or isinstance(_blockCount, bool) or _blockCount < 0:
+        raise _RpcError({"code": -32602, "message": f"Invalid block count: {data.params[0]!r}"})
+    # include the newest block in the range (spec: oldestBlock = newest - count)
+    _newest = int(_resolveBlockNumber(data.params[1]))
+    _oldest = max(_newest - _blockCount, 0)
+    return {
+        "oldestBlock": hex(_oldest),
+        "baseFeePerGas": [],
+        "gasUsedRatio": [],
+        "reward": [],
+    }
+
+
+def eth_getLogs(data):
+    """Filter events emitted by committed transactions.
+
+    Logs are the JSON-encodable event dicts stored in each transaction's
+    receipt (see State.execEVMCall → tx.setEvents → makeReceipt).  We match
+    them against the same tx-order index that eth_blockNumber / synthetic
+    blocks use, so fromBlock/toBlock and each log's blockNumber agree with
+    eth_getBlockByNumber.  This is the tx-order convention (NOT the beacon
+    height the event captured at emit time), kept consistent on purpose.
+
+    Filters supported: address (list OR-match), topics (positional with None
+    wildcards), fromBlock/toBlock (default earliest..latest).
+    """
+    _requireParams(data, 1)
+    _filter = data.params[0]
+    if not isinstance(_filter, dict):
+        raise _RpcError({"code": -32602, "message": f"Invalid filter: {_filter!r}"})
+
+    # --- address: single addr, or a list matched as OR ----------------------
+    _addrFilter = _filter.get("address")
+    if _addrFilter is not None:
+        if isinstance(_addrFilter, str):
+            _addrFilter = [_addrFilter]
+        if not isinstance(_addrFilter, list):
+            raise _RpcError({"code": -32602, "message": f"Invalid address filter: {_addrFilter!r}"})
+        _addrs = []
+        for _a in _addrFilter:
+            try:
+                _addrs.append(w3.to_checksum_address(_a).lower())
+            except Exception:
+                raise _RpcError({"code": -32602, "message": f"Invalid address filter: {_a!r}"})
+
+    # --- topics: positional, None is a wildcard -----------------------------
+    _topicsFilter = _filter.get("topics")
+    if _topicsFilter is not None and not isinstance(_topicsFilter, list):
+        raise _RpcError({"code": -32602, "message": "topics filter must be a list"})
+
+    # --- block range --------------------------------------------------------
+    _from = _resolveBlockNumber(_filter.get("fromBlock", "latest"))
+    _to = _resolveBlockNumber(_filter.get("toBlock", "latest"))
+    if _from > _to:
+        return []
+    _count = node.store.txCount()
+    _start = max(_from, 0)
+    _end = min(_to + 1, _count)
+
+    _results = []
+    for _txIndex in range(_start, _end):
+        _txs = node.store.getTxsByRange(_txIndex, _txIndex + 1)
+        if not _txs or _txs[0] is None:
+            continue
+        _txid = node.store.getTxHashes()[_txIndex]
+        _receipt = node.state.receipts.get(_txid)
+        if not _receipt:
+            continue
+        for _log in _receipt.get("logs", []):
+            # address OR-match (case-insensitive)
+            if _addrFilter is not None and _log.get("address", "").lower() not in _addrs:
+                continue
+            if _topicsFilter is not None:
+                _logTopics = _log.get("topics", [])
+                _matched = True
+                for _i, _t in enumerate(_topicsFilter):
+                    if _t is None:
+                        continue  # wildcard
+                    if _i >= len(_logTopics) or _logTopics[_i] != _t:
+                        _matched = False
+                        break
+                if not _matched:
+                    continue
+            # normalize blockNumber/blockHash to the tx-order convention so
+            # clients can correlate the log to the synthetic block
+            _log = dict(_log)
+            _log["blockNumber"] = hex(_txIndex)
+            _log["blockHash"] = _txid
+            _results.append(_log)
+    return _results
+
+
+def web3_sha3(data):
+    _requireParams(data, 1)
+    _payload = data.params[0]
+    try:
+        _payload = _payload[2:] if _payload.startswith("0x") else _payload
+        _payload = bytes.fromhex(_payload)
+    except (TypeError, ValueError):
+        raise _RpcError({"code": -32602, "message": f"Invalid data: {data.params[0]!r}"})
+    return "0x" + w3.keccak(_payload).hex()
+
+
 # JSON-RPC 2.0 error codes
 ERR_METHOD_NOT_FOUND = {"code": -32601, "message": "Method not found"}
 
@@ -354,6 +584,17 @@ METHODS = {
     "eth_getBlockByNumber": eth_getBlockByNumber,
     "eth_getBlockByHash": eth_getBlockByHash,
     "eth_chainId": lambda data: hex(node.state.chainID),
+    "eth_syncing": eth_syncing,
+    "eth_accounts": eth_accounts,
+    "web3_clientVersion": web3_clientVersion,
+    "eth_getBlockTransactionCountByNumber": eth_getBlockTransactionCountByNumber,
+    "eth_getBlockTransactionCountByHash": eth_getBlockTransactionCountByHash,
+    "eth_getTransactionByBlockNumberAndIndex": eth_getTransactionByBlockNumberAndIndex,
+    "eth_getUncleCountByBlockHash": eth_getUncleCountByBlockHash,
+    "eth_getUncleCountByBlockNumber": eth_getUncleCountByBlockNumber,
+    "eth_feeHistory": eth_feeHistory,
+    "eth_getLogs": eth_getLogs,
+    "web3_sha3": web3_sha3,
 }
 
 
