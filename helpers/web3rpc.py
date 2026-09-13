@@ -162,6 +162,13 @@ def eth_estimateGas(data):
 
 
 def eth_call(data):
+    # NOTE: eth_call is a READ — it intentionally does not persist anything.
+    # During execution the EVM may create uninitialized Account objects for
+    # the addresses it touches (see State.eth_Call); those are kept in memory
+    # as a read cache (nothing is written to the store or the state root until
+    # a real transaction commits).  They are never persisted, but they do grow
+    # State.accounts, so under high-volume call traffic an LRU eviction would
+    # bound that cache (tracked as A2).
     return f"0x{_execCall(data).returnValue.hex()}"
 
 

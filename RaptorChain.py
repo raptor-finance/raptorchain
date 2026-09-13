@@ -686,6 +686,12 @@ class State(object):
         return self.beaconChain.blocks[0].proof
 
     def ensureExistence(self, _user):
+        # Materializes an Account for _user if absent.  This is used by BOTH
+        # reads (eth_Call) and writes (transaction replay).  Materializing
+        # during a read creates an UNINITIALIZED account: it caches lookups for
+        # later calls but changes nothing about committed state (the C1
+        # `initialized` flag stays False, so it never enters the state root and
+        # nothing is persisted).  See eth_Call for the full reasoning.
         user = self.formatAddress(_user)
         if not self.accounts.get(user):
             if self.verbose:
@@ -1205,6 +1211,16 @@ class State(object):
         return (msg.getSuccess(), msg.returnValue)
             
     def eth_Call(self, call):
+        # READ-ONLY evaluation (eth_call / eth_estimateGas / balanceOf, ...).
+        #
+        # Deliberate behavior: this method materializes Account objects for the
+        # touched addresses and leaves them in self.accounts as an in-memory
+        # CACHE.  They stay uninitialized (the C1 flag is never flipped for a
+        # read), so they are excluded from the state root and are never written
+        # to the store — but they do grow self.accounts, so high call volume on
+        # many distinct addresses grows memory until eviction/capping is added
+        # (tracked as A2).  If you ever change this, keep the invariant: a read
+        # must never change committed state nor the state root.
         tx = self.CallBlankTransaction(call)
         # msg = EVM.Msg(sender=tx.sender, recipient=tx.recipient, value=tx.value, gas=tx.gasLimit, data=tx.data, tx=tx, calltype=0, shallSaveData=False)
         if tx.contractDeployment:
