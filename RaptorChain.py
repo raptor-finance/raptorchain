@@ -491,19 +491,20 @@ class State(object):
                 self.initialized = False
             
         def calcHash(self, init=True):
-            if init:
-                # initialization is a one-way operation: once initialized, it cannot be un-initialized
-                self.initialized = True
             storageHash = w3.keccak(self.serializeEVMStorage())
             codeHash = w3.keccak(self.code)
             historyHash = w3.solidity_keccak(["bytes32[]", "bytes32[]"], [self.transactions[1:], self.sent[1:]])
             self.hash = w3.solidity_keccak(["address", "uint256", "bytes32", "bytes32", "bytes32", "string"], [self.address, self.balance, historyHash, codeHash, storageHash, self.bio])
             return self.hash
+
+        def initialize(self):
+            self.initialized = True
         
         def makeChangesPermanent(self):
             self.storage = self.tempStorage.copy()
             self.balance = self.tempBalance
             self.code = self.tempcode
+            self.initialize()
         
         def cancelChanges(self):
             # copy avoids lot of mess (by keeping reference to self.storage)
@@ -516,7 +517,14 @@ class State(object):
                 self.transactions.append(txid)
         
         def isInitialized(self):
-            return (self.hash == self.defaultHash)
+            # An account is part of the state root as soon as it holds state
+            # that was committed to the world (the first permanent write).
+            # `initialized` is set by initialize() — called from
+            # makeChangesPermanent() and directly by the write sites that
+            # bypass it (fees, deposits, masternode collateral, deployments).
+            # Accounts created by a read-only eth_Call and accounts touched by
+            # reverted writes never flip it, so reads cannot perturb the root.
+            return self.initialized
         
         # def _prepareCallEnv(self, msg):
             # return EVM.CallEnv(self.accountGetter, caller=msg.sender, runningAccount=self, recipient=self.address, beaconchain=self.chainAccess, value=msg.value, gaslimit=msg.gas, tx=msg.tx, data=msg.data, callfallback=self.callfallback, code=b"", static=False, storage=None, calltype=msg.calltype, calledFromAcctClass=True)
@@ -646,7 +654,12 @@ class State(object):
         
         destroyableBalance = self.getAccount(destroyable).balance
         self.getAccount(destroyable).balance = 0    # just to make sure
-        self.getAccount(recipient).balance += destroyableBalance
+        # the beneficiary is credited after playTransaction's hash loop and
+        # outlives the deleted account, so flag + refresh it explicitly
+        recipientAcct = self.getAccount(recipient)
+        recipientAcct.balance += destroyableBalance
+        recipientAcct.initialize()
+        recipientAcct.calcHash()
         
         del self.accounts[destroyable]      # destroys account object
 
@@ -720,8 +733,10 @@ class State(object):
         willSucceed = self.estimateCreateMNSuccess(tx)[0]
         if not willSucceed:
             return False
-        self.getAccount(tx.sender).balance -= constants.MN_COLLATERAL
-        self.getAccount(tx.sender).masternodes.append(tx.recipient)
+        senderAcct = self.getAccount(tx.sender)
+        senderAcct.balance -= constants.MN_COLLATERAL
+        senderAcct.masternodes.append(tx.recipient)
+        senderAcct.initialize()   # collateral was locked (hash refreshed by the play loop)
         self.beaconChain.createValidator(tx.sender, tx.recipient)
     
     def destroyMN(self, tx):
@@ -729,7 +744,9 @@ class State(object):
         _validator = self.beaconChain.validators.get(tx.recipient)
         if (not _validator) or (_validator.owner != tx.sender):
             return False
-        self.getAccount(_validator.owner).balance += constants.MN_COLLATERAL
+        ownerAcct = self.getAccount(_validator.owner)
+        ownerAcct.balance += constants.MN_COLLATERAL
+        ownerAcct.initialize()   # collateral was returned (hash refreshed by the play loop)
         self.getAccount(tx.sender).masternodes = list(filter(tx.recipient.__ne__, self.getAccount(tx.sender).masternodes)) # removes tx.recipient (aka the removed MN) from MNs list with a filter (removes element matching the removed MN)
         self.beaconChain.destroyValidator(tx.recipient)
     
@@ -751,6 +768,10 @@ class State(object):
                 # increase balance and tempbalance
                 _depositor.balance += depositInfo["amount"]
                 _depositor.tempBalance += depositInfo["amount"]
+                # the depositor is not part of tx.affectedAccounts (the
+                # deposit tx is a ghost), so it must be flagged here; its
+                # hash is refreshed at the commit point below
+                _depositor.initialize()
                 
                 # increase supply
                 self.totalSupply += depositInfo["amount"]
@@ -930,8 +951,14 @@ class State(object):
     
     def clearCrossChainAccount(self):
         crossChainAccount = self.getAccount(self.crossChainAddress)
-        self.totalSupply -= crossChainAccount.balance
-        crossChainAccount.balance = 0
+        if crossChainAccount.balance:
+            self.totalSupply -= crossChainAccount.balance
+            crossChainAccount.balance = 0
+            # runs via postTxMessages, i.e. AFTER playTransaction's hash loop:
+            # flag and refresh explicitly so the cleared account stays in the
+            # state root with a fresh (zero-balance) hash
+            crossChainAccount.initialize()
+            crossChainAccount.calcHash()
     
     def execSystemMessage(self, sysmsg):
         pass    # will be useful later
@@ -956,7 +983,11 @@ class State(object):
             feedback = self.beaconChain.submitBlock(tx.blockData);
             self.applyParentStuff(tx)
             if feedback:
-                self.accounts[feedback].balance += self.beaconChain.blockReward
+                minerAcct = self.accounts[feedback]
+                minerAcct.balance += self.beaconChain.blockReward
+                # the miner is in affectedAccounts (hashed by the play loop),
+                # but the reward is written here: flag it explicitly
+                minerAcct.initialize()
                 self.totalSupply += self.beaconChain.blockReward
                 return True
             return False
@@ -1029,13 +1060,16 @@ class State(object):
         deplAcct.storage = env.getStorage().copy()
         deplAcct.tempStorage = env.getStorage().copy()
         if env.getSuccess():
+            # deployContract writes code/storage directly (it does not go
+            # through makeChangesPermanent), so flag both accounts explicitly;
+            # the play loop refreshes their hashes afterwards
+            deplAcct.initialize()
+            senderAcct.initialize()
             self.receipts[tx.txid] = self.makeReceipt(tx, env.gasUsed, tx.recipient if tx.contractDeployment else None, blockHash=tx.epoch)
             if self.verbose:
                 print(f"Deployed contract {deplAddr} in tx {tx.txid}")
         else:
             self.receipts[tx.txid] = self.makeReceipt(tx, env.gasUsed, tx.recipient if tx.contractDeployment else None, status="0x0", blockHash=tx.epoch)
-        # for _addr in tx.affectedAccounts:
-            # self.getAccount(_addr).addParent(tx.txid)
 
 
     def tryContractCall(self, tx):
@@ -1199,8 +1233,21 @@ class State(object):
         toValOwner = (0 if ((miner == "0x0000000000000000000000000000000000000000") or (valOwnerAcct is None)) else int(tx.fee // 2))
         toBurn = int(tx.fee - toValOwner)
         if (toValOwner > 0):
-            self.getAccount(valOwnerAcct.owner).balance += toValOwner
-        self.getAccount(self.burnAddress).balance += toBurn # sends funds to burn address
+            _ownerAcct = self.getAccount(valOwnerAcct.owner)
+            _ownerAcct.balance += toValOwner
+            # fee accounting runs after playTransaction's hash loop
+            _ownerAcct.initialize()
+            _ownerAcct.calcHash()
+        if (toBurn > 0):
+            _burnAcct = self.getAccount(self.burnAddress) # sends funds to burn address
+            _burnAcct.balance += toBurn
+            # fee accounting runs after playTransaction's hash loop
+            _burnAcct.initialize()
+            _burnAcct.calcHash()
+        else:
+            # keeps the account visible for RPC reads, but a zero-value fee
+            # is not a state change: do not pull it into the state root
+            self.getAccount(self.burnAddress)
 
     def delAccounts(self, tx):
         for _addr in (tx.accountsToDestroy or []):
@@ -1242,7 +1289,9 @@ class State(object):
         
         # update sender's bio (not game-changer but nice to see)
         if (_tx.bio):
-            self.accounts[_tx.sender].bio = _tx.bio.replace("%20", " ")
+            senderAcct = self.accounts[_tx.sender]
+            senderAcct.bio = _tx.bio.replace("%20", " ")
+            senderAcct.initialize()   # a bio is committed state; hash refreshed by the play loop
 
         # check cross-chain deposits (from BSC)
         self.checkDepositsTillIndex(_tx)
