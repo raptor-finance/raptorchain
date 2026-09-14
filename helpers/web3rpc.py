@@ -22,6 +22,7 @@ from typing import Any, List, Union
 
 import fastapi
 import pydantic
+from rlp.exceptions import RLPException
 from web3.auto import w3
 
 from helpers.datatypes import Transaction
@@ -69,6 +70,51 @@ def _requireHash(s):
     if not isinstance(s, str) or not s.startswith("0x"):
         raise _RpcError({"code": -32602, "message": f"Invalid hash: {s!r}"})
     return s
+
+
+# EIP-2718 typed-transaction envelopes this node cannot replay.  RaptorChain
+# only supports legacy (pre-EIP-2718) transactions: typed envelopes start with
+# a type byte in 0x00-0x7f, while legacy transactions are RLP lists and always
+# start at 0xc0 or above.
+_TX_TYPE_NAMES = {
+    0x01: "EIP-2930 access-list",
+    0x02: "EIP-1559 fee-market",
+    0x03: "EIP-4844 blob",
+    0x04: "EIP-7702 set-code",
+}
+
+
+def _rejectUnsupportedRawTx(rawTx):
+    """Reject raw transactions this node cannot replay, up front.
+
+    Without this, an EIP-1559 / EIP-2930 payload reaches the legacy-only RLP
+    decoder (crypto/eth_decoder.py) and blows up with a raw RLP exception that
+    the dispatcher reports as -32603 "Internal error" — which tells the client
+    the *node* is broken, when in fact it sent a transaction type this chain
+    does not support.  Raising -32602 here makes it an explicit, client-side
+    rejection with an actionable message.
+    """
+    if not isinstance(rawTx, str):
+        raise _RpcError({"code": -32602,
+                         "message": f"Invalid raw transaction: expected a hex string, got {type(rawTx).__name__}"})
+    _hexStr = rawTx[2:] if rawTx.startswith("0x") else rawTx
+    if not _hexStr:
+        raise _RpcError({"code": -32602, "message": "Invalid raw transaction: empty"})
+    # Validate the WHOLE payload, not just the leading byte: the decoder feeds
+    # this to bytes.fromhex(), so a bad character or odd length anywhere would
+    # otherwise escape as a -32603 internal error.
+    try:
+        _rawBytes = bytes.fromhex(_hexStr)
+    except ValueError:
+        raise _RpcError({"code": -32602, "message": f"Invalid raw transaction: not valid hex ({rawTx[:16]!r}...)"})
+    if not _rawBytes:
+        raise _RpcError({"code": -32602, "message": "Invalid raw transaction: empty"})
+    _firstByte = _rawBytes[0]
+    if _firstByte <= 0x7f:
+        _name = _TX_TYPE_NAMES.get(_firstByte)
+        _label = f"0x{_firstByte:02x}" + (f" ({_name})" if _name else "")
+        raise _RpcError({"code": -32602,
+                         "message": f"Unsupported transaction type {_label}: this node accepts legacy pre-EIP-2718 transactions only"})
 
 
 # --- method handlers -------------------------------------------------------
@@ -178,7 +224,20 @@ def eth_getCompilers(data):
 
 def eth_sendRawTransaction(data):
     _requireParams(data, 1)
-    _txid = node.integrateETHTransaction(data.params[0])
+    _rawTx = data.params[0]
+    # Reject unsupported types (EIP-1559/2930/...) and non-hex input up front,
+    # as a client-side -32602 rather than a decode blow-up later.
+    _rejectUnsupportedRawTx(_rawTx)
+    try:
+        _txid = node.integrateETHTransaction(_rawTx)
+    except RLPException as e:
+        # A payload that is valid hex but not a decodable legacy tx (wrong field
+        # count, trailing bytes, truncated list, ...) is still the client's
+        # mistake, not an internal node fault — report it as invalid params.
+        # RLPException is the base of both DecodingError and
+        # ObjectDeserializationError, and during ingest the only RLP work is
+        # decoding client-supplied bytes, so this cannot mask a node-side bug.
+        raise _RpcError({"code": -32602, "message": f"Invalid raw transaction: {e}"})
     # Verify the transaction was actually accepted by the store.
     # integrateETHTransaction always returns a computed hash regardless of
     # whether checkTxs accepted the tx; a rejected tx would otherwise return
@@ -428,34 +487,13 @@ def eth_getUncleCountByBlockNumber(data):
     return "0x0"
 
 
-def eth_feeHistory(data):
-    """A minimal but spec-valid shape.
-
-    Fabricating per-block base fees or gas-used ratios would be a lie — there
-    is no base-fee market on RaptorChain.  The empty-but-valid response keeps
-    ethers/viem from choking on fee estimation without inventing data.
-    """
-    _requireParams(data, 2)
-    # validate block param the same way the other handlers do, so a malformed
-    # "newestBlock" still yields a spec-compliant -32602
-    _resolveBlockNumber(data.params[1])
-    _blockCount = data.params[0]
-    if isinstance(_blockCount, str):
-        try:
-            _blockCount = int(_blockCount, 16) if _blockCount.startswith("0x") else int(_blockCount)
-        except ValueError:
-            raise _RpcError({"code": -32602, "message": f"Invalid block count: {data.params[0]}"})
-    if not isinstance(_blockCount, int) or isinstance(_blockCount, bool) or _blockCount < 0:
-        raise _RpcError({"code": -32602, "message": f"Invalid block count: {data.params[0]!r}"})
-    # include the newest block in the range (spec: oldestBlock = newest - count)
-    _newest = int(_resolveBlockNumber(data.params[1]))
-    _oldest = max(_newest - _blockCount, 0)
-    return {
-        "oldestBlock": hex(_oldest),
-        "baseFeePerGas": [],
-        "gasUsedRatio": [],
-        "reward": [],
-    }
+# NOTE: eth_feeHistory is deliberately NOT implemented.  RaptorChain has no
+# EIP-1559 fee market (no base fee / priority fee — only a flat eth_gasPrice),
+# so any baseFeePerGas/gasUsedRatio/reward response would be fabricated data.
+# Returning method-not-found makes ethers/viem/MetaMask fall back to the real
+# eth_gasPrice, which is the correct behavior for a pre-1559 chain.  ethers in
+# particular never even calls eth_feeHistory here because our blocks do not
+# expose baseFeePerGas.
 
 
 def eth_getLogs(data):
@@ -592,7 +630,6 @@ METHODS = {
     "eth_getTransactionByBlockNumberAndIndex": eth_getTransactionByBlockNumberAndIndex,
     "eth_getUncleCountByBlockHash": eth_getUncleCountByBlockHash,
     "eth_getUncleCountByBlockNumber": eth_getUncleCountByBlockNumber,
-    "eth_feeHistory": eth_feeHistory,
     "eth_getLogs": eth_getLogs,
     "web3_sha3": web3_sha3,
 }
