@@ -155,6 +155,11 @@ def _resolveBlockNumber(_blockParam):
 def eth_getBalance(data):
     _requireParams(data, 1)
     _acct = node.state.getAccount(_requireAddress(data.params[0]), True)
+    # A negative balance is rendered as a negative quantity (e.g. "-0x5") rather
+    # than clamped to zero.  Balances are not supposed to go negative, so this is
+    # an intentional canary: a client may choke on the malformed quantity, but
+    # clamping would hide the real state defect upstream.  See docs/rpc.md
+    # (POST /web3) before "fixing" this.
     return hex(int(_acct.balance or 0))
 
 

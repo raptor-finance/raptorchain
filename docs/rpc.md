@@ -79,6 +79,13 @@ fee market — components fall back to the real `eth_gasPrice`), `eth_getProof` 
 trie over state that is not bound to balances), and `eth_subscribe` (WebSocket-only; this endpoint is HTTP POST).
 `eth_maxPriorityFeePerGas` answers `0x0`, which is the truthful value on a pre-1559 chain.
 
+**A negative balance is reported as-is, on purpose.** Quantity fields hex-encode whatever the state holds,
+so a corrupted account with a negative balance answers a negative quantity such as `"-0x5"`. That is not a
+valid JSON-RPC quantity and can crash a client (JS `BigInt("-0x5")` throws). It is deliberately left
+untreated because negative balances are not supposed to happen: clamping the display to `0x0` would be a
+bandaid on a missing arm. Treat a negative balance as a canary — if you ever see one, a real state bug
+exists upstream, and hiding it at the RPC layer would only make it harder to find.
+
 ## Transaction retrieving queries
 The following paths are used to query raw transactions from node.
 
