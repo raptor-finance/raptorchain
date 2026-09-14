@@ -16,7 +16,7 @@ from web3.auto import w3
 from eth_account import Account
 
 from . import constants
-from .utils import formatAddress
+from .utils import formatAddress, hexData
 from crypto.eth_decoder import ETHTransactionDecoder
 
 
@@ -208,10 +208,12 @@ class Transaction(object):
                 "value": hex(self.value),
                 "gasPrice": hex(self.gasprice),
                 "gas": hex(self.gasLimit),
-                "input": self.data.hex(),
+                # DATA fields — hexData() adds the 0x prefix that bytes.hex()
+                # omits, and passes through the decoder's hex strings unchanged
+                "input": hexData(self.data),
                 "v": self.v,
-                "r": self.r.hex() if type(self.r) == bytes else self.r,
-                "s": self.s.hex() if type(self.s) == bytes else self.s
+                "r": hexData(self.r),
+                "s": hexData(self.s)
             }
 
 
@@ -294,7 +296,8 @@ class BeaconBase(object):
             'mixHash': ("0x" + self.beaconRoot()) if not self.beaconRoot().startswith("0x") else self.beaconRoot(),
             'nonce': hex(self.nonce),
             'number': hex(self.number),
-            'parentHash': self.parent.hex() if type(self.parent) == bytes else self.parent,
+            # genesis beacons hold parent as bytes, later ones as a hex string
+            'parentHash': hexData(self.parent),
             # compatibility: all three mirror txsRoot (the real State.hash is
             # served by the synthetic-block path in helpers/web3rpc.py)
             'stateRoot': _txsRoot,

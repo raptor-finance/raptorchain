@@ -20,7 +20,7 @@ import json
 import secrets
 import threading
 import time
-from typing import Any, List, Union
+from typing import Any
 
 import fastapi
 import pydantic
@@ -28,7 +28,7 @@ from rlp.exceptions import RLPException
 from web3.auto import w3
 
 from helpers.datatypes import Transaction
-from .utils import printError
+from .utils import hexData, printError
 
 # set by registerNode() before the server starts serving requests
 node = None
@@ -195,6 +195,62 @@ def eth_getCode(data):
     return f"0x{_code.hex()}" if _code is not None else "0x"
 
 
+def _requireQuantity(value, what):
+    """Validate a JSON-RPC quantity member (value/gas/gasprice), else -32602.
+
+    Accepts an int, or a non-empty decimal or 0x-hex string — the same forms
+    CallBlankTransaction coerces.  Anything else (notably the empty string,
+    which int() cannot parse) previously reached int() and escaped as -32603.
+    """
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value:
+        try:
+            int(value, 16) if "0x" in value else int(value, 10)
+            return value
+        except ValueError:
+            pass
+    raise _RpcError({"code": -32602, "message": f"Invalid {what}: {value!r}"})
+
+
+def _requireCallObject(data):
+    """Validate params[0] of eth_call/eth_estimateGas and return it cleaned.
+
+    Without this, a non-object argument (e.g. ["nope"]) reached
+    CallBlankTransaction's `call.get(...)` and escaped as an unhandled
+    AttributeError, which the dispatcher reported as -32603 "Internal error" —
+    telling the client the node was broken when the request was malformed.
+
+    Address- and quantity-typed members are checked here too, because they are
+    converted (to_checksum_address / int(...)) before the EVM ever runs, so a
+    bad value there produced the same misleading -32603.
+
+    `data` is deliberately NOT validated: CallBlankTransaction already wraps its
+    parsing in try/except and falls back to b"", so it cannot raise.
+
+    Returns a COPY with null-valued members removed.  That matters: the node
+    reads these with `call.get(key, DEFAULT)`, which yields None — not the
+    default — when the key is present with a null value, and None then crashed
+    address and gas coercion ("Exactly one of the passed values can be
+    specified", "int() can't convert non-string").  Dropping nulls makes an
+    explicit null behave exactly like an absent member, which is what a client
+    sending null means by it.
+    """
+    _requireParams(data, 1)
+    _call = data.params[0]
+    if not isinstance(_call, dict):
+        raise _RpcError({"code": -32602,
+                         "message": f"Invalid call object: expected an object, got {type(_call).__name__}"})
+    _clean = {_k: _v for _k, _v in _call.items() if _v is not None}
+    for _key in ("from", "to"):
+        if _key in _clean:
+            _requireAddress(_clean[_key])
+    for _key in ("value", "gas", "gasprice"):
+        if _key in _clean:
+            _requireQuantity(_clean[_key], _key)
+    return _clean
+
+
 def _execCall(data):
     """Run an eth_Call and return the CallEnv, raising a spec-compliant
     code:3 "execution reverted" error if the call reverted.
@@ -202,8 +258,7 @@ def _execCall(data):
     Per the execution-apis spec, both eth_call and eth_estimateGas must
     return error code 3 with the raw EVM revert data on revert.
     """
-    _requireParams(data, 1)
-    _env = node.state.eth_Call(data.params[0])
+    _env = node.state.eth_Call(_requireCallObject(data))
     if not _env.getSuccess():
         raise _RpcError({"code": 3, "message": "execution reverted",
                          "data": "0x" + _env.returnValue.hex()})
@@ -276,7 +331,9 @@ def eth_getStorageAt(data):
 
 def eth_getTransactionByHash(data):
     _requireParams(data, 1)
-    return node.ethGetTransactionByHash(data.params[0])
+    # the node method indexes the store with this value, so a non-string
+    # (e.g. 123) raised "'NoneType' object is not subscriptable" -> -32603
+    return node.ethGetTransactionByHash(_requireHash(data.params[0]))
 
 
 def _syntheticTxBlock(txDict, blockNumber, parentHash=None):
@@ -354,14 +411,30 @@ def eth_getBlockByNumber(data):
 
 def eth_getBlockByHash(data):
     _requireParams(data, 1)
-    _hash = data.params[0]
+    # a non-string argument (e.g. a list) used to reach the blocksByHash dict
+    # lookup and raise "unhashable type" -> -32603 internal error
+    _hash = _requireHash(data.params[0])
     _fullTx = data.params[1] if len(data.params) > 1 else False
     # beacon proofs still resolve to real beacon blocks
     _block = node.state.beaconChain.blocksByHash.get(_hash)
     if _block is not None:
         result = _block.web3Returnable()
         if _fullTx:  # fetch transactions as well
-            result["transactions"] = [node.ethGetTransactionByHash(_txid) for _txid in result["transactions"]]
+            # A beacon block can name a transaction this node's store does not
+            # hold (e.g. a peer never relayed it).  Resolving those used to
+            # raise TypeError inside Transaction(None) and fail the WHOLE block
+            # with -32603, so the block became unreadable; skipping the
+            # unresolvable entries keeps it answerable.  Deliberate trade-off:
+            # the full-transaction list can then be shorter than the hash list
+            # / eth_getBlockTransactionCountByHash, which is preferable to
+            # refusing to serve the block at all.
+            _resolved = []
+            for _txid in result["transactions"]:
+                try:
+                    _resolved.append(node.ethGetTransactionByHash(_txid))
+                except Exception:
+                    continue
+            result["transactions"] = _resolved
         return result
     # otherwise treat the hash as a transaction hash -> synthetic block
     _tx = node.getTransaction(_hash)
@@ -551,7 +624,8 @@ def eth_getBlockTransactionCountByNumber(data):
 
 def eth_getBlockTransactionCountByHash(data):
     _requireParams(data, 1)
-    _hash = data.params[0]
+    # non-string arguments were unhashable -> TypeError -> -32603
+    _hash = _requireHash(data.params[0])
     # beacon proofs still resolve to real beacon blocks
     _block = node.state.beaconChain.blocksByHash.get(_hash)
     if _block is not None:
@@ -598,7 +672,10 @@ def eth_getTransactionByBlockHashAndIndex(data):
     _indexInBlock = _parseIndex(data.params[1], "transaction index")
     if _indexInBlock != 0:
         return None
-    _blockIndex = _txIndexForHash(data.params[0])
+    # validation is required BEFORE _txIndexForHash: a non-string argument is
+    # unhashable, so blocksByHash.get() raised TypeError -> -32603.  Every other
+    # hash-taking method is guarded the same way; this one was missed.
+    _blockIndex = _txIndexForHash(_requireHash(data.params[0]))
     if _blockIndex is None:
         return None
     _txs = node.store.getTxsByRange(_blockIndex, _blockIndex + 1)
@@ -609,8 +686,10 @@ def eth_getTransactionByBlockHashAndIndex(data):
 
 def eth_getUncleCountByBlockHash(data):
     _requireParams(data, 1)
-    if node.state.beaconChain.blocksByHash.get(data.params[0]) is None \
-            and _txIndexForHash(data.params[0]) is None:
+    # non-string arguments were unhashable -> TypeError -> -32603
+    _hash = _requireHash(data.params[0])
+    if node.state.beaconChain.blocksByHash.get(_hash) is None \
+            and _txIndexForHash(_hash) is None:
         return None
     return "0x0"
 
@@ -798,9 +877,15 @@ def web3_sha3(data):
     try:
         _payload = _payload[2:] if _payload.startswith("0x") else _payload
         _payload = bytes.fromhex(_payload)
-    except (TypeError, ValueError):
+    except (AttributeError, TypeError, ValueError):
+        # AttributeError covers a non-string argument (a number, null, a list),
+        # which used to escape as an unhandled -32603 internal error.
         raise _RpcError({"code": -32602, "message": f"Invalid data: {data.params[0]!r}"})
-    return "0x" + w3.keccak(_payload).hex()
+    # keccak() returns HexBytes, whose .hex() ALREADY carries the "0x" prefix,
+    # so the previous "0x" + ....hex() returned a double-prefixed hash
+    # ("0x0xd4fd...", 68 characters) that every client-side hex parser rejects —
+    # an odd/even-length disaster this codebase has hit before (see hexData).
+    return hexData(w3.keccak(_payload))
 
 
 # --- polling filters ---------------------------------------------------------
@@ -1059,6 +1144,66 @@ METHODS = {
 
 # --- HTTP entry point ------------------------------------------------------
 
+def _isNotification(data: Web3Body):
+    """True when a request is a notification, i.e. it OMITS the id member.
+
+    JSON-RPC 2.0 draws a real distinction here: a request with no id member is
+    a notification and gets no response, but a request with an explicit
+    `"id": null` is an ordinary request whose id happens to be null and MUST be
+    answered with a response echoing that null.  Web3Body.id defaults to None,
+    so testing `data.id is None` conflated the two and answered HTTP 204 to an
+    explicit null id — a strict client then waits for a reply that never comes.
+
+    model_fields_set is what makes the distinction visible: it contains "id"
+    only when the request actually supplied one.
+    """
+    return "id" not in data.model_fields_set
+
+
+def _errorResponse(_id, _code, _message):
+    """Build a JSON-RPC 2.0 error response object."""
+    return {"id": _id, "jsonrpc": "2.0",
+            "error": {"code": _code, "message": _message}}
+
+
+def _bodyFromItem(_item):
+    """Convert one decoded JSON-RPC request into a Web3Body.
+
+    Returns a (body, errorResponse) pair; exactly one of the two is None.
+
+    Validating each item here, rather than letting a pydantic model validate
+    the whole Union[Web3Body, List[Web3Body]] body, is what stops one malformed
+    member from destroying a batch: previously a single bad item made pydantic
+    reject the ENTIRE array with HTTP 422, so every valid sibling request was
+    silently discarded.  It also keeps the failure inside the JSON-RPC envelope
+    instead of FastAPI's {"detail": [...]} payload, which a client cannot parse
+    (it reads .error.code and finds nothing).
+
+    Codes follow JSON-RPC 2.0: -32600 when the request shape itself is wrong
+    (not an object, or no usable method), -32602 when only params are wrong.
+    """
+    if not isinstance(_item, dict):
+        return None, _errorResponse(None, -32600,
+                                    f"Invalid Request: expected an object, got {type(_item).__name__}")
+    _id = _item.get("id")
+    _method = _item.get("method")
+    if not isinstance(_method, str):
+        return None, _errorResponse(_id, -32600, "Invalid Request: method must be a string")
+    _params = _item.get("params")
+    if _params is None:
+        # absent params and an explicit null both mean "no params"
+        _params = []
+    if not isinstance(_params, list):
+        return None, _errorResponse(_id, -32602,
+                                    f"Invalid params: expected an array, got {type(_params).__name__}")
+    _fields = {"method": _method, "params": _params}
+    # carry id ONLY when the request supplied it, so _isNotification can still
+    # tell a notification from an explicit "id": null
+    if "id" in _item:
+        _fields["id"] = _item["id"]
+    return Web3Body(**_fields), None
+
+
 def createRouter(app: fastapi.FastAPI):
     """Attach the POST /web3 route to the given FastAPI app."""
 
@@ -1073,7 +1218,7 @@ def createRouter(app: fastapi.FastAPI):
         if node is None:
             _respdict = {"id": data.id, "jsonrpc": "2.0",
                          "error": {"code": -32000, "message": "Node not ready"}}
-            return None if data.id is None else _respdict
+            return None if _isNotification(data) else _respdict
 
         if node.state.verbose:
             print(f"/web3 POST received, data : {data}")
@@ -1094,27 +1239,48 @@ def createRouter(app: fastapi.FastAPI):
         if node.state.verbose:
             print(f"{data.method} request completed in {round((time.time() - _begin) * 1000, 3)}ms")
             print(f"Response : {json.dumps(_respdict)}")
-        # JSON-RPC 2.0: a request without an id is a notification → no response.
-        return None if data.id is None else _respdict
+        # JSON-RPC 2.0: only a request that OMITS the id member is a
+        # notification.  An explicit "id": null is an ordinary request and MUST
+        # be answered — see _isNotification.
+        return None if _isNotification(data) else _respdict
+
+    def _jsonResponse(_payload):
+        """Serialize a JSON-RPC response body."""
+        return fastapi.Response(content=json.dumps(_payload),
+                                media_type='application/json')
+
+    def _dispatchOne(_item):
+        """Validate one raw request item, then handle it.
+
+        Returns the response dict, or None when nothing should be sent back
+        (a notification).
+        """
+        _body, _error = _bodyFromItem(_item)
+        if _error is not None:
+            return _error
+        return _handleSingle(_body)
 
     @app.post("/web3")
-    def handleWeb3Request(data: Union[Web3Body, List[Web3Body]]):
-        # Batch request: a JSON array of requests → array of responses.
-        # Notifications (no id) are processed but omitted from the response.
+    def handleWeb3Request(data: Any = fastapi.Body(default=None)):
+        # The body arrives as raw JSON and each item is validated individually
+        # (see _bodyFromItem): letting pydantic validate a
+        # Union[Web3Body, List[Web3Body]] body meant ONE malformed member made
+        # the whole batch fail with HTTP 422, discarding every valid sibling
+        # request, and answered with a body a JSON-RPC client cannot read.
         if isinstance(data, list):
+            # Batch request: a JSON array of requests -> array of responses.
+            # Notifications (no id) are processed but omitted from the response.
             _responses = []
             for _item in data:
-                _r = _handleSingle(_item)
+                _r = _dispatchOne(_item)
                 if _r is not None:
                     _responses.append(_r)
-            return fastapi.Response(content=json.dumps(_responses),
-                                    media_type='application/json')
+            return _jsonResponse(_responses)
         # Single request
-        _respdict = _handleSingle(data)
+        _respdict = _dispatchOne(data)
         if _respdict is None:
             # notification — no content
             return fastapi.Response(status_code=204)
-        _resp = json.dumps(_respdict)
-        return fastapi.Response(content=_resp, media_type='application/json')
+        return _jsonResponse(_respdict)
 
     return handleWeb3Request

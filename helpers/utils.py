@@ -29,6 +29,30 @@ def formatAddress(_addr):
     return w3.to_checksum_address(_addr)
 
 
+def hexData(_value):
+    """Render binary data as 0x-prefixed hex, for JSON-RPC DATA fields.
+
+    bytes.hex() has no "0x" prefix, but every JSON-RPC DATA field must carry
+    one, so values held as raw bytes were being served as malformed hex and
+    made client-side parsers throw (ethers' getBytes() rejects a hex string
+    that does not start with 0x).  Transaction stores r/s as raw byte slices
+    for legacy transactions, and the genesis beacon's parent is bytes.
+
+    Hex strings are returned unchanged: callers that already hold one (the
+    legacy decoder output for MetaMask transactions) must keep the exact
+    representation they had, and strings that are not hex at all (e.g. an
+    EIP-1559 v value) must not be re-encoded here.
+
+    HexBytes also subclasses bytes, but its .hex() already includes the "0x"
+    prefix, so the prefix is added only when it is missing.  Adding one
+    blindly would produce the "0x0x..." hash this codebase has hit before.
+    """
+    if isinstance(_value, (bytes, bytearray)):
+        _hex = _value.hex()
+        return _hex if _hex.startswith("0x") else "0x" + _hex
+    return _value
+
+
 def printError(errorMessage):
     """Print an error message, falling back to plain print if rich fails."""
     try:
