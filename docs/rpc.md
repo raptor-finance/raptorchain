@@ -43,6 +43,42 @@ You can add RaptorChain to metamask with RPC `https://rpc.raptorchain.io/web3`
 
 It also allows to interact with RaptorChain from web3 libraries (such as `web3.py` and `web3.js`) !
 
+Standard JSON-RPC 2.0 is spoken, including batched requests (a JSON array returns an array of responses).
+
+**Blocks are synthetic.** Neither `eth_blockNumber` nor the block getters report beacon-chain height:
+blocks are derived from the global transaction order, and each synthesized block holds exactly one
+transaction, whose hash IS the block hash. So `eth_getBlockByNumber(n)`, `eth_getBlockReceipts(n)`,
+`eth_getLogs` and every log's `blockNumber` all agree with one another, and a "block hash" can always
+be fed to `eth_getTransactionByHash`.
+
+Note that `eth_getBlockReceipts` restamps its receipts *and* their nested logs to that convention,
+while `eth_getTransactionReceipt` (unchanged) still reports a log's `blockNumber` as the beacon height
+at emit time and its `blockHash` as a beacon proof. Log entries also carry `transactionIndex` and
+`logIndex` in the node's stored event format (`"0x1"` and a plain integer), not as canonical hex
+quantities. Clients that correlate logs with blocks should prefer `eth_getLogs`/`eth_getBlockReceipts`.
+
+**Polling filters are supported** (`eth_newFilter`, `eth_newBlockFilter`, `eth_newPendingTransactionFilter`,
+`eth_getFilterChanges`, `eth_getFilterLogs`, `eth_uninstallFilter`). They are held **in memory, per node
+process**, so they are lost on restart, expire after 5 minutes without a poll, and — if several nodes sit
+behind one hostname — require sticky routing: a filter id handed to a different process answers
+`-32000 filter not found` (the standard "expired, create a new one" signal, which clients recover from).
+`eth_newPendingTransactionFilter` always reports nothing: transactions are stored as soon as they are
+accepted, so this node has no separate pending set.
+
+Two limitations to know about when using filters:
+
+- A topic position is matched by plain equality, so Ethereum's OR-form `{"topics": [[A, B]]}` is accepted
+  but never matches. This is the pre-existing `eth_getLogs` behaviour, shared deliberately so the two
+  cannot disagree.
+- A filter created with an explicit early `fromBlock` (e.g. `0x0`) scans that whole range on its first
+  `eth_getFilterChanges`. On a long chain that is a large amount of work per poll, so prefer the default
+  `latest` for subscriptions and an explicit range only for bounded backfills.
+
+**Deliberately not implemented**, rather than answered with fabricated data: `eth_feeHistory` (no EIP-1559
+fee market — components fall back to the real `eth_gasPrice`), `eth_getProof` (would need a Merkle-Patricia
+trie over state that is not bound to balances), and `eth_subscribe` (WebSocket-only; this endpoint is HTTP POST).
+`eth_maxPriorityFeePerGas` answers `0x0`, which is the truthful value on a pre-1559 chain.
+
 ## Transaction retrieving queries
 The following paths are used to query raw transactions from node.
 

@@ -17,6 +17,8 @@ if not hasattr(inspect, "getargspec"):
     inspect.getargspec = inspect.getfullargspec
 
 import json
+import secrets
+import threading
 import time
 from typing import Any, List, Union
 
@@ -377,6 +379,94 @@ def eth_getBlockByHash(data):
     return result
 
 
+def _parseIndex(_value, _what):
+    """Parse a JSON-RPC quantity index (hex string or int), else -32602.
+
+    Bools and floats are rejected even though Python would happily coerce
+    them: neither is a legal JSON-RPC quantity.
+    """
+    if isinstance(_value, bool) or not isinstance(_value, (int, str)):
+        raise _RpcError({"code": -32602, "message": f"Invalid {_what}: {_value!r}"})
+    if isinstance(_value, int):
+        return _value
+    _stripped = _value[2:] if _value.startswith("0x") else _value
+    try:
+        return int(_stripped, 16)
+    except ValueError:
+        raise _RpcError({"code": -32602, "message": f"Invalid {_what}: {_value!r}"})
+
+
+def _looksLikeHash(_value):
+    """True for a 32-byte 0x-prefixed hex string (an Ethereum hash)."""
+    return isinstance(_value, str) and _value.startswith("0x") and len(_value) == 66
+
+
+def _blockParamToTxIndex(_param):
+    """Resolve a block parameter to a tx-order index, or None if unknown.
+
+    Ints, hex heights and tags ("latest", ...) go through the shared
+    resolver.  A 32-byte hash is treated as a synthetic block hash — and a
+    synthetic block's hash IS its transaction hash — so it resolves through
+    _txIndexForHash.  A beacon-block hash resolves to None: beacon blocks
+    have no tx-order number, matching eth_getBlockByNumber, which cannot
+    address them either.
+    """
+    if _looksLikeHash(_param):
+        return _txIndexForHash(_param)
+    return int(_resolveBlockNumber(_param))
+
+
+def _normalizeReceipt(_txid, _blockNumber, _blockHash, _txIndexInBlock):
+    """Return a copy of a stored receipt restamped with synthetic-block metadata.
+
+    Stored receipts carry blockHash = tx.epoch (a beacon-chain hash) and a
+    hardcoded transactionIndex of '0x1', neither of which lines up with the
+    synthetic blocks served by eth_getBlockByNumber, where a block holds
+    exactly one transaction at index 0 and the block hash is the tx hash.
+    Restamping here makes getBlockReceipts(n) correlate with
+    getBlockByNumber(n) without altering any existing method's output.
+
+    Returns None when no receipt is available (a transaction that was stored
+    but never executed, or whose receipt was lost).
+    """
+    _receipt = node.txReceipt(_txid)
+    if not _receipt:
+        return None
+    _receipt = dict(_receipt)
+    _receipt["blockNumber"] = hex(_blockNumber)
+    _receipt["blockHash"] = _blockHash
+    _receipt["transactionIndex"] = hex(_txIndexInBlock)
+    # The nested logs carry emit-time beacon metadata, so without this a
+    # receipt would report blockNumber "0x1" while its own logs reported the
+    # beacon height, and getLogs for the same block would disagree with both.
+    # Absence of a logs key is preserved rather than filled in.
+    if isinstance(_receipt.get("logs"), list):
+        _receipt["logs"] = [_restampLog(_log, _blockNumber, _blockHash)
+                            for _log in _receipt["logs"]]
+    return _receipt
+
+
+def eth_getBlockReceipts(data):
+    """Return the receipts of the synthetic block at the given number or hash.
+
+    Uses the same convention as eth_getBlockByNumber: blocks are keyed on the
+    global transaction order and hold exactly one transaction, so an existing
+    block yields a single-element list.  An existing block whose transaction
+    has no stored receipt yields []; an unknown or out-of-range block yields
+    null.
+
+    Beacon-block hashes yield null — they are not part of the tx-order
+    numbering, exactly as with eth_getBlockByNumber.
+    """
+    _requireParams(data, 1)
+    _index = _blockParamToTxIndex(data.params[0])
+    if _index is None or _index < 0 or _index >= node.store.txCount():
+        return None
+    _txid = node.store.getTxHashes()[_index]
+    _receipt = _normalizeReceipt(_txid, _index, _txid, 0)
+    return [_receipt] if _receipt is not None else []
+
+
 # --- read-only convenience methods -------------------------------------------
 # These are the lightweight, always-truthful responses wallets/ethers.js probe
 # on startup and around eth_call.  None of them fabricate data: where the node
@@ -397,6 +487,30 @@ def eth_accounts(data):
 def web3_clientVersion(data):
     """Identity string for user-agents / client detection."""
     return f"RaptorChain/{node.state.version}"
+
+
+def net_listening(data):
+    """The endpoint is always serving; nothing gates readiness here."""
+    return True
+
+
+def net_peerCount(data):
+    """Number of peers currently registered, as a hex quantity.
+
+    getattr guards the window before the node has loaded its peer list.
+    """
+    return hex(len(getattr(node, "peers", None) or []))
+
+
+def eth_maxPriorityFeePerGas(data):
+    """Always "0x0": there is no priority-fee market on this chain.
+
+    eth_gasPrice is the entire price of a transaction here, so a priority fee
+    of zero is the truthful answer, not a placeholder.  Answering instead of
+    returning method-not-found lets EIP-1559-aware clients (viem/ethers
+    estimateFeesPerGas) finish fee estimation against a pre-1559 chain.
+    """
+    return "0x0"
 
 
 def _txIndexForHash(_hash):
@@ -454,11 +568,7 @@ def eth_getTransactionByBlockNumberAndIndex(data):
     hashes are not part of the tx-index numbering and return null.
     """
     _requireParams(data, 2)
-    _index = data.params[1]
-    try:
-        _index = int(_index, 16) if isinstance(_index, str) else int(_index)
-    except (TypeError, ValueError):
-        raise _RpcError({"code": -32602, "message": f"Invalid transaction index: {data.params[1]!r}"})
+    _index = _parseIndex(data.params[1], "transaction index")
     _blockNumber = int(_resolveBlockNumber(data.params[0]))
     _count = node.store.txCount()
     if _blockNumber < 0 or _blockNumber >= _count:
@@ -469,6 +579,27 @@ def eth_getTransactionByBlockNumberAndIndex(data):
     if not _txs or _txs[0] is None:
         return None
     return _syntheticTxBlock(_txs[0], _blockNumber)["transactions"][0]
+
+
+def eth_getTransactionByBlockHashAndIndex(data):
+    """Return the transaction at the given index of a synthetic block, by hash.
+
+    Mirrors eth_getTransactionByBlockNumberAndIndex: synthetic blocks are
+    single-transaction, so index 0 resolves and any other index returns null.
+    Beacon-block hashes are not part of the tx-index numbering and return
+    null, as does an unknown hash.
+    """
+    _requireParams(data, 2)
+    _indexInBlock = _parseIndex(data.params[1], "transaction index")
+    if _indexInBlock != 0:
+        return None
+    _blockIndex = _txIndexForHash(data.params[0])
+    if _blockIndex is None:
+        return None
+    _txs = node.store.getTxsByRange(_blockIndex, _blockIndex + 1)
+    if not _txs or _txs[0] is None:
+        return None
+    return _syntheticTxBlock(_txs[0], _blockIndex)["transactions"][0]
 
 
 def eth_getUncleCountByBlockHash(data):
@@ -487,6 +618,25 @@ def eth_getUncleCountByBlockNumber(data):
     return "0x0"
 
 
+def eth_getUncleByBlockHashAndIndex(data):
+    """Always null: this chain has no uncles.
+
+    eth_getUncleCountByBlockHash already answers 0x0, so there is no uncle to
+    return.  Fabricating an object would be strictly worse than the honest
+    null — a client would trust it.
+    """
+    _requireParams(data, 2)
+    _parseIndex(data.params[1], "uncle index")
+    return None
+
+
+def eth_getUncleByBlockNumberAndIndex(data):
+    """Always null: this chain has no uncles (see the by-hash variant)."""
+    _requireParams(data, 2)
+    _parseIndex(data.params[1], "uncle index")
+    return None
+
+
 # NOTE: eth_feeHistory is deliberately NOT implemented.  RaptorChain has no
 # EIP-1559 fee market (no base fee / priority fee — only a flat eth_gasPrice),
 # so any baseFeePerGas/gasUsedRatio/reward response would be fabricated data.
@@ -494,26 +644,33 @@ def eth_getUncleCountByBlockNumber(data):
 # eth_gasPrice, which is the correct behavior for a pre-1559 chain.  ethers in
 # particular never even calls eth_feeHistory here because our blocks do not
 # expose baseFeePerGas.
+#
+# eth_getProof is also deliberately absent.  A real account/storage proof needs
+# a Merkle-Patricia trie over committed state, and this node's state root is not
+# bound to account balances, so any "proof" produced here would be meaningless.
+# A light client or bridge that trusted it would be actively misled, which is
+# worse than the honest method-not-found.
+#
+# eth_subscribe is absent for a transport reason, not a policy one: it is a
+# WebSocket-only API and /web3 is HTTP POST.
 
 
-def eth_getLogs(data):
-    """Filter events emitted by committed transactions.
+def _normalizeLogFilter(_filter):
+    """Validate and normalize a log filter's address/topics constraints.
 
-    Logs are the JSON-encodable event dicts stored in each transaction's
-    receipt (see State.execEVMCall → tx.setEvents → makeReceipt).  We match
-    them against the same tx-order index that eth_blockNumber / synthetic
-    blocks use, so fromBlock/toBlock and each log's blockNumber agree with
-    eth_getBlockByNumber.  This is the tx-order convention (NOT the beacon
-    height the event captured at emit time), kept consistent on purpose.
+    Returns (addrs, topics): addrs is a list of lowercased checksummed
+    addresses, or None for "no address restriction"; topics is the positional
+    list (None entries are wildcards), or None.
 
-    Filters supported: address (list OR-match), topics (positional with None
-    wildcards), fromBlock/toBlock (default earliest..latest).
+    Shared by eth_getLogs and the log filters so the two can never disagree
+    about what a filter means.
+
+    KNOWN LIMITATION (inherited unchanged from the original eth_getLogs): a
+    topic position is compared for plain equality, so Ethereum's OR-form
+    ({"topics": [[A, B]]}) is accepted but never matches.  Fixing it means
+    changing matching semantics for eth_getLogs too, so it is left as-is
+    here and pinned by a test rather than changed in passing.
     """
-    _requireParams(data, 1)
-    _filter = data.params[0]
-    if not isinstance(_filter, dict):
-        raise _RpcError({"code": -32602, "message": f"Invalid filter: {_filter!r}"})
-
     # --- address: single addr, or a list matched as OR ----------------------
     _addrFilter = _filter.get("address")
     if _addrFilter is not None:
@@ -527,33 +684,61 @@ def eth_getLogs(data):
                 _addrs.append(w3.to_checksum_address(_a).lower())
             except Exception:
                 raise _RpcError({"code": -32602, "message": f"Invalid address filter: {_a!r}"})
+    else:
+        _addrs = None
 
     # --- topics: positional, None is a wildcard -----------------------------
     _topicsFilter = _filter.get("topics")
     if _topicsFilter is not None and not isinstance(_topicsFilter, list):
         raise _RpcError({"code": -32602, "message": "topics filter must be a list"})
 
-    # --- block range --------------------------------------------------------
-    _from = _resolveBlockNumber(_filter.get("fromBlock", "latest"))
-    _to = _resolveBlockNumber(_filter.get("toBlock", "latest"))
-    if _from > _to:
-        return []
-    _count = node.store.txCount()
-    _start = max(_from, 0)
-    _end = min(_to + 1, _count)
+    return _addrs, _topicsFilter
 
+
+def _restampLog(_log, _blockNumber, _blockHash):
+    """Return a copy of a log stamped with the synthetic-block convention.
+
+    Logs are stored exactly as Event.JSONEncodable() emitted them, which means
+    a BEACON-height blockNumber (a plain int, not a hex quantity) and a BEACON
+    proof blockHash.  Restamping is what lets a client correlate a log with the
+    blocks this endpoint serves.
+
+    Shared by _collectLogs and _normalizeReceipt so a receipt's nested logs and
+    the eth_getLogs result for the same block cannot disagree.
+    """
+    _log = dict(_log)
+    _log["blockNumber"] = hex(_blockNumber)
+    _log["blockHash"] = _blockHash
+    return _log
+
+
+def _collectLogs(_start, _end, _addrs, _topicsFilter):
+    """Collect matching logs for the tx-order indices in [_start, _end).
+
+    Each returned log is restamped with the synthetic-block convention
+    (blockNumber = tx-order index, blockHash = tx hash) so clients can
+    correlate it with eth_getBlockByNumber.  Shared by eth_getLogs and by
+    eth_getFilterChanges/eth_getFilterLogs.
+    """
+    if _start >= _end:
+        return []
+    # hoisted out of the loop: getTxHashes() copies the entire order list, so
+    # calling it per iteration made the scan O(n) in copies as well as in work
+    _hashes = node.store.getTxHashes()
     _results = []
     for _txIndex in range(_start, _end):
+        if _txIndex >= len(_hashes):
+            break
         _txs = node.store.getTxsByRange(_txIndex, _txIndex + 1)
         if not _txs or _txs[0] is None:
             continue
-        _txid = node.store.getTxHashes()[_txIndex]
+        _txid = _hashes[_txIndex]
         _receipt = node.state.receipts.get(_txid)
         if not _receipt:
             continue
         for _log in _receipt.get("logs", []):
             # address OR-match (case-insensitive)
-            if _addrFilter is not None and _log.get("address", "").lower() not in _addrs:
+            if _addrs is not None and _log.get("address", "").lower() not in _addrs:
                 continue
             if _topicsFilter is not None:
                 _logTopics = _log.get("topics", [])
@@ -568,11 +753,38 @@ def eth_getLogs(data):
                     continue
             # normalize blockNumber/blockHash to the tx-order convention so
             # clients can correlate the log to the synthetic block
-            _log = dict(_log)
-            _log["blockNumber"] = hex(_txIndex)
-            _log["blockHash"] = _txid
-            _results.append(_log)
+            _results.append(_restampLog(_log, _txIndex, _txid))
     return _results
+
+
+def eth_getLogs(data):
+    """Filter events emitted by committed transactions.
+
+    Logs are the JSON-encodable event dicts stored in each transaction's
+    receipt (see State.execEVMCall → tx.setEvents → makeReceipt).  We match
+    them against the same tx-order index that eth_blockNumber / synthetic
+    blocks use, so fromBlock/toBlock and each log's blockNumber agree with
+    eth_getBlockByNumber.  This is the tx-order convention (NOT the beacon
+    height the event captured at emit time), kept consistent on purpose.
+
+    Filters supported: address (list OR-match), topics (positional with None
+    wildcards), fromBlock/toBlock (default latest..latest).  Matching is
+    delegated to _normalizeLogFilter/_collectLogs, which the polling log
+    filters share.
+    """
+    _requireParams(data, 1)
+    _filter = data.params[0]
+    if not isinstance(_filter, dict):
+        raise _RpcError({"code": -32602, "message": f"Invalid filter: {_filter!r}"})
+    _addrs, _topicsFilter = _normalizeLogFilter(_filter)
+
+    # --- block range --------------------------------------------------------
+    _from = _resolveBlockNumber(_filter.get("fromBlock", "latest"))
+    _to = _resolveBlockNumber(_filter.get("toBlock", "latest"))
+    if _from > _to:
+        return []
+    _count = node.store.txCount()
+    return _collectLogs(max(_from, 0), min(_to + 1, _count), _addrs, _topicsFilter)
 
 
 def web3_sha3(data):
@@ -584,6 +796,198 @@ def web3_sha3(data):
     except (TypeError, ValueError):
         raise _RpcError({"code": -32602, "message": f"Invalid data: {data.params[0]!r}"})
     return "0x" + w3.keccak(_payload).hex()
+
+
+# --- polling filters ---------------------------------------------------------
+# Ethereum's polling-filter API, kept in memory for the lifetime of the
+# process.  Filters are ephemeral by design (geth expires idle ones too), so
+# losing them on a restart is spec-consistent rather than a defect.
+#
+# Cursors are TX-ORDER indices, like every other block-number answer on this
+# endpoint: a synthetic block holds exactly one transaction, and its hash IS
+# that transaction's hash.
+
+FILTER_TTL_SECONDS = 300   # idle expiry, swept opportunistically on each call
+MAX_FILTERS = 1024         # hard cap so a public endpoint cannot be flooded
+
+_FILTER_KIND_BLOCK = "block"
+_FILTER_KIND_PENDING = "pending"
+_FILTER_KIND_LOG = "log"
+
+_LATEST_TAGS = ("latest", "pending", "safe", "finalized")
+
+# A plain (non-reentrant) Lock is enough because no locked helper ever calls
+# back into another locking helper: _sweepFilters/_newFilter/_requireFilter all
+# document that the caller must already hold it, and the handlers hold it
+# across the whole read-modify-write of a filter's cursor.
+_filtersLock = threading.Lock()
+_filters = {}
+
+
+def _sweepFilters():
+    """Drop filters idle past FILTER_TTL_SECONDS.  Caller must hold _filtersLock.
+
+    Uses time.monotonic() rather than time.time(): a TTL measured against the
+    wall clock would let an NTP step retroactively keep every filter alive (or
+    expire them all at once).
+    """
+    _now = time.monotonic()
+    _stale = [_filterId for _filterId, _filter in _filters.items()
+              if _now - _filter["lastPolledAt"] > FILTER_TTL_SECONDS]
+    for _filterId in _stale:
+        del _filters[_filterId]
+
+
+def _requireFilter(_filterId):
+    """Return a live filter, else raise.  Caller must hold _filtersLock.
+
+    The error code matters: clients read -32601 as "this node has no filter
+    support" and give up permanently, whereas -32000 is the standard
+    "filter not found / expired" signal they are expected to recover from by
+    creating a new filter.  Reporting -32601 here would defeat the whole
+    point of implementing the filter family.
+    """
+    if not isinstance(_filterId, str):
+        raise _RpcError({"code": -32602, "message": f"Invalid filter id: {_filterId!r}"})
+    _sweepFilters()
+    _filter = _filters.get(_filterId)
+    if _filter is None:
+        raise _RpcError({"code": -32000, "message": "filter not found"})
+    return _filter
+
+
+def _newFilter(_kind, _cursor, _endIndex=None, _startIndex=None, _addrs=None, _topicsFilter=None):
+    """Register a filter and return its id.  Caller must hold _filtersLock."""
+    _sweepFilters()
+    if len(_filters) >= MAX_FILTERS:
+        raise _RpcError({"code": -32000,
+                         "message": f"Too many active filters (limit {MAX_FILTERS}); "
+                                    "release unused ones with eth_uninstallFilter"})
+    _filterId = "0x" + secrets.token_hex(16)
+    _filters[_filterId] = {"kind": _kind, "cursor": _cursor, "endIndex": _endIndex,
+                           "startIndex": _startIndex, "addrs": _addrs,
+                           "topics": _topicsFilter, "lastPolledAt": time.monotonic()}
+    return _filterId
+
+
+def _filterWindow(_filter):
+    """Return the [start, end) tx-order window a filter currently covers.
+
+    endIndex None means the filter keeps tracking new blocks; an explicit
+    endIndex bounds it permanently.
+    """
+    _count = node.store.txCount()
+    _start = _filter["cursor"]
+    _end = _count if _filter["endIndex"] is None else min(_filter["endIndex"], _count)
+    return (_start if _start <= _end else _end), _end
+
+
+def eth_newBlockFilter(data):
+    """Register a filter reporting newly stored transactions.
+
+    A synthetic block's hash is its transaction hash, so the reported ids are
+    exactly what eth_getBlockByHash accepts.  The cursor starts at the current
+    tip, so only blocks stored from now on are reported.
+    """
+    with _filtersLock:
+        return _newFilter(_FILTER_KIND_BLOCK, node.store.txCount())
+
+
+def eth_newPendingTransactionFilter(data):
+    """Register a filter that never reports anything.
+
+    This chain has no separate pending set: a transaction is written to the
+    store as soon as it is accepted, so there is no observable difference
+    between "pending" and "stored".  Rather than alias eth_newBlockFilter and
+    claim a mempool view that does not exist, this stays honestly empty.
+    """
+    with _filtersLock:
+        return _newFilter(_FILTER_KIND_PENDING, 0, _endIndex=0)
+
+
+def eth_newFilter(data):
+    """Register a log filter.
+
+    fromBlock defaults to "latest", which for a *filter* means "start at the
+    current tip" — a subscription reports only new logs, whereas an explicit
+    fromBlock replays from that index on the first poll.  toBlock "latest"
+    keeps tracking new blocks; an explicit toBlock bounds the filter.
+    """
+    _requireParams(data, 1)
+    _filter = data.params[0]
+    if not isinstance(_filter, dict):
+        raise _RpcError({"code": -32602, "message": f"Invalid filter: {_filter!r}"})
+    _addrs, _topicsFilter = _normalizeLogFilter(_filter)
+
+    _fromParam = _filter.get("fromBlock", "latest")
+    _toParam = _filter.get("toBlock", "latest")
+    if isinstance(_fromParam, str) and _fromParam in _LATEST_TAGS:
+        _cursor = node.store.txCount()
+    else:
+        _cursor = max(_resolveBlockNumber(_fromParam), 0)
+    if isinstance(_toParam, str) and _toParam in _LATEST_TAGS:
+        _endIndex = None
+    else:
+        _endIndex = _resolveBlockNumber(_toParam) + 1
+
+    with _filtersLock:
+        return _newFilter(_FILTER_KIND_LOG, _cursor, _endIndex=_endIndex,
+                          _startIndex=_cursor, _addrs=_addrs,
+                          _topicsFilter=_topicsFilter)
+
+
+def eth_getFilterChanges(data):
+    """Return everything the filter has seen since the previous poll.
+
+    The cursor advances past whatever is returned, so consecutive polls never
+    repeat a block or log.  An unchanged chain yields [], never null.
+    """
+    _requireParams(data, 1)
+    with _filtersLock:
+        _filter = _requireFilter(data.params[0])
+        _filter["lastPolledAt"] = time.monotonic()
+        if _filter["kind"] == _FILTER_KIND_PENDING:
+            return []
+        _start, _end = _filterWindow(_filter)
+        if _filter["kind"] == _FILTER_KIND_BLOCK:
+            _changes = node.store.getTxHashes()[_start:_end]
+        else:
+            _changes = _collectLogs(_start, _end, _filter["addrs"], _filter["topics"])
+        # max() keeps the cursor monotonic.  It matters for a filter created
+        # with a fromBlock beyond the current tip: _filterWindow collapses such
+        # a window to the tip, and assigning that unconditionally would make the
+        # filter start reporting from now instead of waiting for fromBlock.
+        _filter["cursor"] = max(_filter["cursor"], _end)
+        return _changes
+
+
+def eth_getFilterLogs(data):
+    """Return every log a log filter matches over its whole range.
+
+    Unlike eth_getFilterChanges this does NOT advance the cursor (per spec),
+    so repeated calls return the same result.  Block and pending filters have
+    no log stream and yield an empty list.
+    """
+    _requireParams(data, 1)
+    with _filtersLock:
+        _filter = _requireFilter(data.params[0])
+        _filter["lastPolledAt"] = time.monotonic()
+        if _filter["kind"] != _FILTER_KIND_LOG:
+            return []
+        _blockEnd = _filterWindow(_filter)[1]
+        _first = _filter["startIndex"] if _filter["startIndex"] is not None else 0
+        return _collectLogs(_first, _blockEnd, _filter["addrs"], _filter["topics"])
+
+
+def eth_uninstallFilter(data):
+    """Remove a filter.  Unknown or expired ids return False (not an error)."""
+    _requireParams(data, 1)
+    _filterId = data.params[0]
+    if not isinstance(_filterId, str):
+        raise _RpcError({"code": -32602, "message": f"Invalid filter id: {_filterId!r}"})
+    with _filtersLock:
+        _sweepFilters()
+        return _filters.pop(_filterId, None) is not None
 
 
 # JSON-RPC 2.0 error codes
@@ -621,17 +1025,30 @@ METHODS = {
     "eth_getTransactionByHash": eth_getTransactionByHash,
     "eth_getBlockByNumber": eth_getBlockByNumber,
     "eth_getBlockByHash": eth_getBlockByHash,
+    "eth_getBlockReceipts": eth_getBlockReceipts,
     "eth_chainId": lambda data: hex(node.state.chainID),
     "eth_syncing": eth_syncing,
     "eth_accounts": eth_accounts,
     "web3_clientVersion": web3_clientVersion,
+    "net_listening": net_listening,
+    "net_peerCount": net_peerCount,
+    "eth_maxPriorityFeePerGas": eth_maxPriorityFeePerGas,
     "eth_getBlockTransactionCountByNumber": eth_getBlockTransactionCountByNumber,
     "eth_getBlockTransactionCountByHash": eth_getBlockTransactionCountByHash,
     "eth_getTransactionByBlockNumberAndIndex": eth_getTransactionByBlockNumberAndIndex,
+    "eth_getTransactionByBlockHashAndIndex": eth_getTransactionByBlockHashAndIndex,
     "eth_getUncleCountByBlockHash": eth_getUncleCountByBlockHash,
     "eth_getUncleCountByBlockNumber": eth_getUncleCountByBlockNumber,
+    "eth_getUncleByBlockHashAndIndex": eth_getUncleByBlockHashAndIndex,
+    "eth_getUncleByBlockNumberAndIndex": eth_getUncleByBlockNumberAndIndex,
     "eth_getLogs": eth_getLogs,
     "web3_sha3": web3_sha3,
+    "eth_newFilter": eth_newFilter,
+    "eth_newBlockFilter": eth_newBlockFilter,
+    "eth_newPendingTransactionFilter": eth_newPendingTransactionFilter,
+    "eth_getFilterChanges": eth_getFilterChanges,
+    "eth_getFilterLogs": eth_getFilterLogs,
+    "eth_uninstallFilter": eth_uninstallFilter,
 }
 
 
