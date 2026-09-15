@@ -14,6 +14,7 @@ in terms of it.
 
 import sys
 import time
+from functools import lru_cache
 
 import rich
 
@@ -25,16 +26,101 @@ from . import constants
 from .keccaktools import packedKeccak
 
 
-def formatAddress(_addr):
-    """Normalize an address to a checksummed hex string.
+def _formatAddress(_addr):
+    """Uncached core: normalize a 20-byte integer or hex string to EIP-55.
 
     Accepts either a 20-byte integer or a hex string.  This replaces the
     three identical copies that previously lived in Transaction,
     State.CallBlankTransaction and State.
+
+    Kept separate from the cached path so the memoized wrapper has exactly one
+    thing to remember, and so this stays the verbatim original behaviour --
+    same results and same exceptions for the same input.
     """
     if type(_addr) == int:
         return w3.to_checksum_address(_addr.to_bytes(20, "big"))
     return w3.to_checksum_address(_addr)
+
+
+# formatAddress sits on the per-opcode path (State.getAccount formats its
+# argument, and getAccount is reached from essentially every opcode and every
+# RPC read), while w3.to_checksum_address re-derives the whole EIP-55 digest on
+# EVERY call -- measured ~24-29us even when the input is already checksummed.
+# The same few addresses are formatted over and over, so results are memoized.
+#
+# A bounded cache is not optional: the key is whatever the caller passes, and
+# on a public RPC that includes arbitrary attacker-chosen strings, so an
+# unbounded cache is a way to grow memory without limit.  Size matches
+# keccaktools._isChecksumAddress.
+_FORMAT_ADDRESS_CACHE_SIZE = 1 << 16
+
+
+@lru_cache(maxsize=_FORMAT_ADDRESS_CACHE_SIZE)
+def _cachedFormatAddress(_addrType, _addr):
+    """Memoize _formatAddress, INCLUDING the way it fails.
+
+    Failures are returned as the exception OBJECT rather than raised, because
+    lru_cache only memoizes successful returns: a raised exception escapes the
+    wrapper and is never cached, so a malformed address would be re-validated
+    (and re-raised) on every single call.  Handing the exception back turns the
+    second and later calls for a bad input into a cache hit as well.
+
+    Callers must go through formatAddress(), which re-raises it.
+
+    _addrType is part of the cache KEY, not decoration.  _formatAddress branches
+    on type() (an int address is rendered from its bytes, anything else is passed
+    to web3), so behaviour is a function of the type AND the value -- while
+    lru_cache keys on the value alone.  For a single argument, functools
+    fast-paths one whose type is EXACTLY int or str (it uses the raw value as the
+    dict key) and wraps every other type in a _HashedSeq, whose __eq__ is
+    list.__eq__ and so compares element-wise.  Two consequences, both measured:
+
+        formatAddress(0)   vs formatAddress(False)  -> insulated
+            a raw int key never equals a _HashedSeq, although 0 == False
+        formatAddress(0.0) vs formatAddress(False)  -> SHARED SLOT
+            both are _HashedSeq: 0.0 == False, and their hashes match
+
+    An untyped key therefore served the WRONG outcome for whichever of a
+    colliding pair was cached second: formatAddress(0.0) raised the ValueError
+    that belongs to False, and formatAddress(memoryview(b"..")) returned the
+    success cached for the equal bytes value.  In the reverse order it is worse
+    than cosmetic -- a VALID bytes address then took the memoryview's TypeError,
+    and kept raising it for the life of the process.  Passing type() as a second
+    argument makes the key a 2-tuple, which functools always wraps in a
+    _HashedSeq, so the type is compared as well and each type gets its own slot.
+    (An exact int or str is insulated either way, but relying on that would mean
+    relying on a functools implementation detail for correctness.)
+
+    Unhashable values still fail the lookup and are handled in formatAddress;
+    classes are always hashable, so the type argument never causes that.
+    """
+    try:
+        return _formatAddress(_addr)
+    except Exception as _error:
+        return _error
+
+
+def formatAddress(_addr):
+    """Normalize an address to a checksummed hex string (memoized).
+
+    Same results and the same exceptions as the original implementation; the
+    only change is that repeated inputs are served from a cache.
+    """
+    try:
+        # type() first: see _cachedFormatAddress for why the key must be typed
+        _result = _cachedFormatAddress(type(_addr), _addr)
+    except TypeError:
+        # Unhashable argument (bytearray, list, dict, ...) -- the lru_cache
+        # lookup itself refuses it before our body can run.  Falling back to the
+        # uncached core preserves the ORIGINAL behaviour exactly: to_checksum_address
+        # really does accept a 20-byte bytearray, and for the types it rejects it
+        # raises its own TypeError, whose message callers may match on.
+        # _cachedFormatAddress never raises TypeError itself (it catches
+        # Exception), so a TypeError here can only come from the lookup.
+        return _formatAddress(_addr)
+    if isinstance(_result, Exception):
+        raise _result
+    return _result
 
 
 def hexData(_value):
