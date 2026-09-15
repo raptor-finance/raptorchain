@@ -709,6 +709,16 @@ class Opcodes(object):
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
+        # The return buffer is NOT auto-extended: reading past its end is a
+        # failure, not a read of zeros (unlike CALLDATACOPY / CODECOPY, where the
+        # source is conceptually zero-extended).  Without this check the slice
+        # returned fewer bytes than `length`, and write_bytes zero-filled the
+        # difference -- so copying 32 bytes out of an EMPTY return buffer
+        # SUCCEEDED and produced 32 zeros.  Checked before the write, or the
+        # revert would come too late to undo it.
+        if ((offset + length) > len(env.lastCallReturn)):
+            env.revert(b"RETURNDATACOPY_OUT_OF_BOUNDS")
+            return
         env.memory.write_bytes(destOffset, length, env.lastCallReturn[offset:offset+length])
         env.consumeGas(((length//32) * 3) + 2)
         env.pc += 1
@@ -774,10 +784,15 @@ class Opcodes(object):
         env.pc += 1
         
     def POP(self, env):
-        try:
-            env.stack.pop()
-        except:
-            pass
+        # The try/except swallowed the underflow, so POP on an empty stack
+        # SUCCEEDED -- a POP that removes nothing was indistinguishable from a
+        # correct one.  The EVM fails the frame.  An explicit check replaces the
+        # exception so the failure is deliberate and reports why, which the bare
+        # `except: pass` could never do.
+        if not env.stack:
+            env.revert(b"STACK_UNDERFLOW")
+            return
+        env.stack.pop()
         env.consumeGas(2)
         env.pc += 1
     
@@ -956,7 +971,15 @@ class Opcodes(object):
         
         
         
-    def DUP(self, env, nItem): # function to manage them all !
+    def DUP(self, env, nItem): # single method for all DUP<n> opcodes (cleaner !)
+        # DUP<n> needs n items.  The old body indexed stack[len-nItem], which for
+        # a short stack is a NEGATIVE index: DUP2 with one item returned that item
+        # again (acting as DUP1) instead of failing, and only DUP3+ happened to
+        # raise IndexError.  Checking the height makes every DUP<n> fail the same,
+        # correct way.
+        if nItem > len(env.stack):
+            env.revert(b"STACK_UNDERFLOW")
+            return
         env.stack.append(env.stack[len(env.stack)-nItem])
         env.consumeGas(3)
         env.pc += 1
@@ -1014,85 +1037,69 @@ class Opcodes(object):
 
 
 
-    def SWAP1(self, env):
-        env.swap(1)
+    def SWAP(self, env, nItem): # single method for all SWAP<n> opcodes
+        # SWAP<n> needs n+1 items.  env.swap() computed head-n, so on a short
+        # stack it swapped a slot with ITSELF and reported success -- SWAP1 with a
+        # single item was a no-op that looked correct.  Guarded here rather than
+        # inside CallEnv.swap() so that no gas is charged and pc is not advanced
+        # once the frame has already failed.
+        if nItem >= len(env.stack):
+            env.revert(b"STACK_UNDERFLOW")
+            return
+        env.swap(nItem)
         env.consumeGas(3)
         env.pc += 1
+
+    # The 16 SWAP<n> methods used to repeat the same 4-line body verbatim, so the
+    # guard above would have had to be added 16 times -- one miss and that SWAP
+    # kept the silent no-op.  They now mirror the PUSH<n> / DUP<n> pattern.
+    def SWAP1(self, env):
+        self.SWAP(env, 1)
 
     def SWAP2(self, env):
-        env.swap(2)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 2)
 
     def SWAP3(self, env):
-        env.swap(3)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 3)
 
     def SWAP4(self, env):
-        env.swap(4)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 4)
 
     def SWAP5(self, env):
-        env.swap(5)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 5)
 
     def SWAP6(self, env):
-        env.swap(6)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 6)
 
     def SWAP7(self, env):
-        env.swap(7)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 7)
 
     def SWAP8(self, env):
-        env.swap(8)
-        env.consumeGas(3)
-        env.pc += 1
-        
+        self.SWAP(env, 8)
+
     def SWAP9(self, env):
-        env.swap(9)
-        env.consumeGas(3)
-        env.pc += 1
-        
+        self.SWAP(env, 9)
+
     def SWAP10(self, env):
-        env.swap(10)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 10)
 
     def SWAP11(self, env):
-        env.swap(11)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 11)
 
     def SWAP12(self, env):
-        env.swap(12)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 12)
 
     def SWAP13(self, env):
-        env.swap(13)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 13)
 
     def SWAP14(self, env):
-        env.swap(14)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 14)
 
     def SWAP15(self, env):
-        env.swap(15)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 15)
 
     def SWAP16(self, env):
-        env.swap(16)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 16)
 
     def LOG0(self, env): # TODO
         offset = env.stack.pop()
@@ -1159,12 +1166,16 @@ class Opcodes(object):
 
         _initBytecode = env.memory.read_bytes(offset, length)
 
-        env.createBackend(deplAddr, value, _initBytecode)
+        # CREATE pushes the new address on SUCCESS and ZERO on failure.  The
+        # result of createBackend() used to be discarded and the address pushed
+        # unconditionally, so a constructor that REVERTED still handed the caller
+        # a usable-looking contract address pointing at an account with no code.
+        (_success, _ret) = env.createBackend(deplAddr, value, _initBytecode)
 
         # _childEnv = CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3)
         # result = env.callFallback(_childEnv)
         # env.lastCallReturn = _childEnv.returnValue
-        env.stack.append(int(deplAddr, 16))
+        env.stack.append(int(deplAddr, 16) if _success else 0)
         env.consumeGas(32000)
         env.pc += 1
         
@@ -1257,10 +1268,10 @@ class Opcodes(object):
         print(f"CREATE2 called to deploy address {deplAddr}")
         
         # exec creation
-        env.createBackend(deplAddr, value, _initBytecode)
+        (_success, _ret) = env.createBackend(deplAddr, value, _initBytecode)
 
-        # push deplAddr
-        env.stack.append(int(deplAddr, 16))
+        # push deplAddr on success, 0 on failure (see CREATE)
+        env.stack.append(int(deplAddr, 16) if _success else 0)
         env.consumeGas(32000)
         env.pc += 1
     
@@ -2015,11 +2026,20 @@ class CallEnv(object):
     
     def createBackend(self, deplAddr, value, _initBytecode):
         if self.isStatic:
+            # Kept as a REVERT: a write-protection violation is an exceptional
+            # halt of the CURRENT frame (EIP-214), unlike the collision case
+            # below, which is merely a creation that failed.
             self.revert(b"NOT_SUPPORTED_IN_STATICCALL")
             return (False, b"")
-    
+
         if (self.getCode(deplAddr)):
-            self.revert(b"CONTRACT_ALREADY_EXISTING")
+            # A COLLIDING address (one that already carries code) is a FAILED
+            # CREATION, not an exceptional halt: the EVM pushes 0 onto the
+            # caller's stack and the caller keeps running.  Reverting here failed
+            # the CALLING frame instead, so a collision destroyed the caller's
+            # whole execution and its revert payload surfaced as the caller's
+            # reason (observed as ASCII "CONTRACT_ALREADY_EXISTING" where the EVM
+            # would have seen a 0).
             return (False, b"")
         _childEnv = CallEnv(self.getAccount, self.runningAccount.address, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
         self.childEnvs.append(_childEnv)
