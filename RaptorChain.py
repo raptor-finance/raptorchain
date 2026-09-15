@@ -1465,6 +1465,86 @@ class Node(object):
     def getTransaction(self, txid):
         return self.store.getTransaction(txid, self.state.type2ToType0Hash)
 
+    # --- synthetic-block accessors -----------------------------------------
+    # The /web3 endpoint serves "synthetic blocks": because a transaction can
+    # be valid and broadcast without a beacon block being mined, blocks are
+    # keyed on the GLOBAL TRANSACTION ORDER, and each holds exactly one
+    # transaction whose hash IS the block hash.  That convention is a property
+    # of the node's data (txsOrder + the type-2 alias map), not of JSON-RPC, so
+    # the lookups live here and the RPC layer just calls them.
+
+    def txCount(self):
+        """Number of transactions in the global order (== synthetic height + 1)."""
+        return self.store.txCount()
+
+    def txHashes(self):
+        """The global transaction order, as a list of type-0 hashes."""
+        return self.store.getTxHashes()
+
+    def txIndexForHash(self, txHash):
+        """Resolve a tx/block hash to its index in the global tx order.
+
+        Returns None when the hash is neither a stored transaction (any type)
+        nor a beacon block hash.  A beacon proof resolves to None: beacon
+        blocks are NOT part of the synthetic tx-index numbering.
+        """
+        if self.state.beaconChain.blocksByHash.get(txHash) is not None:
+            return None
+        _type0Hash = self.state.type2ToType0Hash.get(txHash, txHash)
+        try:
+            return self.store.getTxHashes().index(_type0Hash)
+        except ValueError:
+            return None
+
+    def txAtBlockNumber(self, blockNumber):
+        """The single stored transaction of the synthetic block at that index.
+
+        Returns None when the index is out of range or the stored entry is
+        missing, so callers can answer null rather than raise.
+
+        NOTE: this takes the Store lock twice (txCount + getTxsByRange).  That
+        is fine for a single lookup, but callers that walk a RANGE of blocks
+        should use txAtBlockNumberIn() with a pre-fetched hash list instead —
+        see _collectLogs, where a per-iteration call measurably slowed
+        eth_getLogs as the chain grew.
+        """
+        if blockNumber < 0 or blockNumber >= self.store.txCount():
+            return None
+        _txs = self.store.getTxsByRange(blockNumber, blockNumber + 1)
+        if not _txs or _txs[0] is None:
+            return None
+        return _txs[0]
+
+    def txAtBlockNumberIn(self, blockNumber, txHashes):
+        """Like txAtBlockNumber, but reuses an already-fetched hash list.
+
+        `txHashes` must be a snapshot from txHashes().  The bounds check is
+        done against that snapshot, so this takes the Store lock ONCE (for the
+        payload) instead of twice, and never re-copies the order list.
+        """
+        if blockNumber < 0 or blockNumber >= len(txHashes):
+            return None
+        _txs = self.store.getTxsByRange(blockNumber, blockNumber + 1)
+        if not _txs or _txs[0] is None:
+            return None
+        return _txs[0]
+
+    def txsInRange(self, start, end):
+        """Stored transactions for the tx-order indices in [start, end).
+
+        One Store lock for the whole range, so a caller walking many blocks
+        does not pay a lock (and a Python frame) per block.  Entries whose
+        payload is missing come back as None, preserving the position so the
+        caller can still map an entry back to its index.
+        """
+        return self.store.getTxsByRange(start, end)
+
+    # NOTE: there is deliberately no txAtBlockHash().  A synthetic block's hash
+    # IS its transaction hash, so "block hash -> tx" is exactly
+    # getTransaction(hash) — which already resolves the type-2 (eth) alias and
+    # returns None for an unknown hash, a beacon-block hash, or an order entry
+    # whose payload is missing.  A wrapper would only add indirection.
+
     def initNode(self):
         try:
             self.store.load()
@@ -1733,12 +1813,19 @@ class Node(object):
             return None
     
     def ethGetTransactionByHash(self, txid):
-        try:
-            tx = Transaction(self.store.getTransaction(txid, self.state.type2ToType0Hash))
-            return tx.web3Returnable()
-            # return {"hash": tx.txid, "nonce": hex(tx.nonce), "blockHash": tx.txid, "transactionIndex": "0x0", "from": tx.sender, "to": (None if tx.contractDeployment else tx.recipient), "value": hex(tx.value), "gasPrice": hex(tx.gasprice), "gas": hex(tx.gasLimit), "input": tx.data, "v": tx.v, "r": tx.r, "s": tx.s}
-        except:
-            raise
+        # An UNKNOWN hash must answer null, exactly as every sibling getter
+        # does (eth_getTransactionReceipt, eth_getBlockByHash,
+        # eth_getBlockTransactionCountByHash, ...).  Building Transaction(None)
+        # instead raised TypeError, so the dispatcher reported -32603
+        # "Internal error" for an ordinary lookup of a hash this node does not
+        # hold — telling the client the NODE was broken when the request was
+        # perfectly valid.  The old `except: raise` was a no-op, so nothing was
+        # ever swallowing that TypeError on the way out.
+        _tx = self.store.getTransaction(txid, self.state.type2ToType0Hash)
+        if _tx is None:
+            return None
+        tx = Transaction(_tx)
+        return tx.web3Returnable()
 
     def createRefreshTx(self):
         _index = self.state.beaconChain.bsc.currentDepositsIndex()

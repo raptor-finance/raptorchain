@@ -17,17 +17,24 @@ if not hasattr(inspect, "getargspec"):
     inspect.getargspec = inspect.getfullargspec
 
 import json
-import secrets
-import threading
 import time
 from typing import Any
 
 import fastapi
-import pydantic
 from rlp.exceptions import RLPException
 from web3.auto import w3
 
 from helpers.datatypes import Transaction
+# Re-exported for compatibility: callers (and tests) reach for these through
+# web3rpc, and the filter registry must be the SAME object the handlers use.
+from .filters import (FILTER_KIND_BLOCK, FILTER_KIND_LOG, FILTER_KIND_PENDING,
+                      _filterWindow, _filters, _filtersLock, _newFilter,
+                      _requireFilter, _sweepFilters)
+from .jsonrpc import (ERR_METHOD_NOT_FOUND, Web3Body, _bodyFromItem,
+                      _isNotification, _RpcError)
+from .rpcparams import (_looksLikeHash, _parseIndex, _rejectUnsupportedRawTx,
+                        _requireAddress, _requireCallObject, _requireHash,
+                        _requireParams)
 from .utils import hexData, printError
 
 # set by registerNode() before the server starts serving requests
@@ -40,87 +47,40 @@ def registerNode(_node):
     node = _node
 
 
-class Web3Body(pydantic.BaseModel):
-    id: Any = None
-    method: str
-    params: list = pydantic.Field(default_factory=list)
-
-
-# --- param validation helpers ----------------------------------------------
-# Raise _RpcError(-32602 invalid params) so clients get a spec-compliant
-# error instead of an opaque -32603 internal error from IndexError/TypeError.
-# _RpcError is defined further down; these are only called at runtime so the
-# forward reference resolves fine.
-
-def _requireParams(data, n):
-    """Ensure data.params has at least n entries, else raise -32602."""
-    if len(data.params) < n:
-        raise _RpcError({"code": -32602,
-                         "message": f"Invalid params: {data.method} requires {n} argument(s), got {len(data.params)}"})
-
-def _requireAddress(s):
-    """Validate and checksum an Ethereum address, else raise -32602."""
-    if not isinstance(s, str):
-        raise _RpcError({"code": -32602, "message": f"Invalid address: {s!r}"})
-    try:
-        return w3.to_checksum_address(s)
-    except Exception:
-        raise _RpcError({"code": -32602, "message": f"Invalid address: {s}"})
-
-def _requireHash(s):
-    """Validate a 0x-prefixed hash string, else raise -32602."""
-    if not isinstance(s, str) or not s.startswith("0x"):
-        raise _RpcError({"code": -32602, "message": f"Invalid hash: {s!r}"})
-    return s
-
-
-# EIP-2718 typed-transaction envelopes this node cannot replay.  RaptorChain
-# only supports legacy (pre-EIP-2718) transactions: typed envelopes start with
-# a type byte in 0x00-0x7f, while legacy transactions are RLP lists and always
-# start at 0xc0 or above.
-_TX_TYPE_NAMES = {
-    0x01: "EIP-2930 access-list",
-    0x02: "EIP-1559 fee-market",
-    0x03: "EIP-4844 blob",
-    0x04: "EIP-7702 set-code",
-}
-
-
-def _rejectUnsupportedRawTx(rawTx):
-    """Reject raw transactions this node cannot replay, up front.
-
-    Without this, an EIP-1559 / EIP-2930 payload reaches the legacy-only RLP
-    decoder (crypto/eth_decoder.py) and blows up with a raw RLP exception that
-    the dispatcher reports as -32603 "Internal error" — which tells the client
-    the *node* is broken, when in fact it sent a transaction type this chain
-    does not support.  Raising -32602 here makes it an explicit, client-side
-    rejection with an actionable message.
-    """
-    if not isinstance(rawTx, str):
-        raise _RpcError({"code": -32602,
-                         "message": f"Invalid raw transaction: expected a hex string, got {type(rawTx).__name__}"})
-    _hexStr = rawTx[2:] if rawTx.startswith("0x") else rawTx
-    if not _hexStr:
-        raise _RpcError({"code": -32602, "message": "Invalid raw transaction: empty"})
-    # Validate the WHOLE payload, not just the leading byte: the decoder feeds
-    # this to bytes.fromhex(), so a bad character or odd length anywhere would
-    # otherwise escape as a -32603 internal error.
-    try:
-        _rawBytes = bytes.fromhex(_hexStr)
-    except ValueError:
-        raise _RpcError({"code": -32602, "message": f"Invalid raw transaction: not valid hex ({rawTx[:16]!r}...)"})
-    if not _rawBytes:
-        raise _RpcError({"code": -32602, "message": "Invalid raw transaction: empty"})
-    _firstByte = _rawBytes[0]
-    if _firstByte <= 0x7f:
-        _name = _TX_TYPE_NAMES.get(_firstByte)
-        _label = f"0x{_firstByte:02x}" + (f" ({_name})" if _name else "")
-        raise _RpcError({"code": -32602,
-                         "message": f"Unsupported transaction type {_label}: this node accepts legacy pre-EIP-2718 transactions only"})
+# Block tags that mean "the current tip".  Defined here (not next to the
+# filter handlers) because _resolveBlockNumber, which sits at the top of the
+# file, is the first user.
+_LATEST_TAGS = ("latest", "pending", "safe", "finalized")
 
 
 # --- method handlers -------------------------------------------------------
 # each handler receives (data: Web3Body) and returns the JSON-RPC "result"
+
+def _txIndexForHash(_hash):
+    """Resolve a tx/block hash to its index in the global tx order.
+
+    Thin wrapper over Node.txIndexForHash: the txsOrder / type-2 alias
+    knowledge belongs to the node, not to the RPC layer.
+    """
+    return node.txIndexForHash(_hash)
+
+
+def _restampLog(_log, _blockNumber, _blockHash):
+    """Return a copy of a log stamped with the synthetic-block convention.
+
+    Logs are stored exactly as Event.JSONEncodable() emitted them, which means
+    a BEACON-height blockNumber (a plain int, not a hex quantity) and a BEACON
+    proof blockHash.  Restamping is what lets a client correlate a log with the
+    blocks this endpoint serves.
+
+    Shared by _collectLogs and _normalizeReceipt so a receipt's nested logs and
+    the eth_getLogs result for the same block cannot disagree.
+    """
+    _log = dict(_log)
+    _log["blockNumber"] = hex(_blockNumber)
+    _log["blockHash"] = _blockHash
+    return _log
+
 
 def _resolveBlockNumber(_blockParam):
     """Translate a JSON-RPC block parameter ('latest', hex height, int, ...)
@@ -136,16 +96,14 @@ def _resolveBlockNumber(_blockParam):
     gets a real JSON-RPC error instead of a swallowed null.
     """
     if isinstance(_blockParam, str):
-        if _blockParam in ("latest", "pending", "safe", "finalized"):
-            return max(node.store.txCount() - 1, 0)
+        if _blockParam in _LATEST_TAGS:
+            return max(node.txCount() - 1, 0)
         elif _blockParam == "earliest":
             return 0
-        _s = _blockParam[2:] if _blockParam.startswith("0x") else _blockParam
-        try:
-            return int(_s, 16)
-        except ValueError:
-            raise _RpcError({"code": -32602,
-                              "message": f"Invalid block param: {_blockParam}"})
+        # a hex height is just a quantity; _parseIndex owns that parsing (and
+        # the -32602 on malformed input).  _reprString=False keeps the message
+        # as the bare value, which is what this method has always reported.
+        return _parseIndex(_blockParam, "block param", _reprString=False)
     # numeric block height passed directly (reject bool/None/dict/float)
     if isinstance(_blockParam, int) and not isinstance(_blockParam, bool):
         return _blockParam
@@ -180,7 +138,7 @@ def eth_gasPrice(data):
 
 
 def eth_blockNumber(data):
-    return hex(max(node.store.txCount() - 1, 0))
+    return hex(max(node.txCount() - 1, 0))
 
 
 def eth_getTransactionCount(data):
@@ -193,62 +151,6 @@ def eth_getCode(data):
     _code = node.state.getAccount(_requireAddress(data.params[0]), True).code
     # guard against None (uninitialized account) — Ethereum returns "0x"
     return f"0x{_code.hex()}" if _code is not None else "0x"
-
-
-def _requireQuantity(value, what):
-    """Validate a JSON-RPC quantity member (value/gas/gasprice), else -32602.
-
-    Accepts an int, or a non-empty decimal or 0x-hex string — the same forms
-    CallBlankTransaction coerces.  Anything else (notably the empty string,
-    which int() cannot parse) previously reached int() and escaped as -32603.
-    """
-    if isinstance(value, int):
-        return value
-    if isinstance(value, str) and value:
-        try:
-            int(value, 16) if "0x" in value else int(value, 10)
-            return value
-        except ValueError:
-            pass
-    raise _RpcError({"code": -32602, "message": f"Invalid {what}: {value!r}"})
-
-
-def _requireCallObject(data):
-    """Validate params[0] of eth_call/eth_estimateGas and return it cleaned.
-
-    Without this, a non-object argument (e.g. ["nope"]) reached
-    CallBlankTransaction's `call.get(...)` and escaped as an unhandled
-    AttributeError, which the dispatcher reported as -32603 "Internal error" —
-    telling the client the node was broken when the request was malformed.
-
-    Address- and quantity-typed members are checked here too, because they are
-    converted (to_checksum_address / int(...)) before the EVM ever runs, so a
-    bad value there produced the same misleading -32603.
-
-    `data` is deliberately NOT validated: CallBlankTransaction already wraps its
-    parsing in try/except and falls back to b"", so it cannot raise.
-
-    Returns a COPY with null-valued members removed.  That matters: the node
-    reads these with `call.get(key, DEFAULT)`, which yields None — not the
-    default — when the key is present with a null value, and None then crashed
-    address and gas coercion ("Exactly one of the passed values can be
-    specified", "int() can't convert non-string").  Dropping nulls makes an
-    explicit null behave exactly like an absent member, which is what a client
-    sending null means by it.
-    """
-    _requireParams(data, 1)
-    _call = data.params[0]
-    if not isinstance(_call, dict):
-        raise _RpcError({"code": -32602,
-                         "message": f"Invalid call object: expected an object, got {type(_call).__name__}"})
-    _clean = {_k: _v for _k, _v in _call.items() if _v is not None}
-    for _key in ("from", "to"):
-        if _key in _clean:
-            _requireAddress(_clean[_key])
-    for _key in ("value", "gas", "gasprice"):
-        if _key in _clean:
-            _requireQuantity(_clean[_key], _key)
-    return _clean
 
 
 def _execCall(data):
@@ -316,15 +218,10 @@ def eth_getTransactionReceipt(data):
 
 def eth_getStorageAt(data):
     _requireParams(data, 2)
-    _slot = data.params[1]
-    if isinstance(_slot, str):
-        _s = _slot[2:] if _slot.startswith("0x") else _slot
-        try:
-            _slot = int(_s, 16)
-        except ValueError:
-            raise _RpcError({"code": -32602, "message": f"Invalid storage slot: {data.params[1]}"})
-    elif not isinstance(_slot, int) or isinstance(_slot, bool):
-        raise _RpcError({"code": -32602, "message": f"Invalid storage slot: {_slot!r}"})
+    # the slot is a JSON-RPC quantity; _parseIndex owns that parsing.
+    # _reprString=False keeps the bare-value message this method has always
+    # reported ("Invalid storage slot: nope", not "'nope'").
+    _slot = _parseIndex(data.params[1], "storage slot", _reprString=False)
     # Ethereum returns 0x0 for unset storage slots, not an error.
     return hex(int(node.state.getAccount(_requireAddress(data.params[0]), True).storage.get(int(_slot), 0)))
 
@@ -355,7 +252,7 @@ def _syntheticTxBlock(txDict, blockNumber, parentHash=None):
     elif parentHash is not None:
         _parentHash = parentHash
     else:
-        _hashes = node.store.getTxHashes()
+        _hashes = node.txHashes()
         _parentHash = _hashes[blockNumber - 1] if 0 <= blockNumber - 1 < len(_hashes) else "0x" + "0" * 64
     # stateRoot: node.state.hash is HexBytes after calcStateRoot(), "" before.
     # Guard against both str and bytes to avoid TypeError on concatenation.
@@ -397,13 +294,10 @@ def eth_getBlockByNumber(data):
     _requireParams(data, 1)
     _blockTx = data.params[1] if len(data.params) > 1 else False
     _blockNumber = int(_resolveBlockNumber(data.params[0]))
-    _count = node.store.txCount()
-    if _blockNumber < 0 or _blockNumber >= _count:
+    _tx = node.txAtBlockNumber(_blockNumber)
+    if _tx is None:
         return None
-    _txs = node.store.getTxsByRange(_blockNumber, _blockNumber + 1)
-    if not _txs or _txs[0] is None:
-        return None
-    result = _syntheticTxBlock(_txs[0], _blockNumber)
+    result = _syntheticTxBlock(_tx, _blockNumber)
     if not _blockTx:  # hashes only
         result["transactions"] = [result["transactions"][0]["hash"]]
     return result
@@ -421,19 +315,21 @@ def eth_getBlockByHash(data):
         result = _block.web3Returnable()
         if _fullTx:  # fetch transactions as well
             # A beacon block can name a transaction this node's store does not
-            # hold (e.g. a peer never relayed it).  Resolving those used to
-            # raise TypeError inside Transaction(None) and fail the WHOLE block
-            # with -32603, so the block became unreadable; skipping the
-            # unresolvable entries keeps it answerable.  Deliberate trade-off:
-            # the full-transaction list can then be shorter than the hash list
-            # / eth_getBlockTransactionCountByHash, which is preferable to
+            # hold (e.g. a peer never relayed it).  Those come back as None from
+            # the getter now, and a malformed stored tx can still raise, so both
+            # are skipped rather than failing the WHOLE block with -32603 and
+            # making it unreadable.  Deliberate trade-off: the full-transaction
+            # list can then be shorter than the hash list /
+            # eth_getBlockTransactionCountByHash, which is preferable to
             # refusing to serve the block at all.
             _resolved = []
             for _txid in result["transactions"]:
                 try:
-                    _resolved.append(node.ethGetTransactionByHash(_txid))
+                    _tx = node.ethGetTransactionByHash(_txid)
                 except Exception:
                     continue
+                if _tx is not None:
+                    _resolved.append(_tx)
             result["transactions"] = _resolved
         return result
     # otherwise treat the hash as a transaction hash -> synthetic block
@@ -443,40 +339,16 @@ def eth_getBlockByHash(data):
     # Look up the tx's position in the ordered list.  txsOrder stores the
     # type-0 (raptor) hash; node.getTransaction already resolved any type-2
     # (eth) alias above, so we just need the type-0 hash to index into
-    # txsOrder.  Resolve it once via the alias map (O(1) dict lookup).
-    _type0Hash = node.state.type2ToType0Hash.get(_hash, _hash)
-    _hashes = node.store.getTxHashes()
-    try:
-        _index = _hashes.index(_type0Hash)
-    except ValueError:
+    # txsOrder.  Node.txIndexForHash owns that resolution.
+    _index = node.txIndexForHash(_hash)
+    if _index is None:
         return None
+    _hashes = node.txHashes()
     result = _syntheticTxBlock(_tx, _index,
                                parentHash=(_hashes[_index - 1] if _index > 0 else None))
     if not _fullTx:  # hashes only
         result["transactions"] = [result["transactions"][0]["hash"]]
     return result
-
-
-def _parseIndex(_value, _what):
-    """Parse a JSON-RPC quantity index (hex string or int), else -32602.
-
-    Bools and floats are rejected even though Python would happily coerce
-    them: neither is a legal JSON-RPC quantity.
-    """
-    if isinstance(_value, bool) or not isinstance(_value, (int, str)):
-        raise _RpcError({"code": -32602, "message": f"Invalid {_what}: {_value!r}"})
-    if isinstance(_value, int):
-        return _value
-    _stripped = _value[2:] if _value.startswith("0x") else _value
-    try:
-        return int(_stripped, 16)
-    except ValueError:
-        raise _RpcError({"code": -32602, "message": f"Invalid {_what}: {_value!r}"})
-
-
-def _looksLikeHash(_value):
-    """True for a 32-byte 0x-prefixed hex string (an Ethereum hash)."""
-    return isinstance(_value, str) and _value.startswith("0x") and len(_value) == 66
 
 
 def _blockParamToTxIndex(_param):
@@ -538,9 +410,9 @@ def eth_getBlockReceipts(data):
     """
     _requireParams(data, 1)
     _index = _blockParamToTxIndex(data.params[0])
-    if _index is None or _index < 0 or _index >= node.store.txCount():
+    if _index is None or _index < 0 or _index >= node.txCount():
         return None
-    _txid = node.store.getTxHashes()[_index]
+    _txid = node.txHashes()[_index]
     _receipt = _normalizeReceipt(_txid, _index, _txid, 0)
     return [_receipt] if _receipt is not None else []
 
@@ -591,35 +463,14 @@ def eth_maxPriorityFeePerGas(data):
     return "0x0"
 
 
-def _txIndexForHash(_hash):
-    """Resolve a tx/block hash to its index in the global tx order.
-
-    Returns None when the hash is neither a stored transaction (any type) nor
-    a beacon block hash.  Mirrors the resolution eth_getBlockByHash uses.
-    """
-    # beacon proofs resolve to real beacon blocks, which are NOT part of the
-    # synthetic tx-index numbering — return None so callers treat them as
-    # "not a tx-indexed block"
-    if node.state.beaconChain.blocksByHash.get(_hash) is not None:
-        return None
-    _type0Hash = node.state.type2ToType0Hash.get(_hash, _hash)
-    _hashes = node.store.getTxHashes()
-    try:
-        return _hashes.index(_type0Hash)
-    except ValueError:
-        return None
-
-
 def eth_getBlockTransactionCountByNumber(data):
     _requireParams(data, 1)
     _blockNumber = int(_resolveBlockNumber(data.params[0]))
-    _count = node.store.txCount()
-    if _blockNumber < 0 or _blockNumber >= _count:
+    if node.txAtBlockNumber(_blockNumber) is None:
         return None
-    _txs = node.store.getTxsByRange(_blockNumber, _blockNumber + 1)
-    if not _txs or _txs[0] is None:
-        return None
-    return hex(len(_syntheticTxBlock(_txs[0], _blockNumber)["transactions"]))
+    # a synthetic block holds exactly one transaction, so the count is always
+    # 0x1 — no need to build the block (and its web3Returnable tx) to learn it
+    return "0x1"
 
 
 def eth_getBlockTransactionCountByHash(data):
@@ -633,10 +484,10 @@ def eth_getBlockTransactionCountByHash(data):
     _index = _txIndexForHash(_hash)
     if _index is None:
         return None
-    _txs = node.store.getTxsByRange(_index, _index + 1)
-    if not _txs or _txs[0] is None:
+    if node.txAtBlockNumber(_index) is None:
         return None
-    return hex(len(_syntheticTxBlock(_txs[0], _index)["transactions"]))
+    # single-transaction synthetic block: the count is always 0x1
+    return "0x1"
 
 
 def eth_getTransactionByBlockNumberAndIndex(data):
@@ -649,15 +500,14 @@ def eth_getTransactionByBlockNumberAndIndex(data):
     _requireParams(data, 2)
     _index = _parseIndex(data.params[1], "transaction index")
     _blockNumber = int(_resolveBlockNumber(data.params[0]))
-    _count = node.store.txCount()
-    if _blockNumber < 0 or _blockNumber >= _count:
-        return None
     if _index != 0:
         return None
-    _txs = node.store.getTxsByRange(_blockNumber, _blockNumber + 1)
-    if not _txs or _txs[0] is None:
+    _tx = node.txAtBlockNumber(_blockNumber)
+    if _tx is None:
         return None
-    return _syntheticTxBlock(_txs[0], _blockNumber)["transactions"][0]
+    # the block's single transaction IS the requested one; build it directly
+    # rather than assembling a whole block dict to index back into it
+    return Transaction(_tx).web3Returnable()
 
 
 def eth_getTransactionByBlockHashAndIndex(data):
@@ -678,10 +528,11 @@ def eth_getTransactionByBlockHashAndIndex(data):
     _blockIndex = _txIndexForHash(_requireHash(data.params[0]))
     if _blockIndex is None:
         return None
-    _txs = node.store.getTxsByRange(_blockIndex, _blockIndex + 1)
-    if not _txs or _txs[0] is None:
+    _tx = node.txAtBlockNumber(_blockIndex)
+    if _tx is None:
         return None
-    return _syntheticTxBlock(_txs[0], _blockIndex)["transactions"][0]
+    # the block's single transaction IS the requested one
+    return Transaction(_tx).web3Returnable()
 
 
 def eth_getUncleCountByBlockHash(data):
@@ -697,7 +548,13 @@ def eth_getUncleCountByBlockHash(data):
 def eth_getUncleCountByBlockNumber(data):
     _requireParams(data, 1)
     _blockNumber = int(_resolveBlockNumber(data.params[0]))
-    if _blockNumber < 0 or _blockNumber >= node.store.txCount():
+    # Deliberately an INDEX-RANGE check, not a payload lookup: this method
+    # answers "does the block exist", and a block exists as soon as it has an
+    # order slot.  Using txAtBlockNumber() here would additionally require the
+    # stored payload to be readable, so a degraded store would turn a valid
+    # "0x0" into null — a behaviour change with no upside, since the uncle
+    # count never needs the transaction itself.
+    if _blockNumber < 0 or _blockNumber >= node.txCount():
         return None
     return "0x0"
 
@@ -779,23 +636,6 @@ def _normalizeLogFilter(_filter):
     return _addrs, _topicsFilter
 
 
-def _restampLog(_log, _blockNumber, _blockHash):
-    """Return a copy of a log stamped with the synthetic-block convention.
-
-    Logs are stored exactly as Event.JSONEncodable() emitted them, which means
-    a BEACON-height blockNumber (a plain int, not a hex quantity) and a BEACON
-    proof blockHash.  Restamping is what lets a client correlate a log with the
-    blocks this endpoint serves.
-
-    Shared by _collectLogs and _normalizeReceipt so a receipt's nested logs and
-    the eth_getLogs result for the same block cannot disagree.
-    """
-    _log = dict(_log)
-    _log["blockNumber"] = hex(_blockNumber)
-    _log["blockHash"] = _blockHash
-    return _log
-
-
 def _collectLogs(_start, _end, _addrs, _topicsFilter):
     """Collect matching logs for the tx-order indices in [_start, _end).
 
@@ -808,14 +648,17 @@ def _collectLogs(_start, _end, _addrs, _topicsFilter):
         return []
     # hoisted out of the loop: getTxHashes() copies the entire order list, so
     # calling it per iteration made the scan O(n) in copies as well as in work
-    _hashes = node.store.getTxHashes()
+    _hashes = node.txHashes()
+    # One store read for the whole window.  The scan only needs to know whether
+    # each block's payload EXISTS (the logs come from state.receipts), so
+    # fetching the range in a single call avoids a lock + Python frame per
+    # block — measured at ~0.36us/block when done per-iteration.
+    _txs = node.txsInRange(_start, min(_end, len(_hashes)))
     _results = []
-    for _txIndex in range(_start, _end):
-        if _txIndex >= len(_hashes):
-            break
-        _txs = node.store.getTxsByRange(_txIndex, _txIndex + 1)
-        if not _txs or _txs[0] is None:
+    for _offset, _tx in enumerate(_txs):
+        if _tx is None:
             continue
+        _txIndex = _start + _offset
         _txid = _hashes[_txIndex]
         _receipt = node.state.receipts.get(_txid)
         if not _receipt:
@@ -867,8 +710,7 @@ def eth_getLogs(data):
     _to = _resolveBlockNumber(_filter.get("toBlock", "latest"))
     if _from > _to:
         return []
-    _count = node.store.txCount()
-    return _collectLogs(max(_from, 0), min(_to + 1, _count), _addrs, _topicsFilter)
+    return _collectLogs(max(_from, 0), min(_to + 1, node.txCount()), _addrs, _topicsFilter)
 
 
 def web3_sha3(data):
@@ -889,88 +731,10 @@ def web3_sha3(data):
 
 
 # --- polling filters ---------------------------------------------------------
-# Ethereum's polling-filter API, kept in memory for the lifetime of the
-# process.  Filters are ephemeral by design (geth expires idle ones too), so
-# losing them on a restart is spec-consistent rather than a defect.
-#
-# Cursors are TX-ORDER indices, like every other block-number answer on this
-# endpoint: a synthetic block holds exactly one transaction, and its hash IS
-# that transaction's hash.
-
-FILTER_TTL_SECONDS = 300   # idle expiry, swept opportunistically on each call
-MAX_FILTERS = 1024         # hard cap so a public endpoint cannot be flooded
-
-_FILTER_KIND_BLOCK = "block"
-_FILTER_KIND_PENDING = "pending"
-_FILTER_KIND_LOG = "log"
-
-_LATEST_TAGS = ("latest", "pending", "safe", "finalized")
-
-# A plain (non-reentrant) Lock is enough because no locked helper ever calls
-# back into another locking helper: _sweepFilters/_newFilter/_requireFilter all
-# document that the caller must already hold it, and the handlers hold it
-# across the whole read-modify-write of a filter's cursor.
-_filtersLock = threading.Lock()
-_filters = {}
-
-
-def _sweepFilters():
-    """Drop filters idle past FILTER_TTL_SECONDS.  Caller must hold _filtersLock.
-
-    Uses time.monotonic() rather than time.time(): a TTL measured against the
-    wall clock would let an NTP step retroactively keep every filter alive (or
-    expire them all at once).
-    """
-    _now = time.monotonic()
-    _stale = [_filterId for _filterId, _filter in _filters.items()
-              if _now - _filter["lastPolledAt"] > FILTER_TTL_SECONDS]
-    for _filterId in _stale:
-        del _filters[_filterId]
-
-
-def _requireFilter(_filterId):
-    """Return a live filter, else raise.  Caller must hold _filtersLock.
-
-    The error code matters: clients read -32601 as "this node has no filter
-    support" and give up permanently, whereas -32000 is the standard
-    "filter not found / expired" signal they are expected to recover from by
-    creating a new filter.  Reporting -32601 here would defeat the whole
-    point of implementing the filter family.
-    """
-    if not isinstance(_filterId, str):
-        raise _RpcError({"code": -32602, "message": f"Invalid filter id: {_filterId!r}"})
-    _sweepFilters()
-    _filter = _filters.get(_filterId)
-    if _filter is None:
-        raise _RpcError({"code": -32000, "message": "filter not found"})
-    return _filter
-
-
-def _newFilter(_kind, _cursor, _endIndex=None, _startIndex=None, _addrs=None, _topicsFilter=None):
-    """Register a filter and return its id.  Caller must hold _filtersLock."""
-    _sweepFilters()
-    if len(_filters) >= MAX_FILTERS:
-        raise _RpcError({"code": -32000,
-                         "message": f"Too many active filters (limit {MAX_FILTERS}); "
-                                    "release unused ones with eth_uninstallFilter"})
-    _filterId = "0x" + secrets.token_hex(16)
-    _filters[_filterId] = {"kind": _kind, "cursor": _cursor, "endIndex": _endIndex,
-                           "startIndex": _startIndex, "addrs": _addrs,
-                           "topics": _topicsFilter, "lastPolledAt": time.monotonic()}
-    return _filterId
-
-
-def _filterWindow(_filter):
-    """Return the [start, end) tx-order window a filter currently covers.
-
-    endIndex None means the filter keeps tracking new blocks; an explicit
-    endIndex bounds it permanently.
-    """
-    _count = node.store.txCount()
-    _start = _filter["cursor"]
-    _end = _count if _filter["endIndex"] is None else min(_filter["endIndex"], _count)
-    return (_start if _start <= _end else _end), _end
-
+# The registry itself lives in helpers/filters.py; the handlers below are the
+# thin JSON-RPC surface over it.  Cursors are TX-ORDER indices, like every
+# other block-number answer on this endpoint: a synthetic block holds exactly
+# one transaction, and its hash IS that transaction's hash.
 
 def eth_newBlockFilter(data):
     """Register a filter reporting newly stored transactions.
@@ -980,7 +744,7 @@ def eth_newBlockFilter(data):
     tip, so only blocks stored from now on are reported.
     """
     with _filtersLock:
-        return _newFilter(_FILTER_KIND_BLOCK, node.store.txCount())
+        return _newFilter(FILTER_KIND_BLOCK, node.txCount())
 
 
 def eth_newPendingTransactionFilter(data):
@@ -992,7 +756,7 @@ def eth_newPendingTransactionFilter(data):
     claim a mempool view that does not exist, this stays honestly empty.
     """
     with _filtersLock:
-        return _newFilter(_FILTER_KIND_PENDING, 0, _endIndex=0)
+        return _newFilter(FILTER_KIND_PENDING, 0, _endIndex=0)
 
 
 def eth_newFilter(data):
@@ -1012,7 +776,7 @@ def eth_newFilter(data):
     _fromParam = _filter.get("fromBlock", "latest")
     _toParam = _filter.get("toBlock", "latest")
     if isinstance(_fromParam, str) and _fromParam in _LATEST_TAGS:
-        _cursor = node.store.txCount()
+        _cursor = node.txCount()
     else:
         _cursor = max(_resolveBlockNumber(_fromParam), 0)
     if isinstance(_toParam, str) and _toParam in _LATEST_TAGS:
@@ -1021,7 +785,7 @@ def eth_newFilter(data):
         _endIndex = _resolveBlockNumber(_toParam) + 1
 
     with _filtersLock:
-        return _newFilter(_FILTER_KIND_LOG, _cursor, _endIndex=_endIndex,
+        return _newFilter(FILTER_KIND_LOG, _cursor, _endIndex=_endIndex,
                           _startIndex=_cursor, _addrs=_addrs,
                           _topicsFilter=_topicsFilter)
 
@@ -1036,11 +800,11 @@ def eth_getFilterChanges(data):
     with _filtersLock:
         _filter = _requireFilter(data.params[0])
         _filter["lastPolledAt"] = time.monotonic()
-        if _filter["kind"] == _FILTER_KIND_PENDING:
+        if _filter["kind"] == FILTER_KIND_PENDING:
             return []
-        _start, _end = _filterWindow(_filter)
-        if _filter["kind"] == _FILTER_KIND_BLOCK:
-            _changes = node.store.getTxHashes()[_start:_end]
+        _start, _end = _filterWindow(_filter, node.txCount())
+        if _filter["kind"] == FILTER_KIND_BLOCK:
+            _changes = node.txHashes()[_start:_end]
         else:
             _changes = _collectLogs(_start, _end, _filter["addrs"], _filter["topics"])
         # max() keeps the cursor monotonic.  It matters for a filter created
@@ -1062,9 +826,9 @@ def eth_getFilterLogs(data):
     with _filtersLock:
         _filter = _requireFilter(data.params[0])
         _filter["lastPolledAt"] = time.monotonic()
-        if _filter["kind"] != _FILTER_KIND_LOG:
+        if _filter["kind"] != FILTER_KIND_LOG:
             return []
-        _blockEnd = _filterWindow(_filter)[1]
+        _blockEnd = _filterWindow(_filter, node.txCount())[1]
         _first = _filter["startIndex"] if _filter["startIndex"] is not None else 0
         return _collectLogs(_first, _blockEnd, _filter["addrs"], _filter["topics"])
 
@@ -1080,14 +844,10 @@ def eth_uninstallFilter(data):
         return _filters.pop(_filterId, None) is not None
 
 
-# JSON-RPC 2.0 error codes
-ERR_METHOD_NOT_FOUND = {"code": -32601, "message": "Method not found"}
-
-
-class _RpcError(Exception):
-    """Carries a JSON-RPC 2.0 error object to the dispatcher."""
-    def __init__(self, errorObj):
-        self.errorObj = errorObj
+# JSON-RPC 2.0 error codes and the request/response envelope live in
+# helpers/jsonrpc.py and are re-exported above so existing importers keep
+# working.  No __all__ here: it would restrict `from helpers.web3rpc import *`
+# to the three names below and silently hide the 41 eth_* handlers.
 
 
 def _methodNotFound(data):
@@ -1143,122 +903,68 @@ METHODS = {
 
 
 # --- HTTP entry point ------------------------------------------------------
+# These are module-level rather than nested inside createRouter: none of them
+# capture anything from an enclosing scope (they only touch module globals), so
+# nesting them bought nothing and made the dispatch path harder to follow.
 
-def _isNotification(data: Web3Body):
-    """True when a request is a notification, i.e. it OMITS the id member.
+def _handleSingle(data: Web3Body):
+    """Process one JSON-RPC request.
 
-    JSON-RPC 2.0 draws a real distinction here: a request with no id member is
-    a notification and gets no response, but a request with an explicit
-    `"id": null` is an ordinary request whose id happens to be null and MUST be
-    answered with a response echoing that null.  Web3Body.id defaults to None,
-    so testing `data.id is None` conflated the two and answered HTTP 204 to an
-    explicit null id — a strict client then waits for a reply that never comes.
-
-    model_fields_set is what makes the distinction visible: it contains "id"
-    only when the request actually supplied one.
+    Returns the response dict, or None when the request is a notification
+    (no id) so the caller can omit it from the HTTP response per spec.
     """
-    return "id" not in data.model_fields_set
+    _begin = time.time()
+
+    if node is None:
+        _respdict = {"id": data.id, "jsonrpc": "2.0",
+                     "error": {"code": -32000, "message": "Node not ready"}}
+        return None if _isNotification(data) else _respdict
+
+    if node.state.verbose:
+        print(f"/web3 POST received, data : {data}")
+
+    handler = METHODS.get(data.method, DEFAULT_RESULT)
+    try:
+        result = handler(data)
+        _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
+    except _RpcError as e:
+        _respdict = {"id": data.id, "jsonrpc": "2.0", "error": e.errorObj}
+        if node.state.verbose:
+            printError(f"web3 RPC error on {data.method}: {e.errorObj}")
+    except Exception as e:
+        _respdict = {"id": data.id, "jsonrpc": "2.0",
+                     "error": {"code": -32603, "message": f"Internal error: {e.__repr__()}"}}
+        if node.state.verbose:
+            printError(f"web3 RPC error on {data.method}: {e.__repr__()}")
+    if node.state.verbose:
+        print(f"{data.method} request completed in {round((time.time() - _begin) * 1000, 3)}ms")
+        print(f"Response : {json.dumps(_respdict)}")
+    # JSON-RPC 2.0: only a request that OMITS the id member is a
+    # notification.  An explicit "id": null is an ordinary request and MUST
+    # be answered — see _isNotification.
+    return None if _isNotification(data) else _respdict
 
 
-def _errorResponse(_id, _code, _message):
-    """Build a JSON-RPC 2.0 error response object."""
-    return {"id": _id, "jsonrpc": "2.0",
-            "error": {"code": _code, "message": _message}}
+def _jsonResponse(_payload):
+    """Serialize a JSON-RPC response body."""
+    return fastapi.Response(content=json.dumps(_payload),
+                            media_type='application/json')
 
 
-def _bodyFromItem(_item):
-    """Convert one decoded JSON-RPC request into a Web3Body.
+def _dispatchOne(_item):
+    """Validate one raw request item, then handle it.
 
-    Returns a (body, errorResponse) pair; exactly one of the two is None.
-
-    Validating each item here, rather than letting a pydantic model validate
-    the whole Union[Web3Body, List[Web3Body]] body, is what stops one malformed
-    member from destroying a batch: previously a single bad item made pydantic
-    reject the ENTIRE array with HTTP 422, so every valid sibling request was
-    silently discarded.  It also keeps the failure inside the JSON-RPC envelope
-    instead of FastAPI's {"detail": [...]} payload, which a client cannot parse
-    (it reads .error.code and finds nothing).
-
-    Codes follow JSON-RPC 2.0: -32600 when the request shape itself is wrong
-    (not an object, or no usable method), -32602 when only params are wrong.
+    Returns the response dict, or None when nothing should be sent back
+    (a notification).
     """
-    if not isinstance(_item, dict):
-        return None, _errorResponse(None, -32600,
-                                    f"Invalid Request: expected an object, got {type(_item).__name__}")
-    _id = _item.get("id")
-    _method = _item.get("method")
-    if not isinstance(_method, str):
-        return None, _errorResponse(_id, -32600, "Invalid Request: method must be a string")
-    _params = _item.get("params")
-    if _params is None:
-        # absent params and an explicit null both mean "no params"
-        _params = []
-    if not isinstance(_params, list):
-        return None, _errorResponse(_id, -32602,
-                                    f"Invalid params: expected an array, got {type(_params).__name__}")
-    _fields = {"method": _method, "params": _params}
-    # carry id ONLY when the request supplied it, so _isNotification can still
-    # tell a notification from an explicit "id": null
-    if "id" in _item:
-        _fields["id"] = _item["id"]
-    return Web3Body(**_fields), None
+    _body, _error = _bodyFromItem(_item)
+    if _error is not None:
+        return _error
+    return _handleSingle(_body)
 
 
 def createRouter(app: fastapi.FastAPI):
     """Attach the POST /web3 route to the given FastAPI app."""
-
-    def _handleSingle(data: Web3Body):
-        """Process one JSON-RPC request.
-
-        Returns the response dict, or None when the request is a notification
-        (no id) so the caller can omit it from the HTTP response per spec.
-        """
-        _begin = time.time()
-
-        if node is None:
-            _respdict = {"id": data.id, "jsonrpc": "2.0",
-                         "error": {"code": -32000, "message": "Node not ready"}}
-            return None if _isNotification(data) else _respdict
-
-        if node.state.verbose:
-            print(f"/web3 POST received, data : {data}")
-
-        handler = METHODS.get(data.method, DEFAULT_RESULT)
-        try:
-            result = handler(data)
-            _respdict = {"id": data.id, "jsonrpc": "2.0", "result": result}
-        except _RpcError as e:
-            _respdict = {"id": data.id, "jsonrpc": "2.0", "error": e.errorObj}
-            if node.state.verbose:
-                printError(f"web3 RPC error on {data.method}: {e.errorObj}")
-        except Exception as e:
-            _respdict = {"id": data.id, "jsonrpc": "2.0",
-                         "error": {"code": -32603, "message": f"Internal error: {e.__repr__()}"}}
-            if node.state.verbose:
-                printError(f"web3 RPC error on {data.method}: {e.__repr__()}")
-        if node.state.verbose:
-            print(f"{data.method} request completed in {round((time.time() - _begin) * 1000, 3)}ms")
-            print(f"Response : {json.dumps(_respdict)}")
-        # JSON-RPC 2.0: only a request that OMITS the id member is a
-        # notification.  An explicit "id": null is an ordinary request and MUST
-        # be answered — see _isNotification.
-        return None if _isNotification(data) else _respdict
-
-    def _jsonResponse(_payload):
-        """Serialize a JSON-RPC response body."""
-        return fastapi.Response(content=json.dumps(_payload),
-                                media_type='application/json')
-
-    def _dispatchOne(_item):
-        """Validate one raw request item, then handle it.
-
-        Returns the response dict, or None when nothing should be sent back
-        (a notification).
-        """
-        _body, _error = _bodyFromItem(_item)
-        if _error is not None:
-            return _error
-        return _handleSingle(_body)
 
     @app.post("/web3")
     def handleWeb3Request(data: Any = fastapi.Body(default=None)):
