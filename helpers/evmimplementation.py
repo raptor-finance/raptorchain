@@ -4,6 +4,7 @@ from eth_account import Account
 from Crypto.Hash import RIPEMD160
 
 from . import constants
+from .utils import packedKeccak
 
 class CallMemory(object):
     def __init__(self):
@@ -1412,10 +1413,10 @@ class PrecompiledContracts(object):
             
         
         def calcBalanceAddress(self, tokenOwner):
-            return int.from_bytes(w3.solidity_keccak(["uint256", "address"], [int(self.balancesSlot), w3.to_checksum_address(tokenOwner)]), "big")
+            return int.from_bytes(packedKeccak(["uint256", "address"], [int(self.balancesSlot), w3.to_checksum_address(tokenOwner)]), "big")
             
         def calcAllowanceAddress(self, tokenOwner, spender):
-            return int.from_bytes(w3.solidity_keccak(["uint256", "address", "address"], [int(self.allowancesSlot), w3.to_checksum_address(tokenOwner), w3.to_checksum_address(spender)]), "big")
+            return int.from_bytes(packedKeccak(["uint256", "address", "address"], [int(self.allowancesSlot), w3.to_checksum_address(tokenOwner), w3.to_checksum_address(spender)]), "big")
         
         def totalSupply(self, env):
             env.consumeGas(2300)

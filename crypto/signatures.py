@@ -11,6 +11,8 @@ from web3.auto import w3
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
+from helpers.utils import packedKeccak
+
 
 class SignatureManager(object):
     def __init__(self):
@@ -19,7 +21,7 @@ class SignatureManager(object):
 
     def signTransaction(self, private_key, transaction):
         message = encode_defunct(text=transaction["data"])
-        transaction["hash"] = w3.solidity_keccak(["string"], [transaction["data"]]).hex()
+        transaction["hash"] = packedKeccak(["string"], [transaction["data"]]).hex()
         _signature = Account.sign_message(message, private_key=private_key).signature.hex()
         signer = Account.recover_message(message, signature=_signature)
         sender = w3.to_checksum_address(json.loads(transaction["data"])["from"])
@@ -30,7 +32,7 @@ class SignatureManager(object):
 
     def verifyTransaction(self, transaction):
         message = encode_defunct(text=transaction["data"])
-        _hash = w3.solidity_keccak(["string"], [transaction["data"]]).hex()
+        _hash = packedKeccak(["string"], [transaction["data"]]).hex()
         _hashInTransaction = transaction["hash"]
         signer = Account.recover_message(message, signature=transaction["sig"])
         sender = w3.to_checksum_address(json.loads(transaction["data"])["from"])

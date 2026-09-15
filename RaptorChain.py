@@ -29,7 +29,7 @@ import helpers.constants as constants
 import helpers.rpcs as rpcs
 import helpers.abis as abis
 import helpers.utils as utils
-from helpers.utils import formatAddress, printError, isNotComment, lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages, beaconBlockStruct, promptInteractive, NonInteractiveError
+from helpers.utils import formatAddress, printError, isNotComment, lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages, beaconBlockStruct, promptInteractive, NonInteractiveError, packedKeccak
 from helpers.datatypes import (Message, Transaction,  # re-exported for backwards compatibility
     Masternode, BeaconBase, GenesisBeacon, Beacon)
 from crypto.signatures import SignatureManager
@@ -417,7 +417,7 @@ class BeaconChain(object):
         valHashes = []
         for op, val in self.validators.items():
             valHashes.append(val.hash)
-        return w3.solidity_keccak(["bytes32[]"], [sorted(valHashes)])
+        return packedKeccak(["bytes32[]"], [sorted(valHashes)])
     
     def updateStateRoot(self, newRoot):
         self.stateRoot = newRoot
@@ -493,8 +493,8 @@ class State(object):
         def calcHash(self, init=True):
             storageHash = w3.keccak(self.serializeEVMStorage())
             codeHash = w3.keccak(self.code)
-            historyHash = w3.solidity_keccak(["bytes32[]", "bytes32[]"], [self.transactions[1:], self.sent[1:]])
-            self.hash = w3.solidity_keccak(["address", "uint256", "bytes32", "bytes32", "bytes32", "string"], [self.address, self.balance, historyHash, codeHash, storageHash, self.bio])
+            historyHash = packedKeccak(["bytes32[]", "bytes32[]"], [self.transactions[1:], self.sent[1:]])
+            self.hash = packedKeccak(["address", "uint256", "bytes32", "bytes32", "bytes32", "string"], [self.address, self.balance, historyHash, codeHash, storageHash, self.bio])
             return self.hash
 
         def initialize(self):
@@ -668,9 +668,9 @@ class State(object):
         for (addr, acct) in self.accounts.items():
             if acct.isInitialized():
                 accountHashes.append(acct.hash)
-        accountingRoot = w3.solidity_keccak(["bytes32[]"], [sorted(accountHashes)])
+        accountingRoot = packedKeccak(["bytes32[]"], [sorted(accountHashes)])
         masternodesRoot = self.beaconChain.validatorSetHash()
-        self.hash = w3.solidity_keccak(["bytes32", "bytes32"], [accountingRoot, masternodesRoot])
+        self.hash = packedKeccak(["bytes32", "bytes32"], [accountingRoot, masternodesRoot])
         self.beaconChain.updateStateRoot(self.hash)
         return self.hash
         
@@ -1451,7 +1451,7 @@ class Node(object):
         if not (json.loads(tx.get("data")).get("type") in [1,2, 6]):
             sigVerified = self.sigmanager.verifyTransaction(tx)
         elif (json.loads(tx.get("data")).get("type") in [2]):
-            sigVerified = (tx.get("hash") == w3.solidity_keccak(["string"], [tx.get("data")]).hex()) # fixes a bug with chain
+            sigVerified = (tx.get("hash") == packedKeccak(["string"], [tx.get("data")]).hex()) # fixes a bug with chain
         else:
             sigVerified = True
         playableByState = self.state.willTransactionSucceed(tx)
@@ -1832,12 +1832,12 @@ class Node(object):
         if self.state.lastIndex >= _index:
             return
         data = json.dumps({"epoch": self.state.getCurrentEpoch(), "indexToCheck": _index, "type": 6})
-        _txid_ = w3.solidity_keccak(["string"], [data]).hex()
+        _txid_ = packedKeccak(["string"], [data]).hex()
         self.checkTxs([{"data": data, "hash": _txid_}], True)
 
     def integrateETHTransaction(self, ethTx):
         data = json.dumps({"rawTx": ethTx, "epoch": self.state.getCurrentEpoch(), "indexToCheck": self.state.beaconChain.bsc.currentDepositsIndex(), "type": 2})
-        _txid_ = w3.solidity_keccak(["string"], [data]).hex()
+        _txid_ = packedKeccak(["string"], [data]).hex()
         _result = self.checkTxs([{"data": data, "hash": _txid_}], True)
         if _txid_ in _result["failed"]:
             raise Exception("Transaction failed to execute")
@@ -2057,7 +2057,7 @@ class Wallet(object):
        
         
     def computePassword(self, passwd):
-        return base64.b64encode(w3.solidity_keccak(["string"], [passwd]))
+        return base64.b64encode(packedKeccak(["string"], [passwd]))
         
     def loadConfig(self):
         try:
