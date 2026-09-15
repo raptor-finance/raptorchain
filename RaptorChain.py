@@ -474,7 +474,6 @@ class State(object):
             self.accountGetter = accountGetter
             self.callfallback = callfallback
             self.chainAccess = chainAccess
-            self.opcodes = EVM.Opcodes().opcodes
             self.debug = False
             
         def serializeEVMStorage(self):
