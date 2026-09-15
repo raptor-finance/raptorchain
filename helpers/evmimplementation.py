@@ -94,7 +94,15 @@ class CallMemory(object):
         #     measured 0.274us/call vs 0.337us/call for the pad-then-truncate
         #     ordered form, i.e. this restores the pre-fix cost.
         if len(value) != length:
-            value = value[:length].ljust(length, b"\x00")
+            # bytes(...) first, NOT optional: `.ljust` exists on bytes and
+            # bytearray but NOT on memoryview, so slicing a memoryview and
+            # padding it raises AttributeError -- and an exception inside an
+            # opcode handler is caught by execEVMCall and turned into a REVERT,
+            # which is exactly the class of bug this method exists to remove.
+            # Every current caller passes bytes (verified by instrumenting this
+            # method across the copy family and the CALL family), so this is
+            # defence against a future caller, charged only on the slow path.
+            value = bytes(value[:length]).ljust(length, b"\x00")
         self.extend(offset, length)     # memory still grows to ceil32(offset+length)
         # len(value) == length by here, so this assignment cannot resize
         # `self.data` (and therefore cannot move any byte outside the region).
