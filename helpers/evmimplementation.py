@@ -53,7 +53,42 @@ class CallMemory(object):
         self.data[begin:end] = _data
     
     def write_bytes(self, offset, length, value):
-        self.extend(offset, length)
+        """Write EXACTLY `length` bytes at `offset`, right-zero-padding `value`
+        when it is shorter and truncating it when it is longer.
+
+        The buffer's SIZE must never change here.  `bytearray[a:b] = v` replaces
+        the b-a bytes of the slice with len(v) bytes, so a short `value` used to
+        SHRINK memory: it deleted the zero padding extend() had just added, and
+        every byte after the copied region with it.  Measured on this
+        interpreter: a CALL whose retLength exceeded the callee's return data
+        left len(memory.data) == 0 (MSIZE reported 0 immediately after the
+        call), and CODECOPY(dest, 0, 32) on 12-byte code followed by
+        RETURN(0, 32) returned 12 bytes.  Both copy paths are on ordinary
+        compiler output, not just hand-written bytecode.
+
+        A LONG `value` was just as wrong in the other direction: the assignment
+        grew the buffer by len(value)-length and shifted everything after the
+        region right by that much.  The CALL family hits this whenever a callee
+        returns more data than the caller asked for, so both directions are
+        normalised here rather than at the call sites.
+
+        Zero-padding (rather than leaving the tail of the region untouched) is
+        what the EVM specifies for the *COPY opcodes: the source -- calldata,
+        code, or the return buffer -- is conceptually zero-extended, so the
+        whole `length` region is overwritten even when only part of it comes
+        from the source.
+        """
+        if length == 0:
+            # A zero-size copy must not expand memory, however large `offset` is.
+            return
+        self.extend(offset, length)     # memory still grows to ceil32(offset+length)
+        _available = len(value)
+        if _available < length:
+            value = bytes(value).ljust(length, b"\x00")
+        elif _available > length:
+            value = value[:length]
+        # len(value) == length from here on, so this assignment cannot resize
+        # `self.data` (and therefore cannot move any byte outside the region).
         self.data[offset:offset+length] = value
     
     def read(self, offset, size) -> int:
@@ -303,7 +338,13 @@ class Opcodes(object):
         return (b"\x00"*(size-len(data)) + data)[0:size]
 
     def unsigned_to_signed(self, value):
-        return value if value <= constants.INT256_SIGN_BIT else value - constants.UINT256_MODULUS
+        # STRICTLY less than : 2**255 is the most negative int256 (-2**255), not
+        # the most positive.  With `<=`, INT256_SIGN_BIT itself was left
+        # unconverted, so 0x8000...0000 read as +2**255 -- a value that does not
+        # exist as an int256.  SLT(0, -2**255) returned 1, SGT(0, -2**255)
+        # returned 0, and SAR(1, -2**255) returned 0x4000... instead of 0xc000... .
+        # Every signed opcode (SDIV, SMOD, SLT, SGT, SAR) goes through here.
+        return value if value < constants.INT256_SIGN_BIT else value - constants.UINT256_MODULUS
 
     def maskAddress(self, value):
         """Truncate a 256-bit stack word to the 20-byte address it denotes.
@@ -1919,6 +1960,17 @@ class CallEnv(object):
     def getPushData(self, pc, length):
         _data = self.code[pc+1:pc+length+1]
         self.pc += length
+        if len(_data) < length:
+            # A PUSH whose immediate runs past the end of the code.  The missing
+            # bytes are zeros on the RIGHT: the EVM reads the immediate as a
+            # big-endian word and pads the short tail, so `PUSH2 0x01` with only
+            # that one byte left is 0x0100 (256).  int.from_bytes() on the short
+            # slice right-aligned it instead and produced 1.
+            # NOTE: unobservable today -- a truncated immediate can only be the
+            # last instruction of the code, so the value it pushes is discarded
+            # when execution stops right after it.  Fixed because it is the
+            # specified behaviour and costs nothing on the common path.
+            _data = _data + b"\x00" * (length - len(_data))
         return int.from_bytes(_data, "big")
         # return int(_data.hex(), 16)
     

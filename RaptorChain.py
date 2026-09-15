@@ -1032,7 +1032,21 @@ class State(object):
             env.debugfile.write(f"\nCalldata : {env.data}\nmsg.sender address : {env.msgSender}\naddress(this) : {env.recipient}\nmsg.value : {env.value}\nIs deploying contract : {env.contractDeployment}\n")
         if not len(env.code):
             return
+        # `op` is only assigned in the debug branch below, but the trailing
+        # _debug write outside the loop reads it.  Bind it up front so that
+        # leaving the loop before any opcode ran cannot raise NameError.
+        op = None
         while True and (not env.halt):
+            if env.pc >= len(env.code):
+                # Running off the end of the code is an IMPLICIT STOP: the EVM
+                # stops and the frame SUCCEEDS with whatever is in the return
+                # buffer (empty here).  Indexing code[pc] instead raised
+                # IndexError, and the except-clause below turned that into a
+                # REVERT -- so any contract whose last instruction left pc on
+                # len(code) failed, e.g. plain `PUSH1 0x01` or a code body
+                # ending in JUMPDEST.  halt (not revert) keeps success True.
+                env.halt = True
+                break
             try:
                 if _debug:
                     op = env.code[env.pc]
@@ -1043,7 +1057,7 @@ class State(object):
             except Exception as e:
                 self.log(f"Program Counter : {env.pc}\nStack : {env.stack}\nCalldata : {env.data}\nMemory : {bytes(env.memory.data)}\nCode : {env.code}\nIs deploying contract : {env.contractDeployment}\nHalted : {env.halt}\nError : {e.__repr__()}")
                 env.revert((f"Error occured during execution: {e}").encode())
-        if _debug:
+        if _debug and (op is not None):
             env.debugfile.write(f"Program Counter : {env.pc} - last opcode : {hex(op)} - stack : {list(reversed(env.stack))} - lastRetValue : {env.lastCallReturn} - memory : 0x{bytes(env.memory.data).hex()} - storage : {env.getStorage()} - remainingGas : {env.remainingGas()} - success : {env.getSuccess()} - halted : {env.halt}\n")
 
     _RECEIPT_UNSET = object()
