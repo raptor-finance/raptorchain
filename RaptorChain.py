@@ -29,7 +29,8 @@ import helpers.constants as constants
 import helpers.rpcs as rpcs
 import helpers.abis as abis
 import helpers.utils as utils
-from helpers.utils import formatAddress, printError, isNotComment, lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages, beaconBlockStruct, promptInteractive, NonInteractiveError, packedKeccak
+from helpers.utils import formatAddress, printError, isNotComment, lastOf, signTxData, assembleBlockData, signBlockData, defaultMessages, beaconBlockStruct, promptInteractive, NonInteractiveError
+from helpers.keccaktools import packedKeccak
 from helpers.datatypes import (Message, Transaction,  # re-exported for backwards compatibility
     Masternode, BeaconBase, GenesisBeacon, Beacon)
 from crypto.signatures import SignatureManager

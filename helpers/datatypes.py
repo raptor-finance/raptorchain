@@ -16,7 +16,8 @@ from web3.auto import w3
 from eth_account import Account
 
 from . import constants
-from .utils import formatAddress, hexData, packedKeccak
+from .utils import formatAddress, hexData
+from .keccaktools import packedKeccak
 from crypto.eth_decoder import ETHTransactionDecoder
 
 

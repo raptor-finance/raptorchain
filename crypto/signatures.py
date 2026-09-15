@@ -11,7 +11,7 @@ from web3.auto import w3
 from eth_account import Account
 from eth_account.messages import encode_defunct
 
-from helpers.utils import packedKeccak
+from helpers.keccaktools import packedKeccak
 
 
 class SignatureManager(object):

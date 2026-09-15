@@ -4,7 +4,7 @@ from eth_account import Account
 from Crypto.Hash import RIPEMD160
 
 from . import constants
-from .utils import packedKeccak
+from .keccaktools import packedKeccak
 
 class CallMemory(object):
     def __init__(self):
