@@ -304,7 +304,26 @@ class Opcodes(object):
 
     def unsigned_to_signed(self, value):
         return value if value <= constants.INT256_SIGN_BIT else value - constants.UINT256_MODULUS
-    
+
+    def maskAddress(self, value):
+        """Truncate a 256-bit stack word to the 20-byte address it denotes.
+
+        Applied at every opcode that takes an address operand.  The operand is
+        the LOW 160 bits of the popped word and the top 96 bits must be
+        discarded: a word only reaches the stack 32 bytes wide, so an address
+        produced by PUSH32, a bytes32-to-address cast, or a wide arithmetic
+        result legitimately carries dirty high bits.  Without this,
+        getAccount() -> formatAddress() called int.to_bytes(20, "big") on a
+        wider int, which raises OverflowError, and execEVMCall's except-clause
+        turned that into a revert ("Error occured during execution: int too
+        big to convert") for an input the EVM considers perfectly valid.
+
+        NOTE : this is an opcode-level rule, so it deliberately lives here and
+        not in formatAddress() -- that stays strict for callers where an
+        out-of-range int really is a bug.
+        """
+        return value & constants.ADDRESS_MASK
+
     def STOP(self, env):
         env.halt = True
     
@@ -554,7 +573,7 @@ class Opcodes(object):
         env.pc += 1
     
     def BALANCE(self, env):
-        env.stack.append(env.getAccount(env.stack.pop()).tempBalance)
+        env.stack.append(env.getAccount(self.maskAddress(env.stack.pop())).tempBalance)
         env.consumeGas(400)
         env.pc += 1
     
@@ -626,13 +645,13 @@ class Opcodes(object):
         env.pc += 1
     
     def EXTCODESIZE(self, env):
-        _addr = env.stack.pop()
+        _addr = self.maskAddress(env.stack.pop())
         env.stack.append(len(env.getCode(_addr)))
         env.consumeGas(700)
         env.pc += 1
 
     def EXTCODECOPY(self, env):
-        addr = env.stack.pop()
+        addr = self.maskAddress(env.stack.pop())
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
@@ -654,7 +673,18 @@ class Opcodes(object):
         env.pc += 1
     
     def EXTCODEHASH(self, env):
-        env.stack.append(int(w3.keccak(env.getCode(env.stack.pop())), 16))
+        # int(x, 16) on a keccak digest parsed the raw BYTES as ASCII hex digits
+        # (bytes is a valid str-like sequence for int()), so this raised
+        # "ValueError: invalid literal for int() with base 16: b'\xc5\xd2F...'"
+        # on essentially every input -- a random 32-byte digest is valid hex
+        # text only by coincidence.  The handler therefore threw, and
+        # execEVMCall's except-clause turned that into a revert, making the
+        # opcode unusable.  int.from_bytes() reads the digest as the big-endian
+        # integer the EVM specifies, and (unlike int("".hex(), 16)) is total:
+        # empty input yields 0 rather than ValueError.  Matches the style
+        # already used for packedKeccak() in CrossChainToken.calcBalanceAddress.
+        # The address operand is masked to its low 160 bits, see maskAddress().
+        env.stack.append(int.from_bytes(w3.keccak(env.getCode(self.maskAddress(env.stack.pop()))), "big"))
         env.consumeGas(700)
         env.pc += 1
     
@@ -1099,7 +1129,7 @@ class Opcodes(object):
         
     def CALL(self, env):
         gas = env.stack.pop()
-        addr = env.stack.pop()
+        addr = self.maskAddress(env.stack.pop())
         value = env.stack.pop()
         argsOffset = env.stack.pop()
         argsLength = env.stack.pop()
@@ -1126,7 +1156,7 @@ class Opcodes(object):
         
     def CALLCODE(self, env):
         gas = env.stack.pop()
-        addr = env.stack.pop()
+        addr = self.maskAddress(env.stack.pop())
         value = env.stack.pop()
         argsOffset = env.stack.pop()
         argsLength = env.stack.pop()
@@ -1151,7 +1181,7 @@ class Opcodes(object):
         
     def DELEGATECALL(self, env):
         gas = env.stack.pop()
-        addr = env.stack.pop()
+        addr = self.maskAddress(env.stack.pop())
         argsOffset = env.stack.pop()
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
@@ -1195,7 +1225,7 @@ class Opcodes(object):
     
     def STATICCALL(self, env):
         gas = env.stack.pop()
-        addr = env.stack.pop()
+        addr = self.maskAddress(env.stack.pop())
         argsOffset = env.stack.pop()
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()

@@ -38,6 +38,11 @@ UINT256_MODULUS = 2 ** 256          # wrap-around modulus for 256-bit unsigned m
 UINT256_MAX = UINT256_MODULUS - 1   # largest uint256 (== int(MAX_TARGET, 16))
 INT256_SIGN_BIT = 2 ** 255          # at or above this, a word is negative as int256
 
+# An address operand is the LOW 160 bits of a 256-bit stack word : any address
+# that came out of a PUSH32, a bytes32 cast or a wide arithmetic result arrives
+# with dirty high bits set, and the EVM discards them rather than failing.
+ADDRESS_MASK = 2 ** 160 - 1         # low 160 bits of an address operand
+
 # --- Chain IDs ---------------------------------------------------------------
 TESTNET_CHAIN_ID = 499597202514
 MAINNET_CHAIN_ID = 1380996178
