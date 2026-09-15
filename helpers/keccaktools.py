@@ -54,10 +54,13 @@ class _NeedsWeb3Fallback(Exception):
     Raised for: an odd-length or invalid hex string, a string without the "0x"
     prefix, a value of the wrong Python type, a negative or oversized uint/int,
     a non-bool for bool, a non-str for string, a non-list for ``T[]``, an
-    address whose case does not match its EIP-55 checksum, a type name that is
-    not exactly a supported one (including fixed-size arrays such as
-    ``bytes32[2]``), an out-of-range type size (``uint``, ``uint7``, ``uint264``,
-    ``bytes33``), and a length mismatch between types and values.
+    address whose case does not match its EIP-55 checksum or whose prefix is not
+    a lowercase "0x", a type name that is not exactly a supported one (including
+    fixed-size arrays such as ``bytes32[2]``), an out-of-range type size
+    (``uint``, ``uint7``, ``uint264``, ``bytes33``), a size that is in range but
+    not spelled canonically (``uint08``, ``uint0256``, ``bytes010``, and
+    non-ASCII digits that ``str.isdigit`` accepts), and a length mismatch
+    between types and values.
     """
 
 
@@ -96,15 +99,23 @@ def _packedBytes(value):
 def _wordSize(digits, maximum):
     """Byte width from the digits of a uint/int type ("256" -> 32).
 
-    Only ABI-legal sizes (8..maximum in steps of 8) are accepted; anything else
-    -- a size-less "uint", "uint7", "uint2_5" -- is deferred to web3, which
-    either rejects the type or produces a sub-byte encoding that cannot be
-    reproduced by whole-byte padding.
+    Only sizes web3 RECOGNISES are accepted, which means both an ABI-legal
+    width (8..maximum in steps of 8) and its canonical spelling: web3's
+    ``is_recognized_type`` matches the literal names uint8..uint256, so "uint08"
+    is an unrecognized type to web3 rather than uint8.  Anything else -- a
+    size-less "uint", "uint7", "uint2_5", "uint08", "uint0256" -- is deferred
+    to web3, which either rejects the type or produces an encoding that cannot
+    be reproduced by whole-byte padding.
     """
     if not digits.isdigit():
         raise _NeedsWeb3Fallback()
     _bits = int(digits)
     if not (8 <= _bits <= maximum) or _bits % 8:
+        raise _NeedsWeb3Fallback()
+    # str.isdigit() is true for non-ASCII digits ("\u0668"), which int() parses
+    # happily; comparing against the canonical spelling rejects those too, since
+    # web3 knows only the ASCII names.
+    if digits != str(_bits):
         raise _NeedsWeb3Fallback()
     return _bits // 8
 
@@ -119,6 +130,14 @@ def _isChecksumAddress(value):
     less strict would let packedKeccak succeed on input web3 refuses -- the
     same direction of bug as the CREATE-nonce crash -- so it is checked here.
 
+    The prefix is validated too, and it must be a lowercase "0x".  Slicing
+    ``value[2:]`` and checking only those 40 characters accepts ANY two leading
+    characters ("0X...", "ZZ...", "12..."), and an all-digit tail contains no
+    letters, so the case comparison below cannot reject it either.  web3 refuses
+    all of those: ``is_hex_address`` requires ``is_0x_prefixed``, and even "0X"
+    fails its final equality check because ``to_checksum_address`` emits a
+    lowercase "0x".
+
     eth_utils computes the digest over the LOWERCASE hex text (without "0x")
     and uppercases a nibble when the corresponding digest nibble is > 7.
 
@@ -128,6 +147,10 @@ def _isChecksumAddress(value):
     cache is capped so a flood of distinct invalid addresses cannot grow it
     without bound.
     """
+    if not value.startswith("0x"):
+        # not a formality: without this ANY two leading characters pass, so
+        # packedKeccak would hash an "address" web3 rejects outright
+        return False
     _hex = value[2:]
     if len(_hex) != 40:
         return False
@@ -147,6 +170,7 @@ def _isChecksumAddress(value):
     return True
 
 
+@lru_cache(maxsize=1024)
 def _parseType(abiType):
     """Resolve a type name to ("kind", detail), or defer to web3.
 
@@ -160,6 +184,24 @@ def _parseType(abiType):
     fixed-size array "bytes32[2]" as the scalar type "bytes" and encode a bytes
     value as though the [2] were not there -- which is what an earlier version
     did whenever the value happened to be bytes rather than a list.
+
+    Cached because a type string is re-parsed on EVERY call while only ever
+    changing with the call site: the set of names the chain uses is a fixed
+    handful ("bytes32", "bytes32[]", "address", "uint256", "string",
+    "bytes"), and parsing one costs ~400 ns against the ~85 ns the
+    accept-checks above cost.  The saving is per CALL, not per element, so a
+    16 000-element ``bytes32[]`` gains once either way -- but a txid or a token
+    storage slot, hashed in a tight loop, gains every time.  That makes the
+    total a net win over having no accept-checks at all, rather than merely
+    offsetting them.
+
+    Cache misses are bounded (maxsize, LRU) and exceptions are NOT cached:
+    lru_cache only memoises returns, so an unrecognized name re-parses and
+    still defers to web3 on every call.  Deeply nested arrays ("bytes32[][]")
+    bake in one entry per level, which is what maxsize bounds.  A non-string
+    argument now raises TypeError at the cache lookup instead of AttributeError
+    inside the body; packedKeccak catches both and defers, so web3 still raises
+    whatever it raised before.
     """
     if abiType.endswith("[]"):
         return ("array", _parseType(abiType[:-2]))
@@ -175,7 +217,12 @@ def _parseType(abiType):
         # bytesN must be N in the ABI-legal range; "bytes32[2]" arrives here
         # as "32[2]", which is not a digit run and so defers to web3
         _size = abiType[5:]
-        if not _size.isdigit() or not (1 <= int(_size) <= 32):
+        if not _size.isdigit():
+            raise _NeedsWeb3Fallback()
+        _bytes = int(_size)
+        # same rule as _wordSize: web3 knows bytes1..bytes32 by literal name, so
+        # "bytes08" is an unrecognized type to it, not bytes8
+        if not (1 <= _bytes <= 32) or _size != str(_bytes):
             raise _NeedsWeb3Fallback()
         return ("bytes", 0)
     if abiType.startswith("uint"):
@@ -266,7 +313,19 @@ def packedKeccak(abiTypes, values):
     fast path cannot reproduce with certainty is handed to web3 itself rather
     than guessed at -- see _NeedsWeb3Fallback for why (CREATE/CREATE2 put the
     odd-length contract nonce ``hex(1)`` == "0x1" into Account.sent, which is
-    real committed state).
+    real committed state).  "The same error" covers web3's ACCEPTANCE rules, not
+    just its bytes: inputs its validators reject (a non-canonical type width
+    such as ``uint08``, an address without a lowercase "0x") defer as well, so
+    the fast path can never hash something web3 would have refused.
+
+    The fallback is ``w3.solidity_keccak`` on the module-level ``web3.auto``
+    instance imported above.  web3 runs address arguments through
+    ``abi_ens_resolver`` -- the one normalizer in ``solidity_keccak`` that
+    depends on WHICH ``Web3`` object is used -- so an ENS name ("name.eth")
+    passed as an address argument is resolved, or fails, against the auto
+    instance rather than a caller's connected one.  ENS names are not checksum
+    addresses, so they always take the fallback, and every other input is
+    instance-independent; a caller that hashes ENS names must call its own w3.
 
     Measured end-to-end on this codebase: calcStateRoot ~27-38x, txsRoot ~27-31x,
     validatorSetHash ~21-37x, Account.calcHash ~10-32x, playTransaction ~8-22x.
