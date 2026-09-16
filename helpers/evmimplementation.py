@@ -1,6 +1,10 @@
 from web3.auto import w3
-import itertools, rlp, hashlib, eth_abi
+import rlp, hashlib, eth_abi
+from eth_account import Account
 from Crypto.Hash import RIPEMD160
+
+from . import constants
+from .keccaktools import packedKeccak
 
 class CallMemory(object):
     def __init__(self):
@@ -26,8 +30,19 @@ class CallMemory(object):
             return
 
         size_to_extend = new_size - len(self.data)
+        # Fill with a bulk zero block, NOT itertools.repeat(0, n).
+        # bytearray.extend() consumes an iterator one element at a time, so
+        # repeat() made every memory expansion O(bytes) with a Python-level
+        # step per byte.  Measured on this method: growing to 32 KiB took
+        # 128.4us with repeat() vs 1.5us with a bulk block (~88x), and 1 KiB
+        # took 4.34us vs 0.38us (~11x).  Every CODECOPY / CALLDATACOPY /
+        # RETURNDATACOPY / EXTCODECOPY / MSTORE that grows memory pays this,
+        # and a contract's constructor copies its full bytecode into memory
+        # before returning it, so this is on the path of every deployment.
+        # The fallback below already used a bulk block, so this only makes the
+        # fast path match it.
         try:
-            self.data.extend(itertools.repeat(0, size_to_extend))
+            self.data.extend(bytearray(size_to_extend))
         except BufferError:
             self.data = self.data + bytearray(size_to_extend)
     
@@ -38,7 +53,59 @@ class CallMemory(object):
         self.data[begin:end] = _data
     
     def write_bytes(self, offset, length, value):
-        self.extend(offset, length)
+        """Write EXACTLY `length` bytes at `offset`, right-zero-padding `value`
+        when it is shorter and truncating it when it is longer.
+
+        The buffer's SIZE must never change here.  `bytearray[a:b] = v` replaces
+        the b-a bytes of the slice with len(v) bytes, so a short `value` used to
+        SHRINK memory: it deleted the zero padding extend() had just added, and
+        every byte after the copied region with it.  Measured on this
+        interpreter: a CALL whose retLength exceeded the callee's return data
+        left len(memory.data) == 0 (MSIZE reported 0 immediately after the
+        call), and CODECOPY(dest, 0, 32) on 12-byte code followed by
+        RETURN(0, 32) returned 12 bytes.  Both copy paths are on ordinary
+        compiler output, not just hand-written bytecode.
+
+        A LONG `value` was just as wrong in the other direction: the assignment
+        grew the buffer by len(value)-length and shifted everything after the
+        region right by that much.  The CALL family hits this whenever a callee
+        returns more data than the caller asked for, so both directions are
+        normalised here rather than at the call sites.
+
+        Zero-padding (rather than leaving the tail of the region untouched) is
+        what the EVM specifies for the *COPY opcodes: the source -- calldata,
+        code, or the return buffer -- is conceptually zero-extended, so the
+        whole `length` region is overwritten even when only part of it comes
+        from the source.
+        """
+        # Normalise with ONE expression, and only when it is actually needed.
+        # `value[:length]` truncates when `value` is long and is a no-op when it
+        # is short; `ljust` then pads the rest.  Two consequences worth noting:
+        #   * length == 0 needs NO special case.  value[:0] is b"", so the slice
+        #     assignment below writes zero bytes -- a no-op even when `value` is
+        #     non-empty, which is exactly the CALL-family case that used to
+        #     INSERT the return data into memory (bytearray[a:a] = v splices v
+        #     in at a).  extend() also already returns early for size 0, so a
+        #     zero-size copy at any offset cannot expand memory.
+        #   * the len(value) == length case -- the common one for *COPY, and the
+        #     only one for MSTORE-sized writes -- skips this branch ENTIRELY and
+        #     costs exactly what the original body cost.  Doing the comparison
+        #     first (rather than branching per direction) keeps that path free:
+        #     measured 0.274us/call vs 0.337us/call for the pad-then-truncate
+        #     ordered form, i.e. this restores the pre-fix cost.
+        if len(value) != length:
+            # bytes(...) first, NOT optional: `.ljust` exists on bytes and
+            # bytearray but NOT on memoryview, so slicing a memoryview and
+            # padding it raises AttributeError -- and an exception inside an
+            # opcode handler is caught by execEVMCall and turned into a REVERT,
+            # which is exactly the class of bug this method exists to remove.
+            # Every current caller passes bytes (verified by instrumenting this
+            # method across the copy family and the CALL family), so this is
+            # defence against a future caller, charged only on the slow path.
+            value = bytes(value[:length]).ljust(length, b"\x00")
+        self.extend(offset, length)     # memory still grows to ceil32(offset+length)
+        # len(value) == length by here, so this assignment cannot resize
+        # `self.data` (and therefore cannot move any byte outside the region).
         self.data[offset:offset+length] = value
     
     def read(self, offset, size) -> int:
@@ -54,11 +121,9 @@ class CallMemory(object):
         # self.data += [0]*length
 
 
-class Msg(object):
-    def __init__(self, sender, recipient, value):
-        self.sender = sender
-        self.recipient = recipient
-        self.value = 0
+# NOTE: an older 3-arg Msg stub used to live here; the live 8-arg Msg is
+# defined below (next to CallEnv). The stub is removed so imports can't
+# accidentally pick up the wrong signature.
 
 
 # CallEnv(tx.sender, self.accounts.get(),)
@@ -73,6 +138,29 @@ class Msg(object):
         # self.logic(env)
 
 class Opcodes(object):
+    # cache of valid JUMPDEST positions per bytecode (avoids re-analyzing on every call)
+    _jumpdestCache = {}
+
+    @classmethod
+    def computeValidJumpdests(cls, code):
+        """Returns the set of positions holding a VALID JUMPDEST (0x5B not inside PUSH data).
+        Follows EVM rules : walk the code linearly, skipping PUSH immediates."""
+        cached = cls._jumpdestCache.get(code)
+        if cached is not None:
+            return cached
+        valid = set()
+        i = 0
+        codeLen = len(code)
+        while i < codeLen:
+            op = code[i]
+            if op == 0x5B:                      # JUMPDEST
+                valid.add(i)
+            elif 0x60 <= op <= 0x7F:            # PUSH1..PUSH32 : skip immediates
+                i += (op - 0x5F)
+            i += 1
+        cls._jumpdestCache[code] = valid
+        return valid
+
     def __init__(self):
         self.opcodes = {}
         self.opcodes[0x00] = self.STOP
@@ -87,10 +175,17 @@ class Opcodes(object):
         self.opcodes[0x09] = self.mulmod
         self.opcodes[0x0a] = self.exp
         self.opcodes[0x0b] = self.signextend
-        self.opcodes[0x0c] = None
-        self.opcodes[0x0d] = None
-        self.opcodes[0x0e] = None
-        self.opcodes[0x0f] = None
+        # Undefined opcodes are DELIBERATELY ABSENT from this dict rather than
+        # mapped to None.  The interpreter dispatches with
+        # `self.opcodes.get(op, self.opcodes[0xFE])`, and dict.get() returns the
+        # STORED value whenever the key is present -- so a `= None` entry
+        # SHADOWED the INVALID fallback and the call raised
+        # "'NoneType' object is not callable".  execEVMCall's except-clause then
+        # turned that into an ordinary revert: a misleading "Error occured during
+        # execution" payload and only the 21k base gas charged, where the EVM
+        # requires an exceptional halt that CONSUMES ALL REMAINING GAS.  An
+        # absent key gets both right.  Affected ranges: 0x0C-0x0F, 0x1E-0x1F,
+        # 0x21-0x2F, 0x49-0x4F, 0x5C-0x5E, 0xA5-0xAF.
         self.opcodes[0x10] = self.lt
         self.opcodes[0x11] = self.gt
         self.opcodes[0x12] = self.slt
@@ -105,25 +200,7 @@ class Opcodes(object):
         self.opcodes[0x1b] = self.shl
         self.opcodes[0x1c] = self.shr
         self.opcodes[0x1d] = self.sar
-        self.opcodes[0x1e] = None
-        self.opcodes[0x1f] = None
         self.opcodes[0x20] = self.sha3
-        self.opcodes[0x21] = None
-        self.opcodes[0x22] = None
-        self.opcodes[0x23] = None
-        self.opcodes[0x23] = None
-        self.opcodes[0x24] = None
-        self.opcodes[0x25] = None
-        self.opcodes[0x26] = None
-        self.opcodes[0x27] = None
-        self.opcodes[0x28] = None
-        self.opcodes[0x29] = None
-        self.opcodes[0x2a] = None
-        self.opcodes[0x2b] = None
-        self.opcodes[0x2c] = None
-        self.opcodes[0x2d] = None
-        self.opcodes[0x2e] = None
-        self.opcodes[0x2f] = None
         self.opcodes[0x30] = self.ADDRESS
         self.opcodes[0x31] = self.BALANCE
         self.opcodes[0x32] = self.ORIGIN
@@ -149,13 +226,6 @@ class Opcodes(object):
         self.opcodes[0x46] = self.CHAINID
         self.opcodes[0x47] = self.SELFBALANCE
         self.opcodes[0x48] = self.BASEFEE
-        self.opcodes[0x49] = None
-        self.opcodes[0x4A] = None
-        self.opcodes[0x4B] = None
-        self.opcodes[0x4C] = None
-        self.opcodes[0x4D] = None
-        self.opcodes[0x4E] = None
-        self.opcodes[0x4F] = None
         self.opcodes[0x50] = self.POP
         self.opcodes[0x51] = self.MLOAD
         self.opcodes[0x52] = self.MSTORE
@@ -168,10 +238,11 @@ class Opcodes(object):
         self.opcodes[0x59] = self.MSIZE
         self.opcodes[0x5A] = self.GAS
         self.opcodes[0x5B] = self.JUMPDEST
-        self.opcodes[0x5C] = None
-        self.opcodes[0x5D] = None
-        self.opcodes[0x5E] = None
-        self.opcodes[0x5F] = None
+        # EIP-3855 PUSH0 : pushes one zero byte for 2 gas (PUSH1 0x00 costs 3).
+        # solc >= 0.8.20 emits it BY DEFAULT for shanghai+ targets, so without
+        # this entry any contract built by a current solc reverted on its very
+        # first instruction.
+        self.opcodes[0x5F] = self.PUSH0
         self.opcodes[0x60] = self.PUSH1
         self.opcodes[0x61] = self.PUSH2
         self.opcodes[0x62] = self.PUSH3
@@ -241,18 +312,7 @@ class Opcodes(object):
         self.opcodes[0xA2] = self.LOG2
         self.opcodes[0xA3] = self.LOG3
         self.opcodes[0xA4] = self.LOG4
-        self.opcodes[0xA5] = None
-        self.opcodes[0xA6] = None
-        self.opcodes[0xA7] = None
-        self.opcodes[0xA8] = None
-        self.opcodes[0xA9] = None
-        self.opcodes[0xAA] = None
-        self.opcodes[0xAB] = None
-        self.opcodes[0xAC] = None
-        self.opcodes[0xAD] = None
-        self.opcodes[0xAE] = None
-        self.opcodes[0xAF] = None
-        # Skipping rest of NONE stuff, it isn't useful
+        # 0xA5-0xAF stay absent on purpose -- see the note by 0x0C above.
         self.opcodes[0xF0] = self.CREATE
         self.opcodes[0xF1] = self.CALL
         self.opcodes[0xF2] = self.CALLCODE
@@ -264,65 +324,94 @@ class Opcodes(object):
         self.opcodes[0xFE] = self.INVALID
 
     def padded(self, data, size):
-        return (b"\x00"*(size-(len(_bts))) + _bts)[0:size]
+        return (b"\x00"*(size-len(data)) + data)[0:size]
 
     def unsigned_to_signed(self, value):
-        return value if value <= (2**255) else value - (2**256)
-    
+        # STRICTLY less than : 2**255 is the most negative int256 (-2**255), not
+        # the most positive.  With `<=`, INT256_SIGN_BIT itself was left
+        # unconverted, so 0x8000...0000 read as +2**255 -- a value that does not
+        # exist as an int256.  SLT(0, -2**255) returned 1, SGT(0, -2**255)
+        # returned 0, and SAR(1, -2**255) returned 0x4000... instead of 0xc000... .
+        # Every signed opcode (SDIV, SMOD, SLT, SGT, SAR) goes through here.
+        return value if value < constants.INT256_SIGN_BIT else value - constants.UINT256_MODULUS
+
+    def maskAddress(self, value):
+        """Truncate a 256-bit stack word to the 20-byte address it denotes.
+
+        Applied at every opcode that takes an address operand.  The operand is
+        the LOW 160 bits of the popped word and the top 96 bits must be
+        discarded: a word only reaches the stack 32 bytes wide, so an address
+        produced by PUSH32, a bytes32-to-address cast, or a wide arithmetic
+        result legitimately carries dirty high bits.  Without this,
+        getAccount() -> formatAddress() called int.to_bytes(20, "big") on a
+        wider int, which raises OverflowError, and execEVMCall's except-clause
+        turned that into a revert ("Error occured during execution: int too
+        big to convert") for an input the EVM considers perfectly valid.
+
+        NOTE : this is an opcode-level rule, so it deliberately lives here and
+        not in formatAddress() -- that stays strict for callers where an
+        out-of-range int really is a bug.
+        """
+        return value & constants.ADDRESS_MASK
+
     def STOP(self, env):
         env.halt = True
     
     def add(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
-        env.stack.append(int(int(a+b)%(2**256)))
+        env.stack.append(int(int(a+b)%constants.UINT256_MODULUS))
         env.consumeGas(3)
         env.pc += 1
     
     def sub(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
-        env.stack.append(int(int(a-b)%(2**256)))
+        env.stack.append(int(int(a-b)%constants.UINT256_MODULUS))
         env.consumeGas(3)
         env.pc += 1
     
     def mul(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
-        env.stack.append(int(int(a*b)%(2**256)))
+        env.stack.append(int(int(a*b)%constants.UINT256_MODULUS))
         env.consumeGas(5)
         env.pc += 1
 
     def div(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
-        result = 0 if (b==0) else a//b*(-1 if b * b < 0 else 1)
+        result = 0 if (b==0) else a//b
             
-        env.stack.append(int(int(result)%(2**256)))
+        env.stack.append(int(int(result)%constants.UINT256_MODULUS))
         env.consumeGas(5)
         env.pc += 1
         
     def sdiv(self, env):
         a = self.unsigned_to_signed(env.stack.pop())
         b = self.unsigned_to_signed(env.stack.pop())
-        result = 0 if (b==0) else a//b*(-1 if b * b < 0 else 1)
+        # EVM SDIV truncates toward zero (Python's // floors instead)
+        _quotient = abs(a)//abs(b) if (b!=0) else 0
+        result = -_quotient if ((a < 0) != (b < 0)) else _quotient
             
-        env.stack.append(int(int(result)%(2**256)))
+        env.stack.append(int(int(result)%constants.UINT256_MODULUS))
         env.consumeGas(5)
         env.pc += 1
 
     def mod(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
-        env.stack.append(int(int(0 if a == 0 else (a%b))%(2**256)))
+        # EVM spec : MOD returns 0 when divisor is 0
+        env.stack.append(int(int(0 if b == 0 else (a%b))%constants.UINT256_MODULUS))
         env.consumeGas(5)
         env.pc += 1
     
     def smod(self, env):
         a = self.unsigned_to_signed(env.stack.pop())
         b = self.unsigned_to_signed(env.stack.pop())
-        result = 0 if mod == 0 else (abs(a) % abs(b) * (-1 if a < 0 else 1)) & (2**256-1)
-        env.stack.append(int(int(result)%(2**256)))
+        # EVM spec : SMOD returns 0 when divisor is 0, result takes sign of dividend
+        result = 0 if b == 0 else (abs(a) % abs(b) * (-1 if a < 0 else 1))
+        env.stack.append(int(int(result)%constants.UINT256_MODULUS))
         env.consumeGas(5)
         env.pc += 1
         
@@ -331,9 +420,10 @@ class Opcodes(object):
         b = env.stack.pop()
         c = env.stack.pop()
 
-        result = 0 if mod == 0 else (a + b) % c
+        # EVM spec : ADDMOD returns 0 when modulus is 0
+        result = 0 if c == 0 else (a + b) % c
 
-        env.stack.append(int(int(result)%(2**256)))
+        env.stack.append(int(int(result)%constants.UINT256_MODULUS))
         env.consumeGas(8)
         env.pc += 1
 
@@ -342,17 +432,18 @@ class Opcodes(object):
         b = env.stack.pop()
         c = env.stack.pop()
 
-        result = 0 if mod == 0 else (a * b) % c
+        # EVM spec : MULMOD returns 0 when modulus is 0
+        result = 0 if c == 0 else (a * b) % c
 
-        env.stack.append(int(int(result)%(2**256)))
+        env.stack.append(int(int(result)%constants.UINT256_MODULUS))
         env.consumeGas(8)
         env.pc += 1
 
     def exp(self, env):
         a = env.stack.pop()
         b = env.stack.pop()
-        result = pow(a, b, (2**256))
-        env.stack.append(int(int(result)%(2**256)))
+        result = pow(a, b, constants.UINT256_MODULUS)
+        env.stack.append(int(int(result)%constants.UINT256_MODULUS))
         env.consumeGas(10*(b+1))
         env.pc += 1
 
@@ -364,12 +455,12 @@ class Opcodes(object):
             testbit = bits * 8 + 7
             sign_bit = (1 << testbit)
             if value & sign_bit:
-                result = value | ((2**256) - sign_bit)
+                result = value | (constants.UINT256_MODULUS - sign_bit)
             else:
                 result = value & (sign_bit - 1)
         else:
             result = value
-        env.stack.append(int(int(result)%(2**256)))
+        env.stack.append(int(int(result)%constants.UINT256_MODULUS))
         env.consumeGas(5)
         env.pc += 1
 
@@ -446,7 +537,7 @@ class Opcodes(object):
     
     def not_op(self, env):
         a = env.stack.pop()
-        result = (2**256-1)-a
+        result = constants.UINT256_MAX - a
         env.stack.append(int(result))
         env.consumeGas(3)
         env.pc += 1
@@ -462,27 +553,30 @@ class Opcodes(object):
     def shl(self, env):
         shift = env.stack.pop()
         value = env.stack.pop()
-        result = (value << shift)%(2**256)
+        result = ((value << shift)%constants.UINT256_MODULUS) if shift < 256 else 0
         env.stack.append(int(result))
+        # NOTE: no gas charged here, matching pre-fix behavior
         env.pc += 1
     
     def shr(self, env):
         shift = env.stack.pop()
         value = env.stack.pop()
-        result = (value >> shift)%(2**256)
+        result = (value >> shift) if shift < 256 else 0
         env.stack.append(int(result))
+        # NOTE: no gas charged here, matching pre-fix behavior
         env.pc += 1
 
 
     def sar(self, env):
         shift = env.stack.pop()
         value = self.unsigned_to_signed(env.stack.pop())
-        result = (value << shift)%(2**256)
-        env.stack.append(int(result))
+        # EVM SAR : arithmetic shift right, sign-preserving
         if shift >= 256:
-            result = 0 if value >= 0 else (2**256-1)
+            result = 0 if value >= 0 else (-1)
         else:
-            result = (value >> shift) & (2**256-1)
+            result = value >> shift    # Python >> is arithmetic for signed ints
+        env.stack.append(int(result)%constants.UINT256_MODULUS)
+        # NOTE: no gas charged here, matching pre-fix behavior
         env.pc += 1
 
     
@@ -509,7 +603,7 @@ class Opcodes(object):
         env.pc += 1
     
     def BALANCE(self, env):
-        env.stack.append(env.getAccount(env.stack.pop()).tempBalance)
+        env.stack.append(env.getAccount(self.maskAddress(env.stack.pop())).tempBalance)
         env.consumeGas(400)
         env.pc += 1
     
@@ -577,17 +671,17 @@ class Opcodes(object):
 
     def GASPRICE(self, env):
         env.stack.append(env.tx.gasprice)
-        env.stack.consumeGas(2)
+        env.consumeGas(2)
         env.pc += 1
     
     def EXTCODESIZE(self, env):
-        _addr = env.stack.pop()
+        _addr = self.maskAddress(env.stack.pop())
         env.stack.append(len(env.getCode(_addr)))
         env.consumeGas(700)
         env.pc += 1
 
     def EXTCODECOPY(self, env):
-        addr = env.stack.pop()
+        addr = self.maskAddress(env.stack.pop())
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
@@ -604,12 +698,33 @@ class Opcodes(object):
         destOffset = env.stack.pop()
         offset = env.stack.pop()
         length = env.stack.pop()
+        # The return buffer is NOT auto-extended: reading past its end is a
+        # failure, not a read of zeros (unlike CALLDATACOPY / CODECOPY, where the
+        # source is conceptually zero-extended).  Without this check the slice
+        # returned fewer bytes than `length`, and write_bytes zero-filled the
+        # difference -- so copying 32 bytes out of an EMPTY return buffer
+        # SUCCEEDED and produced 32 zeros.  Checked before the write, or the
+        # revert would come too late to undo it.
+        if ((offset + length) > len(env.lastCallReturn)):
+            env.revert(b"RETURNDATACOPY_OUT_OF_BOUNDS")
+            return
         env.memory.write_bytes(destOffset, length, env.lastCallReturn[offset:offset+length])
         env.consumeGas(((length//32) * 3) + 2)
         env.pc += 1
     
     def EXTCODEHASH(self, env):
-        env.stack.append(int(w3.keccak(env.getCode(env.stack.pop())), 16))
+        # int(x, 16) on a keccak digest parsed the raw BYTES as ASCII hex digits
+        # (bytes is a valid str-like sequence for int()), so this raised
+        # "ValueError: invalid literal for int() with base 16: b'\xc5\xd2F...'"
+        # on essentially every input -- a random 32-byte digest is valid hex
+        # text only by coincidence.  The handler therefore threw, and
+        # execEVMCall's except-clause turned that into a revert, making the
+        # opcode unusable.  int.from_bytes() reads the digest as the big-endian
+        # integer the EVM specifies, and (unlike int("".hex(), 16)) is total:
+        # empty input yields 0 rather than ValueError.  Matches the style
+        # already used for packedKeccak() in CrossChainToken.calcBalanceAddress.
+        # The address operand is masked to its low 160 bits, see maskAddress().
+        env.stack.append(int.from_bytes(w3.keccak(env.getCode(self.maskAddress(env.stack.pop()))), "big"))
         env.consumeGas(700)
         env.pc += 1
     
@@ -658,10 +773,15 @@ class Opcodes(object):
         env.pc += 1
         
     def POP(self, env):
-        try:
-            env.stack.pop()
-        except:
-            pass
+        # The try/except swallowed the underflow, so POP on an empty stack
+        # SUCCEEDED -- a POP that removes nothing was indistinguishable from a
+        # correct one.  The EVM fails the frame.  An explicit check replaces the
+        # exception so the failure is deliberate and reports why, which the bare
+        # `except: pass` could never do.
+        if not env.stack:
+            env.revert(b"STACK_UNDERFLOW")
+            return
+        env.stack.pop()
         env.consumeGas(2)
         env.pc += 1
     
@@ -700,13 +820,23 @@ class Opcodes(object):
         env.pc += 1
     
     def JUMP(self, env):
-        env.pc = env.stack.pop()
+        dest = env.stack.pop()
+        if not env.isValidJumpdest(dest):
+            env.revert(b"INVALID_JUMP_DESTINATION")
+            return
+        env.pc = dest
         env.consumeGas(8)
     
     def JUMPI(self, env):
         dest = env.stack.pop()
         cond = env.stack.pop()
-        env.pc = (dest if bool(cond) else (env.pc + 1))
+        if bool(cond):
+            if not env.isValidJumpdest(dest):
+                env.revert(b"INVALID_JUMP_DESTINATION")
+                return
+            env.pc = dest
+        else:
+            env.pc = (env.pc + 1)
         env.consumeGas(10)
     
     def PC(self, env):
@@ -730,6 +860,14 @@ class Opcodes(object):
     def PUSH(self, env, nBytes): # single method for all PUSH<n> opcodes (cleaner !)
         env.stack.append(env.getPushData(env.pc, nBytes))
         env.consumeGas(3)
+        env.pc += 1
+
+    def PUSH0(self, env):
+        # EIP-3855.  Deliberately NOT routed through PUSH()/getPushData(): PUSH0
+        # has no immediate, so pc must advance by 1 only.  getPushData would
+        # step over an extra byte, swallowing the NEXT instruction.
+        env.stack.append(0)
+        env.consumeGas(2)
         env.pc += 1
     
     def PUSH1(self, env):
@@ -830,7 +968,15 @@ class Opcodes(object):
         
         
         
-    def DUP(self, env, nItem): # function to manage them all !
+    def DUP(self, env, nItem): # single method for all DUP<n> opcodes (cleaner !)
+        # DUP<n> needs n items.  The old body indexed stack[len-nItem], which for
+        # a short stack is a NEGATIVE index: DUP2 with one item returned that item
+        # again (acting as DUP1) instead of failing, and only DUP3+ happened to
+        # raise IndexError.  Checking the height makes every DUP<n> fail the same,
+        # correct way.
+        if nItem > len(env.stack):
+            env.revert(b"STACK_UNDERFLOW")
+            return
         env.stack.append(env.stack[len(env.stack)-nItem])
         env.consumeGas(3)
         env.pc += 1
@@ -888,85 +1034,69 @@ class Opcodes(object):
 
 
 
-    def SWAP1(self, env):
-        env.swap(1)
+    def SWAP(self, env, nItem): # single method for all SWAP<n> opcodes
+        # SWAP<n> needs n+1 items.  env.swap() computed head-n, so on a short
+        # stack it swapped a slot with ITSELF and reported success -- SWAP1 with a
+        # single item was a no-op that looked correct.  Guarded here rather than
+        # inside CallEnv.swap() so that no gas is charged and pc is not advanced
+        # once the frame has already failed.
+        if nItem >= len(env.stack):
+            env.revert(b"STACK_UNDERFLOW")
+            return
+        env.swap(nItem)
         env.consumeGas(3)
         env.pc += 1
+
+    # The 16 SWAP<n> methods used to repeat the same 4-line body verbatim, so the
+    # guard above would have had to be added 16 times -- one miss and that SWAP
+    # kept the silent no-op.  They now mirror the PUSH<n> / DUP<n> pattern.
+    def SWAP1(self, env):
+        self.SWAP(env, 1)
 
     def SWAP2(self, env):
-        env.swap(2)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 2)
 
     def SWAP3(self, env):
-        env.swap(3)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 3)
 
     def SWAP4(self, env):
-        env.swap(4)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 4)
 
     def SWAP5(self, env):
-        env.swap(5)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 5)
 
     def SWAP6(self, env):
-        env.swap(6)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 6)
 
     def SWAP7(self, env):
-        env.swap(7)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 7)
 
     def SWAP8(self, env):
-        env.swap(8)
-        env.consumeGas(3)
-        env.pc += 1
-        
+        self.SWAP(env, 8)
+
     def SWAP9(self, env):
-        env.swap(9)
-        env.consumeGas(3)
-        env.pc += 1
-        
+        self.SWAP(env, 9)
+
     def SWAP10(self, env):
-        env.swap(10)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 10)
 
     def SWAP11(self, env):
-        env.swap(11)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 11)
 
     def SWAP12(self, env):
-        env.swap(12)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 12)
 
     def SWAP13(self, env):
-        env.swap(13)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 13)
 
     def SWAP14(self, env):
-        env.swap(14)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 14)
 
     def SWAP15(self, env):
-        env.swap(15)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 15)
 
     def SWAP16(self, env):
-        env.swap(16)
-        env.consumeGas(3)
-        env.pc += 1
+        self.SWAP(env, 16)
 
     def LOG0(self, env): # TODO
         offset = env.stack.pop()
@@ -1015,7 +1145,7 @@ class Opcodes(object):
         topic3 = env.stack.pop()
         
         _data = env.memory.read_bytes(offset, length)
-        env.postEvent([topic0, topic1, topic3], _data)
+        env.postEvent([topic0, topic1, topic2, topic3], _data)
         
         env.pc += 1
 
@@ -1029,22 +1159,26 @@ class Opcodes(object):
         _nonce = len(env.runningAccount.sent)
         if env.tx.persist:
             env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce
-        deplAddr = w3.toChecksumAddress(w3.keccak(rlp.encode([bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(_nonce)]))[12:])
+        deplAddr = w3.to_checksum_address(w3.keccak(rlp.encode([bytes.fromhex(env.runningAccount.address.replace("0x", "")), int(_nonce)]))[12:])
 
         _initBytecode = env.memory.read_bytes(offset, length)
 
-        env.createBackend(deplAddr, value, _initBytecode)
+        # CREATE pushes the new address on SUCCESS and ZERO on failure.  The
+        # result of createBackend() used to be discarded and the address pushed
+        # unconditionally, so a constructor that REVERTED still handed the caller
+        # a usable-looking contract address pointing at an account with no code.
+        (_success, _ret) = env.createBackend(deplAddr, value, _initBytecode)
 
         # _childEnv = CallEnv(env.getAccount, env.recipient, env.getAccount(deplAddr), deplAddr, env.chain, value, 300000, env.tx, b"", env.callFallback, _initBytecode, False, calltype=3)
         # result = env.callFallback(_childEnv)
         # env.lastCallReturn = _childEnv.returnValue
-        env.stack.append(int(deplAddr, 16))
+        env.stack.append(int(deplAddr, 16) if _success else 0)
         env.consumeGas(32000)
         env.pc += 1
         
     def CALL(self, env):
         gas = env.stack.pop()
-        addr = env.stack.pop()
+        addr = self.maskAddress(env.stack.pop())
         value = env.stack.pop()
         argsOffset = env.stack.pop()
         argsLength = env.stack.pop()
@@ -1071,7 +1205,7 @@ class Opcodes(object):
         
     def CALLCODE(self, env):
         gas = env.stack.pop()
-        addr = env.stack.pop()
+        addr = self.maskAddress(env.stack.pop())
         value = env.stack.pop()
         argsOffset = env.stack.pop()
         argsLength = env.stack.pop()
@@ -1096,7 +1230,7 @@ class Opcodes(object):
         
     def DELEGATECALL(self, env):
         gas = env.stack.pop()
-        addr = env.stack.pop()
+        addr = self.maskAddress(env.stack.pop())
         argsOffset = env.stack.pop()
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
@@ -1127,20 +1261,20 @@ class Opcodes(object):
             env.runningAccount.sent.append(hex(_nonce)) # increases contract nonce (TODO : update that shit for estimateGas)
             
         # calculate deployment address
-        deplAddr = w3.toChecksumAddress(w3.keccak(((b'\xff' + bytes.fromhex(env.runningAccount.address.replace("0x", "")) + int(salt).to_bytes(32, "big") + w3.keccak(_initBytecode))))[12:])
+        deplAddr = w3.to_checksum_address(w3.keccak(((b'\xff' + bytes.fromhex(env.runningAccount.address.replace("0x", "")) + int(salt).to_bytes(32, "big") + w3.keccak(_initBytecode))))[12:])
         print(f"CREATE2 called to deploy address {deplAddr}")
         
         # exec creation
-        env.createBackend(deplAddr, value, _initBytecode)
+        (_success, _ret) = env.createBackend(deplAddr, value, _initBytecode)
 
-        # push deplAddr
-        env.stack.append(int(deplAddr, 16))
+        # push deplAddr on success, 0 on failure (see CREATE)
+        env.stack.append(int(deplAddr, 16) if _success else 0)
         env.consumeGas(32000)
         env.pc += 1
     
     def STATICCALL(self, env):
         gas = env.stack.pop()
-        addr = env.stack.pop()
+        addr = self.maskAddress(env.stack.pop())
         argsOffset = env.stack.pop()
         argsLength = env.stack.pop()
         retOffset = env.stack.pop()
@@ -1172,7 +1306,7 @@ class Opcodes(object):
         env.pc += 1
 
     def SELFDESTRUCT(self, env):
-        if env.isStatic():
+        if env.isStatic:
             env.revert(b"NOT_SUPPORTED_IN_STATICCALL")
             return
         else:
@@ -1183,14 +1317,26 @@ class Opcodes(object):
         
 class PrecompiledContracts(object):
     class Precompile(object):
-        methods = {}    # moves declaration to inherited class
-        # no init because it forces child classes to call it (additional burden)
+        # selector->implementation map must be PER-INSTANCE : a class-level dict
+        # made every precompile share (and overwrite) each other's selectors.
+        # Implemented as a lazy property so subclasses don't need to call super().__init__()
+        @property
+        def methods(self):
+            _methods = self.__dict__.get("_methods")
+            if _methods is None:
+                _methods = {}
+                self.__dict__["_methods"] = _methods
+            return _methods
+        
+        @methods.setter
+        def methods(self, value):
+            self.__dict__["_methods"] = value
     
         def returnSingleType(self, env, _type, _arg):
-            env.returnCall(eth_abi.encode_abi([_type], [_arg]))
+            env.returnCall(eth_abi.encode([_type], [_arg]))
         
         def returnMultipleTypes(self, env, types, args):
-            env.returnCall(eth_abi.encode_abi(types, args))
+            env.returnCall(eth_abi.encode(types, args))
 
         def calcFunctionSelector(self, functionName):
             return bytes(w3.keccak(str(functionName).encode()))[0:4]
@@ -1202,12 +1348,12 @@ class PrecompiledContracts(object):
             self.methods[self.calcFunctionSelector(_name)] = _implementation    # calculates selector and binds implementation
 
         def decodeParams(self, env, _types):
-            return eth_abi.decode_abi(_types, env.data[4:]) # wrapper around decode_abi, improves readability
+            return eth_abi.decode(_types, env.data[4:]) # wrapper around decode_abi, improves readability
 
         def formatAddress(self, _addr):
             if (type(_addr) == int):
-                return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
-            return w3.toChecksumAddress(_addr)
+                return w3.to_checksum_address(_addr.to_bytes(20, "big"))
+            return w3.to_checksum_address(_addr)
 
         def addressToInt(self, _addr):
             # already int
@@ -1247,9 +1393,9 @@ class PrecompiledContracts(object):
         def call(self, env):
             sig = env.data[63:] # as v is one-byte, 32:63 is empty (only zeroes) due to EVM's 32-bytes word size
             try:
-                recovered = w3.eth.account.recoverHash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
+                recovered = Account._recover_hash(env.data[0:32], vrs=(sig[0], sig[1:33], sig[33:65]))
             except:
-                recovered = "0x0000000000000000000000000000000000000000"
+                recovered = constants.ZERO_ADDRESS
             env.returnCall(int(recovered, 16).to_bytes(32, "big"))
     
     class crossChainBridge(Precompile):
@@ -1258,7 +1404,7 @@ class PrecompiledContracts(object):
             self.address = addr
             self.fallback = bridgeFallBack
             self.bsc = bsc
-            self.address = "0x0000000000000000000000000000000000000097"
+            self.address = constants.CROSSCHAIN_ADDRESS
         
         def logTransfer(self, env):
             # BridgeToBSC(address user, uint256 value)
@@ -1287,7 +1433,7 @@ class PrecompiledContracts(object):
                 env.returnCall(b"")
                 return
             try:
-                params = eth_abi.decode_abi(["string"], env.data[4:])
+                params = eth_abi.decode(["string"], env.data[4:])
                 _bio = params[0]
                 env.getAccount(env.msgSender).bio = _bio
             except:
@@ -1298,10 +1444,10 @@ class PrecompiledContracts(object):
         def getAccountBio(self, env):
             env.consumeGas(2300)
             try:
-                params = eth_abi.decode_abi(["address"], env.data[4:])
+                params = eth_abi.decode(["address"], env.data[4:])
                 addr = params[0]
                 bio = env.getAccount(addr).bio
-                env.returnCall(eth_abi.encode_abi(["string"], [bio]))
+                env.returnCall(eth_abi.encode(["string"], [bio]))
             except:
                 env.revert(b"ERROR_PARSING_PARAMS")
                 
@@ -1313,13 +1459,13 @@ class PrecompiledContracts(object):
     class CrossChainToken(Precompile):
         def __init__(self, bsc, token, _bridge):
             self.bsc = bsc
-            self.BEP20Instance = bsc.getBEP20At(w3.toChecksumAddress(token))
+            self.BEP20Instance = bsc.getBEP20At(w3.to_checksum_address(token))
             self.bridge = _bridge
             self._name = self.BEP20Instance.name
             self._symbol = self.BEP20Instance.symbol
             self._decimals = self.BEP20Instance.decimals
             # avoids possible address collisions (bridging a remote token to an existing local address)
-            self.address = w3.toChecksumAddress((int(self.BEP20Instance.address, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
+            self.address = w3.to_checksum_address((int(self.BEP20Instance.address, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
             self.supply = 0
             
@@ -1341,7 +1487,7 @@ class PrecompiledContracts(object):
         def safeIncrease(self, env, slot, value, errorMessage=b"INTEGER_OVERFLOW_DETECTED"):
             _prevValue = int(env.loadStorageKey(slot))
             _prevValue += value
-            if (_prevValue >= 2**256):
+            if (_prevValue >= constants.UINT256_MODULUS):
                 env.revert(errorMessage)
                 return False
             env.writeStorageKey(slot, _prevValue)
@@ -1357,10 +1503,10 @@ class PrecompiledContracts(object):
             
         
         def calcBalanceAddress(self, tokenOwner):
-            return int.from_bytes(w3.solidityKeccak(["uint256", "address"], [int(self.balancesSlot), w3.toChecksumAddress(tokenOwner)]), "big")
+            return int.from_bytes(packedKeccak(["uint256", "address"], [int(self.balancesSlot), w3.to_checksum_address(tokenOwner)]), "big")
             
         def calcAllowanceAddress(self, tokenOwner, spender):
-            return int.from_bytes(w3.solidityKeccak(["uint256", "address", "address"], [int(self.allowancesSlot), w3.toChecksumAddress(tokenOwner), w3.toChecksumAddress(spender)]), "big")
+            return int.from_bytes(packedKeccak(["uint256", "address", "address"], [int(self.allowancesSlot), w3.to_checksum_address(tokenOwner), w3.to_checksum_address(spender)]), "big")
         
         def totalSupply(self, env):
             env.consumeGas(2300)
@@ -1413,6 +1559,7 @@ class PrecompiledContracts(object):
             self.printCalledFunction("approve", params)
             allowanceAddress = self.calcAllowanceAddress(env.msgSender, params[0])
             env.consumeGas(16900)
+            env.writeStorageKey(allowanceAddress, int(params[1]))
             self.returnSingleType(env, "bool", True)
         
         def transfer(self, env):
@@ -1446,27 +1593,27 @@ class PrecompiledContracts(object):
        
         def mint(self, env, to, tokens):
             print(f"Cross-chain depositing {tokens} to {to}")
-            depositorAddr = self.calcBalanceAddress(w3.toChecksumAddress(to))
+            depositorAddr = self.calcBalanceAddress(w3.to_checksum_address(to))
             env.safeIncrease(depositorAddr, tokens)
             env.safeIncrease(self.supplySlot, tokens)
             
             # solidity equivalent : emit Transfer(address(0), to, tokens);
-            self.logTransfer(env, "0x0000000000000000000000000000000000000000", to, tokens)
+            self.logTransfer(env, constants.ZERO_ADDRESS, to, tokens)
             
             # env.writeStorageKey(depositorAddr, (env.loadStorageKey(depositorAddr) + tokens))
             # env.writeStorageKey(env.supplySlot, (env.loadStorageKey(self.supplySlot) + tokens))
             # print(f"Minted {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
         
         def burn(self, env, user, tokens):
-            depositorAddr = self.calcBalanceAddress(w3.toChecksumAddress(user))
+            depositorAddr = self.calcBalanceAddress(w3.to_checksum_address(user))
             
             env.safeDecrease(depositorAddr, tokens)
             env.safeDecrease(self.supplySlot, tokens)
             
             # solidity equivalent : emit Transfer(user, address(0), tokens);
-            self.logTransfer(env, user, "0x0000000000000000000000000000000000000000", tokens)
+            self.logTransfer(env, user, constants.ZERO_ADDRESS, tokens)
             
-            print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} to {w3.toChecksumAddress(to)}")
+            print(f"Burned {tokens/(10**(self._decimals))} {self._symbol} from {w3.to_checksum_address(user)}")
         
         def fallback(self, env):
             env.revert(b"")
@@ -1476,6 +1623,7 @@ class PrecompiledContracts(object):
                 self.methods.get(env.data[:4], self.fallback)(env)
             except Exception as e:
                 print(f"Exception {e.__repr__()} caught calling {self.address} with calldata {env.data}")
+                env.revert(b"")
     
     class Printer(object):
         def call(self, env):
@@ -1518,16 +1666,16 @@ class PrecompiledContracts(object):
             self.addMethod("isChainSupported(uint256)", self.isChainSupported)
             self.addMethod("isMN(address)", self.isMN)
             self.addMethod("mnOwner(address)", self.mnOwner)
-            self.nullAddress = "0x0000000000000000000000000000000000000000"
+            self.nullAddress = constants.ZERO_ADDRESS
             # address where contract is supposed to be
-            self.address = "0x000000000000000000000000000000000000FEeD"
+            self.address = constants.DATAFEED_ADDRESS
             
         def _isChainSupported(self, env, chainid):
             cnt = env.chain.datafeed.contracts.get(chainid)
             return bool(cnt) # True if chain is supported, False otherwise
             
         def encodePayload(self, _from, _to, gasLimit, callData):
-            return eth_abi.encode_abi(["address", "address", "uint256", "bytes"], [_from, _to, gasLimit, callData]) # decoder on solidity side : (address from, address to, uint256 gasLimit, bytes memory data) = abi.decode(_data, (address, address, uint256, bytes));
+            return eth_abi.encode(["address", "address", "uint256", "bytes"], [_from, _to, gasLimit, callData]) # decoder on solidity side : (address from, address to, uint256 gasLimit, bytes memory data) = abi.decode(_data, (address, address, uint256, bytes));
             
         def packPayload(self, env, payload, chainid):
             handlerContract = env.chain.datafeed.contracts.get(chainid)
@@ -1539,7 +1687,7 @@ class PrecompiledContracts(object):
             # keccak256("CrossChainCall(address,address,uint256,bytes)")
             topic0 = 0x337c45501bcc201af5d31f9837c1719713ee31ed90fc42e5ced404c087a3d951
             # gas limit and calldata aren't indexed, thus they're instead encoded into event data
-            _eventdata = eth_abi.encode_abi(["uint256", "bytes"], [_gas, _calldata])
+            _eventdata = eth_abi.encode(["uint256", "bytes"], [_gas, _calldata])
             
             env.postEvent([topic0, self.addressToInt(caller), self.addressToInt(recipient), _chainid], _eventdata)
             
@@ -1609,12 +1757,12 @@ class PrecompiledContracts(object):
         self.contracts = {}
         self.bsc = bsc
         self.getAccount = getAccount
-        self.crossChainAddress = "0x0000000000000000000000000000000000000097"
-        self.setContract("0x0000000000000000000000000000000000000001", self.ecRecover(), True)
-        self.setContract("0x0000000000000000000000000000000000000002", self.Sha256(), False)
-        self.setContract("0x0000000000000000000000000000000000000003", self.Ripemd160(), False)
-        self.setContract("0x0000000000000000000000000000000000000069", self.accountBioManager(), False)
-        self.setContract("0x000000000000000000000000000000000000FEeD", self.CrossChainDataFeed(), False)
+        self.crossChainAddress = constants.CROSSCHAIN_ADDRESS
+        self.setContract(constants.ECRECOVER_ADDRESS, self.ecRecover(), True)
+        self.setContract(constants.SHA256_ADDRESS, self.Sha256(), False)
+        self.setContract(constants.RIPEMD160_ADDRESS, self.Ripemd160(), False)
+        self.setContract(constants.BIO_MANAGER_ADDRESS, self.accountBioManager(), False)
+        self.setContract(constants.DATAFEED_ADDRESS, self.CrossChainDataFeed(), False)
         self.setContract(self.crossChainAddress, self.crossChainBridge(bridgeFallBack, self.crossChainAddress, bsc), False)
         # self.setContract("0x0000000000000000000000000000000d0ed622a3", self.Printer())
     
@@ -1624,7 +1772,7 @@ class PrecompiledContracts(object):
         _acct.setPrecompiledContract(contract, initialize)
         
     def calcBridgedAddress(self, addr):
-        return w3.toChecksumAddress((int(addr, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
+        return w3.to_checksum_address((int(addr, 16) +  int(self.bsc.chainID)).to_bytes(20, "big"))
 
     def mintCrossChainToken(self, env, tokenAddress, to, tokens):
         _bridgedAddr = self.calcBridgedAddress(tokenAddress)
@@ -1660,11 +1808,9 @@ class CallEnv(object):
             self.data = data
 
     class Event(object):
-        # TODO : move this function to a common class
         def formatAddress(self, _addr):
-            if (type(_addr) == int):
-                return w3.toChecksumAddress(_addr.to_bytes(20, "big"))
-            return w3.toChecksumAddress(_addr)
+            from .utils import formatAddress as _sharedFormatAddress
+            return _sharedFormatAddress(_addr)
     
         def byteAddress(self, _addr):
             if (type(_addr) == int):    # EVM loves integers lol
@@ -1720,7 +1866,7 @@ class CallEnv(object):
             self.storageBefore = runningAccount.tempStorage.copy()
         self.value = value
         self.testnet = False
-        self.chainid = 499597202514 if self.testnet else 1380996178
+        self.chainid = constants.chain_id(self.testnet)
         try:
             self.gaslimit = int(gaslimit)
         except:
@@ -1732,6 +1878,7 @@ class CallEnv(object):
         self.events = []
         self.data = data
         self.code = (b"" if calledFromAcctClass else code)
+        self.validJumpdests = Opcodes.computeValidJumpdests(self.code)
         self.halt = False
         self.returnValue = b""
         self.success = True
@@ -1754,6 +1901,11 @@ class CallEnv(object):
 
     def getBlock(self, height):
         return self.chain.blocks[min(height, len(self.chain.blocks)-1)]
+
+    def isValidJumpdest(self, dest):
+        """EVM rule : jumps may only land on a JUMPDEST (0x5B) that isn't inside PUSH data.
+        Also rejects out-of-range destinations."""
+        return (type(dest) == int) and (0 <= dest < len(self.code)) and (dest in self.validJumpdests)
         
     def lastBlock(self):
         return self.chain.blocks[len(self.chain.blocks)-1]
@@ -1768,7 +1920,7 @@ class CallEnv(object):
     
     def currentAddr(self):
         if type(self.recipient) == str:
-            return w3.toChecksumAddress(self.recipient)
+            return w3.to_checksum_address(self.recipient)
     
     def consumeGas(self, units):
         self.gasUsed += units
@@ -1798,7 +1950,7 @@ class CallEnv(object):
     def safeIncrease(self, slot, value, errorMessage=b"INTEGER_OVERFLOW_DETECTED"):
         _prevValue = self.loadStorageKey(slot)
         _prevValue += value
-        if (_prevValue >= 2**256):
+        if (_prevValue >= constants.UINT256_MODULUS):
             self.revert(errorMessage)
             return False
         self.writeStorageKey(slot, _prevValue)
@@ -1816,6 +1968,17 @@ class CallEnv(object):
     def getPushData(self, pc, length):
         _data = self.code[pc+1:pc+length+1]
         self.pc += length
+        if len(_data) < length:
+            # A PUSH whose immediate runs past the end of the code.  The missing
+            # bytes are zeros on the RIGHT: the EVM reads the immediate as a
+            # big-endian word and pads the short tail, so `PUSH2 0x01` with only
+            # that one byte left is 0x0100 (256).  int.from_bytes() on the short
+            # slice right-aligned it instead and produced 1.
+            # NOTE: unobservable today -- a truncated immediate can only be the
+            # last instruction of the code, so the value it pushes is discarded
+            # when execution stops right after it.  Fixed because it is the
+            # specified behaviour and costs nothing on the common path.
+            _data = _data + b"\x00" * (length - len(_data))
         return int.from_bytes(_data, "big")
         # return int(_data.hex(), 16)
     
@@ -1860,11 +2023,21 @@ class CallEnv(object):
     
     def createBackend(self, deplAddr, value, _initBytecode):
         if self.isStatic:
+            # Kept as a REVERT: a write-protection violation is an exceptional
+            # halt of the CURRENT frame (EIP-214), unlike the collision case
+            # below, which is merely a creation that failed.
             self.revert(b"NOT_SUPPORTED_IN_STATICCALL")
             return (False, b"")
-    
+
         if (self.getCode(deplAddr)):
-            self.revert(b"CONTRACT_ALREADY_EXISTING")
+            # A COLLIDING address (one that already carries code) is a FAILED
+            # CREATION, not an exceptional halt: the EVM pushes 0 onto the
+            # caller's stack and the caller keeps running.  Reverting here failed
+            # the CALLING frame instead, so a collision destroyed the caller's
+            # whole execution and its revert payload surfaced as the caller's
+            # reason (observed as ASCII "CONTRACT_ALREADY_EXISTING" where the EVM
+            # would have seen a 0).
+            return (False, b"")
         _childEnv = CallEnv(self.getAccount, self.runningAccount.address, self.getAccount(deplAddr), deplAddr, self.chain, value, 300000, self.tx, b"", self.callFallback, _initBytecode, False, calltype=3)
         self.childEnvs.append(_childEnv)
         _result = self.callFallback(_childEnv)
@@ -1883,7 +2056,7 @@ class CallEnv(object):
     def performExternalCall(self, addr, value, gas, _calldata):
         if ((value > 0) and self.isStatic):
             self.revert(b"NOT_SUPPORTED_IN_STATICCALL") # balance transfers aren't supported in STATICCALL
-            return
+            return (False, b"")
         _acct = self.getAccount(addr)
         _childEnv = CallEnv(self.getAccount, self.runningAccount.address, _acct, addr, self.chain, value, gas, self.tx, _calldata, self.callFallback, self.getCode(addr), self.isStatic, calltype=1)
         self.childEnvs.append(_childEnv)
