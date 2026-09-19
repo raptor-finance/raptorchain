@@ -850,6 +850,30 @@ class State(object):
         _lastindex = int(self.lastIndex or 0)
         if maxIndex <= _lastindex:
             return
+        # Clamp the target to what actually exists on BSC.
+        #
+        # `indexToCheck` is UNTRUSTED input: canBePlayed accepts type 6 (and 1)
+        # WITHOUT a signature, and for type 2 the ECDSA signature covers only
+        # the raw-tx fields, not the JSON envelope that carries indexToCheck.
+        # Without this clamp one request with indexToCheck = 2**40 makes the
+        # loop below issue 2**40 sequential, uncached BSC eth_calls
+        # (extrapolated ~235 years).  Worse, lastIndex is a monotonic
+        # high-water mark that is never persisted, so every real deposit below
+        # it is skipped until the process restarts.
+        #
+        # The chain cannot hold more deposits than depositsLength() reports, so
+        # anything past that is work that can never be needed.  This bounds the
+        # loop by the REAL deposit count and stops the cursor from overshooting.
+        try:
+            _chainDeposits = int(self.beaconChain.bsc.currentDepositsIndex())
+        except Exception as e:
+            # BSC unreachable: do not guess a target.  Leaving the cursor where
+            # it is means a later refresh tx retries from the same place.
+            printError(f"Deposit refresh skipped, depositsLength unavailable: {e.__repr__()}")
+            return
+        maxIndex = min(maxIndex, _chainDeposits)
+        if maxIndex <= _lastindex:
+            return
         for i in range(_lastindex, maxIndex):
             try:
                 self.checkOutDepositByIndex(tx, i)
@@ -945,7 +969,10 @@ class State(object):
         self.lastTxIndex += 1
         
         # append sent tx
-        self.accounts[tx.sender].sent.append(tx.txid)
+        # getAccount() rather than self.accounts[...]: it normalizes the address
+        # and materializes the account if absent, so this cannot KeyError on a
+        # sender the tx's gate did not create.
+        self.getAccount(tx.sender).sent.append(tx.txid)
         
         # stop here if txtype is 2
         if tx.txtype == 2:
@@ -958,7 +985,16 @@ class State(object):
             tx.affectedAccounts.append(miner)
         
         # append received tx
-        self.accounts[tx.recipient].received.append(tx.txid)
+        # getAccount() rather than self.accounts[...]: only the type 0 and 2
+        # gates ensureExistence() the recipient.  The type 4/5 gates
+        # (estimateCreateMNSuccess / estimateDestroyMNSuccess) do NOT, so a
+        # createMN/destroyMN whose operator had never been materialized raised
+        # KeyError HERE -- after txChilds/txIndex/sent were already mutated --
+        # which stored the tx but never played it (TX_STORED_ERR): the
+        # validator was never created and the collateral never returned.
+        # (Type 1 was safe only by accident: its recipient is ZERO_ADDRESS,
+        # which genesis materializes.)
+        self.getAccount(tx.recipient).received.append(tx.txid)
 
 
     def crossChainFallback(self, recipient, token, user, value, nonce):
